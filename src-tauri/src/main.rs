@@ -2,19 +2,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
-mod sidecar;
+mod core;
 use tauri::Manager;
+use core::orchestration::state::CoreState;
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let state = sidecar::spawn_sidecar(handle.clone()).await;
-                handle.manage(state);
-            });
+            app.manage(CoreState::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

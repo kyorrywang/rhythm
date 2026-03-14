@@ -8,16 +8,23 @@ edition = "2021"
 tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
+anyhow = "1.0.102"
+async-openai = { version = "0.33.1", features = ["full"] }
+async-trait = "0.1.89"
+chrono = { version = "0.4.44", features = ["serde"] }
+dirs = "6.0.0"
 futures-util = "0.3.32"
 reqwest = { version = "0.13.2", features = ["stream", "json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+serde_yaml = "0.9.34"
 tauri = { version = "2.0.0", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2.4.5"
 tauri-plugin-http = "2.5.7"
 tauri-plugin-shell = "2.3.5"
 tokio = { version = "1.50.0", features = ["full"] }
+uuid = { version = "1.22.0", features = ["v4"] }
 
 [features]
 default = ["custom-protocol"]
