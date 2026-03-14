@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from apps.api.infra.config import load_settings
+from infra.config import load_settings
 from routes.chat import router as chat_router
 from routes.sessions import router as sessions_router
 from routes.artifacts import router as artifacts_router
@@ -13,8 +13,8 @@ settings = load_settings()
 app = FastAPI(title="Rhythm API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
