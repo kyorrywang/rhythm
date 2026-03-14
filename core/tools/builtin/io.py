@@ -8,9 +8,15 @@ def get_time(_: dict) -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def list_sessions(_: dict) -> str:
-    root = Path("runtime_data") / "sessions"
-    root.mkdir(parents=True, exist_ok=True)
+def list_sessions(arguments: dict) -> str:
+    workspace_path = arguments.get("__workspace_path")
+    if not workspace_path:
+        return "错误：缺少工作区路径"
+        
+    root = Path(workspace_path) / ".rhythm" / "sessions"
+    if not root.exists():
+        return "当前没有会话记录"
+        
     sessions = sorted(p.stem for p in root.glob("*.json"))
     if not sessions:
         return "当前没有会话记录"
@@ -33,7 +39,7 @@ def write_text_file(arguments: dict) -> str:
     if workspace_path:
         target_dir = Path(workspace_path)
     else:
-        target_dir = Path("runtime_data") / "artifacts" / "docs"
+        target_dir = Path.cwd()
         
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / safe_name
