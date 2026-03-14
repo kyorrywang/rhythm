@@ -5,7 +5,7 @@ import uuid
 import yaml
 from pathlib import Path
 
-from plugins.workflow.models import FlowTemplate, FlowInstance
+from capabilities.workflow.models import FlowTemplate, FlowInstance
 
 
 class WorkflowEngine:

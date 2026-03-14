@@ -9,7 +9,7 @@ if (-Not (Test-Path ".venv")) {
 }
 
 # Add core to PYTHONPATH so API can import it directly
-$env:PYTHONPATH = "$PWD\core"
+$env:PYTHONPATH = "$PWD\core;$PWD\apps\api"
 
 # Run Uvicorn from the venv
-& .\.venv\Scripts\uvicorn.exe "apps.api.main:app" --host 127.0.0.1 --port 8000 --reload --reload-dir apps\api --reload-dir core
+& .\.venv\Scripts\uvicorn.exe "apps.api.main:app" --host 0.0.0.0 --port 8000 --reload --reload-dir apps\api --reload-dir core

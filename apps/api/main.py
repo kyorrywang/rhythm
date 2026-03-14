@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from infra.config import load_settings
+from apps.api.infra.config import load_settings
 from routes.chat import router as chat_router
 from routes.sessions import router as sessions_router
 from routes.artifacts import router as artifacts_router

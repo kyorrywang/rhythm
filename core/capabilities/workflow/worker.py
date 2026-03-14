@@ -5,7 +5,7 @@ from typing import Any
 from agents.sub_agent import SubAgent
 from llm.model_router import ModelRouter
 from orchestrator.contracts import ToolDefinition
-from plugins.workflow.engine import WorkflowEngine
+from capabilities.workflow.engine import WorkflowEngine
 
 
 class WorkflowWorker:
