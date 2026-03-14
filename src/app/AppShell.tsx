@@ -85,6 +85,12 @@ const WorkspaceSelector = () => {
 export const AppShell: React.FC = () => {
   const workspacePath = useAppStore(state => state.workspacePath);
 
+  useEffect(() => {
+    if (workspacePath) {
+      initWorkspace(workspacePath).catch(console.error);
+    }
+  }, [workspacePath]);
+
   if (!workspacePath) {
     return <WorkspaceSelector />;
   }

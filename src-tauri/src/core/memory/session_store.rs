@@ -51,4 +51,12 @@ impl SessionStore {
         sessions.sort();
         Ok(sessions)
     }
+
+    pub fn delete_session(&self, session_id: &str) -> Result<()> {
+        let path = self.get_path(session_id);
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
 }

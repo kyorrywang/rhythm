@@ -38,7 +38,18 @@ impl ConfigManager {
     }
 
     pub fn get_global_config(&self) -> Value {
-        self.load_json(self.global_path())
+        let mut config = self.load_json(self.global_path());
+        if config.as_object().map_or(true, |o| o.is_empty()) {
+            config = json!({
+                "llm": {
+                    "provider": "openai",
+                    "url": "https://api.openai.com/v1",
+                    "key": "",
+                    "model": "gpt-4o-mini"
+                }
+            });
+        }
+        config
     }
 
     pub fn get_workspace_config(&self, workspace_path: &str) -> Value {

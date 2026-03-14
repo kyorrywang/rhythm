@@ -17,12 +17,17 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::init_workspace,
             commands::list_sessions,
+            commands::delete_session,
             commands::get_session_history,
             commands::list_workspace_tree,
+            commands::read_text_file,
             commands::list_workflow_templates,
             commands::list_workflow_instances,
             commands::get_global_config,
+            commands::get_effective_config,
             commands::save_global_config,
+            commands::get_workspace_config,
+            commands::save_workspace_config,
             commands::start_chat,
         ])
         .run(tauri::generate_context!())

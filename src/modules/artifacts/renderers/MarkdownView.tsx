@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { readTextFile } from '@tauri-apps/plugin-fs';
+import { readTextFile } from '../../../bridge/api';
 
 export const MarkdownView: React.FC<{ content: string }> = ({ content }) => {
   const [fileData, setFileData] = useState<string | null>(null);

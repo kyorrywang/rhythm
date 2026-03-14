@@ -24,6 +24,16 @@ pub async fn list_sessions(
 }
 
 #[tauri::command]
+pub async fn delete_session(
+    _state: State<'_, CoreState>,
+    workspace_path: String,
+    session_id: String,
+) -> Result<(), String> {
+    let store = SessionStore::new(&workspace_path);
+    store.delete_session(&session_id).map_err(|e: anyhow::Error| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_session_history(
     _state: State<'_, CoreState>,
     workspace_path: String,
@@ -90,7 +100,7 @@ pub async fn list_workspace_tree(path: String) -> Result<Vec<Value>, String> {
         return Ok(vec![]);
     }
     
-    Ok(build_tree(&target_dir, 3, 0))
+    Ok(build_tree(&target_dir, 5, 0))
 }
 
 #[tauri::command]
@@ -121,6 +131,11 @@ pub async fn list_workflow_instances(
 #[tauri::command]
 pub async fn get_global_config(state: State<'_, CoreState>) -> Result<Value, String> {
     Ok(state.config_manager.get_global_config())
+}
+
+#[tauri::command]
+pub async fn get_effective_config(state: State<'_, CoreState>, workspace_path: Option<String>) -> Result<Value, String> {
+    Ok(state.config_manager.get_effective_config(workspace_path.as_deref()))
 }
 
 #[tauri::command]

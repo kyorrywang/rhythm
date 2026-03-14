@@ -3,15 +3,17 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAppStore } from '../../app/store';
 import { streamChat } from '../../bridge/sse_client';
-import { fetchSessionHistory } from '../../bridge/api';
+import { fetchSessionHistory, fetchGlobalConfig } from '../../bridge/api';
 import { ActivityTimeline } from './ActivityTimeline';
+import { Send } from 'lucide-react';
 
 export const ChatContainer: React.FC = () => {
-  const { workspacePath, currentSessionId } = useAppStore();
+  const { workspacePath, currentSessionId, setActiveTab } = useAppStore();
   const [messages, setMessages] = useState<any[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamBuffer, setStreamBuffer] = useState('');
+  const streamBufferRef = React.useRef(''); // Use Ref to avoid stale closure
   const [currentMetadata, setCurrentMetadata] = useState<any>(null);
   
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
@@ -56,11 +58,20 @@ export const ChatContainer: React.FC = () => {
   const handleSend = async () => {
     if (!inputValue.trim() || isStreaming || !currentSessionId) return;
 
+    // Check LLM settings
+    const config = await fetchGlobalConfig();
+    if (!config?.llm?.key) {
+      alert("Please set your LLM API Key in Settings first.");
+      setActiveTab('settings');
+      return;
+    }
+
     const userMsg = { role: 'user', content: inputValue.trim() };
     setMessages(prev => [...prev, userMsg]);
     setInputValue('');
     setIsStreaming(true);
     setStreamBuffer('');
+    streamBufferRef.current = ''; // Reset ref
     setCurrentMetadata(null);
     setUserHasScrolledUp(false); // reset scroll lock on new send
     
@@ -70,15 +81,17 @@ export const ChatContainer: React.FC = () => {
     await streamChat(
       { sessionId: currentSessionId, message: userMsg.content, workspacePath },
       (chunk) => {
-        setStreamBuffer(prev => prev + chunk);
+        streamBufferRef.current += chunk; // Update ref immediately
+        setStreamBuffer(streamBufferRef.current); // Update UI
       },
       (meta) => {
         setCurrentMetadata(meta);
       },
       () => {
         setIsStreaming(false);
+        const finalContent = streamBufferRef.current; // Get latest content from ref
         setMessages(prev => {
-          const newMsg = { role: 'assistant', content: streamBuffer };
+          const newMsg = { role: 'assistant', content: finalContent };
           // If there were tools, we attach them conceptually
           if (currentMetadata?.used_tools) {
             (newMsg as any)._toolCalls = currentMetadata.used_tools;
@@ -86,11 +99,16 @@ export const ChatContainer: React.FC = () => {
           return [...prev, newMsg];
         });
         setStreamBuffer('');
+        streamBufferRef.current = '';
         setCurrentMetadata(null);
       },
       (err) => {
         console.error(err);
         setIsStreaming(false);
+        setMessages(prev => [
+          ...prev, 
+          { role: 'assistant', content: `**Error:** ${err}\n\n*If you see an EOF error, the API might not support standard chat formats or the URL/Key is incorrect.*` }
+        ]);
       }
     );
   };
@@ -173,7 +191,8 @@ export const ChatContainer: React.FC = () => {
           backgroundColor: 'var(--bg-hover)',
           borderRadius: '8px',
           border: '1px solid var(--border-color)',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          alignItems: 'flex-end'
         }}>
           <textarea 
             value={inputValue}
@@ -200,6 +219,23 @@ export const ChatContainer: React.FC = () => {
             }}
             rows={1}
           />
+          <button 
+            onClick={handleSend}
+            disabled={!inputValue.trim() || isStreaming}
+            style={{
+              backgroundColor: 'transparent',
+              border: 'none',
+              color: inputValue.trim() && !isStreaming ? 'var(--accent-color)' : 'var(--text-secondary)',
+              padding: '12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'color 0.2s'
+            }}
+          >
+            <Send size={20} />
+          </button>
         </div>
         <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px', textAlign: 'center' }}>
           Shift + Enter for new line. AI can make mistakes.
