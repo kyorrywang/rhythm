@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+build/
+.env.local
+
+# Tauri
+apps/desktop/src-tauri/target/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Developer Workspace settings (if someone accidentally opens rhythm itself as a workspace)
+.rhythm/
+workflows/
+.RHYTHM.md
