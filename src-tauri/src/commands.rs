@@ -43,7 +43,8 @@ fn build_tree(path: &PathBuf, max_depth: usize, current_depth: usize) -> Vec<Val
     if let Ok(entries) = fs::read_dir(path) {
         for entry in entries.flatten() {
             let file_name = entry.file_name().to_string_lossy().to_string();
-            if file_name == ".git" || file_name == ".rhythm" || file_name == "node_modules" || file_name == "__pycache__" {
+            // SHOW .rhythm, but ignore .git and node_modules
+            if file_name == ".git" || file_name == "node_modules" || file_name == "__pycache__" {
                 continue;
             }
 
@@ -93,6 +94,11 @@ pub async fn list_workspace_tree(path: String) -> Result<Vec<Value>, String> {
 }
 
 #[tauri::command]
+pub async fn read_text_file(path: String) -> Result<String, String> {
+    fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn list_workflow_templates(
     _state: State<'_, CoreState>,
     workspace_path: String,
@@ -123,6 +129,16 @@ pub async fn save_global_config(
     config: Value,
 ) -> Result<(), String> {
     state.config_manager.save_global_config(config).map_err(|e: anyhow::Error| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_workspace_config(state: State<'_, CoreState>, workspace_path: String) -> Result<Value, String> {
+    Ok(state.config_manager.get_workspace_config(&workspace_path))
+}
+
+#[tauri::command]
+pub async fn save_workspace_config(state: State<'_, CoreState>, workspace_path: String, config: Value) -> Result<(), String> {
+    state.config_manager.save_workspace_config(&workspace_path, config).map_err(|e: anyhow::Error| e.to_string())
 }
 
 #[tauri::command]

@@ -1,24 +1,37 @@
-# Python
-.venv/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.egg-info/
-.pytest_cache/
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
 # Node
-node_modules/
-dist/
-build/
-.env.local
+node_modules
+dist
+dist-ssr
+*.local
 
 # Tauri
 src-tauri/target/
 
-# OS
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
 .DS_Store
-Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Lock files
+package-lock.json
+**/package-lock.json
+yarn.lock
+pnpm-lock.yaml
 
 # Developer Workspace settings (if someone accidentally opens rhythm itself as a workspace)
 .rhythm/

@@ -19,7 +19,12 @@ impl WorkspaceManager {
 
         let settings_path = rhythm_dir.join("settings.json");
         if !settings_path.exists() {
-            fs::write(settings_path, json!({}).to_string())?;
+            let default_settings = json!({
+                "llm_api_key": "",
+                "llm_model": "gpt-4o",
+                "llm_base_url": "https://api.openai.com/v1"
+            });
+            fs::write(settings_path, serde_json::to_string_pretty(&default_settings)?)?;
         }
 
         fs::create_dir_all(rhythm_dir.join("sessions"))?;
