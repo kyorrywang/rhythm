@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Session, Message, ServerEventChunk } from '@/types/schema';
+import { reduceSessionChunk } from '@/store/sessionChunkReducer';
 
 interface SessionState {
   sessions: Session[];
@@ -9,9 +10,14 @@ interface SessionState {
   
   setActiveSession: (id: string) => void;
   addMessage: (sessionId: string, message: Message) => void;
+  queueMessage: (sessionId: string, message: Message) => void;
+  popQueuedMessage: (sessionId: string) => Message | null;
   setFlowStep: (step: number) => void;
   setThinkingExpanded: (expanded: boolean) => void;
   processChunk: (sessionId: string, messageId: string, chunk: ServerEventChunk) => void;
+  navigateBack: () => void;
+  setSessionRunning: (sessionId: string, running: boolean) => void;
+  clearAskRequest: (sessionId: string) => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -22,6 +28,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       updatedAt: Date.now(),
       running: false,
       messages: [],
+      queuedMessages: [],
     }
   ],
   activeSessionId: '1',
@@ -38,47 +45,67 @@ export const useSessionStore = create<SessionState>((set) => ({
     )
   })),
 
-  processChunk: (sessionId: string, messageId: string, chunk: any) => set((state) => {
-    return {
-      sessions: state.sessions.map(s => {
-        if (s.id !== sessionId) return s;
-        return {
-          ...s,
-          messages: s.messages.map(m => {
-            if (m.id !== messageId) return m;
-            
-            // Handle chunk types deeply
-            if (chunk.type === 'text_delta') {
-              return { ...m, content: (m.content || '') + chunk.content };
-            }
-            if (chunk.type === 'thinking_end') {
-              return { ...m, isThinking: false, thinkingTimeCostMs: chunk.timeCostMs };
-            }
-            if (chunk.type === 'tool_start') {
-              const newTool = { id: chunk.toolId, name: chunk.toolName, arguments: chunk.args, status: 'running' as const, logs: [] };
-              return { ...m, toolCalls: [...(m.toolCalls || []), newTool] };
-            }
-            if (chunk.type === 'tool_output') {
-              return {
-                ...m,
-                toolCalls: m.toolCalls?.map(t => 
-                  t.id === chunk.toolId ? { ...t, logs: [...(t.logs || []), chunk.logLine] } : t
-                )
-              };
-            }
-            if (chunk.type === 'tool_end') {
-              return {
-                ...m,
-                toolCalls: m.toolCalls?.map(t => 
-                  t.id === chunk.toolId ? { ...t, status: chunk.exitCode === 0 ? 'completed' : 'error' } : t
-                )
-              };
-            }
-            return m;
-          })
-        };
-      })
-    };
-  })
+  queueMessage: (sessionId, message) => set((state) => ({
+    sessions: state.sessions.map(s => 
+      s.id === sessionId ? { ...s, queuedMessages: [...(s.queuedMessages || []), message] } : s
+    )
+  })),
+
+  popQueuedMessage: (sessionId) => {
+    let msg: Message | null = null;
+    set((state) => {
+      return {
+        sessions: state.sessions.map(s => {
+          if (s.id === sessionId && s.queuedMessages && s.queuedMessages.length > 0) {
+            msg = s.queuedMessages[0];
+            return { ...s, queuedMessages: s.queuedMessages.slice(1) };
+          }
+          return s;
+        })
+      };
+    });
+    return msg;
+  },
+
+  setSessionRunning: (sessionId, running) => set((state) => ({
+    sessions: state.sessions.map(s =>
+      s.id === sessionId ? { ...s, running } : s
+    )
+  })),
+
+  clearAskRequest: (sessionId) => set((state) => ({
+    sessions: state.sessions.map(s =>
+      s.id === sessionId ? { ...s, currentAsk: null } : s
+    )
+  })),
+
+  navigateBack: () => set((state) => {
+    const active = state.sessions.find(s => s.id === state.activeSessionId);
+    if (active && active.parentId) {
+      return { activeSessionId: active.parentId };
+    }
+    return state;
+  }),
+
+  processChunk: (sessionId: string, messageId: string, chunk: ServerEventChunk) => {
+    const state = useSessionStore.getState();
+    const result = reduceSessionChunk(state.sessions, sessionId, messageId, chunk);
+
+    set({
+      sessions: result.sessions,
+      ...(result.activeSessionId !== undefined ? { activeSessionId: result.activeSessionId } : {}),
+    });
+
+    for (const effect of result.effects) {
+      if (effect.type === 'schedule_thinking_end') {
+        setTimeout(() => {
+          useSessionStore.getState().processChunk(effect.sessionId, effect.messageId, {
+            type: 'thinking_end',
+            timeCostMs: effect.timeCostMs,
+          });
+        }, effect.delayMs);
+      }
+    }
+  }
 
 }));

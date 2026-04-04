@@ -1,47 +1,78 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Loader2, ChevronRight, ChevronDown, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Message, ToolCall } from '@/types/schema';
+import { getToolPresentation } from '@/features/session/toolPresentation';
 
 interface AgentMessageProps {
   message: Message;
 }
 
+const Timer = ({ isRunning, startTime, finalMs }: { isRunning: boolean, startTime: number, finalMs?: number }) => {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!isRunning) return;
+    const intervalId = setInterval(() => {
+      setElapsed(Date.now() - startTime);
+    }, 100);
+    return () => clearInterval(intervalId);
+  }, [isRunning, startTime]);
+
+  const ms = isRunning ? elapsed : (finalMs !== undefined ? finalMs : elapsed);
+  return <>{(ms / 1000).toFixed(1)}s</>;
+};
+
 const ToolBlock = ({ tool }: { tool: ToolCall }) => {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const isRunning = tool.status === 'running';
+  const presentation = getToolPresentation(tool);
+  const [isExpanded, setIsExpanded] = useState(presentation.defaultExpanded);
+
+  // Auto-collapse when finished
+  useEffect(() => {
+    if (isRunning) {
+      setIsExpanded(true);
+    } else {
+      setIsExpanded(false);
+    }
+  }, [isRunning]);
 
   return (
     <div>
-      <div 
-        className="flex items-center gap-2 cursor-pointer select-none hover:text-gray-600 w-fit"
+      <div
+        className="flex items-center gap-2 cursor-pointer select-none hover:text-gray-600 w-fit text-[13px]"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <span className="font-bold capitalize">{tool.name}</span>
-        {tool.arguments && (
-          <span className="font-mono text-[12px] text-gray-600 truncate max-w-[200px]">
-            {JSON.stringify(tool.arguments)}
+        <span className="font-bold text-gray-800">{presentation.title}</span>
+
+        {isRunning ? (
+          <span className="text-gray-500">正在执行...</span>
+        ) : (
+          <span className="font-mono text-[12px] text-gray-600 truncate max-w-[360px]">
+            {presentation.summary}
           </span>
         )}
-        <span className="text-gray-500">
-          {tool.status === 'running' ? <Loader2 size={12} className="animate-spin inline ml-1 mr-0.5" /> : null}
+
+        <span className="text-gray-500 ml-1">
+          (<Timer isRunning={isRunning} startTime={(tool as any).startTime || Date.now()} finalMs={tool.executionTime} />)
         </span>
-        {isExpanded ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
+
+        {isRunning && <Loader2 size={12} className="animate-spin text-gray-400 ml-1" />}
+        {isExpanded ? <ChevronDown size={14} className="text-gray-400 ml-1" /> : <ChevronRight size={14} className="text-gray-400 ml-1" />}
       </div>
-      
+
       <AnimatePresence>
-        {isExpanded && tool.logs && tool.logs.length > 0 && (
-          <motion.div 
+        {isExpanded && presentation.details && (
+          <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden mt-2"
           >
             <div className="text-[13px] text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3 max-w-[95%] max-h-[150px] overflow-y-auto custom-scrollbar font-mono text-[12px] whitespace-pre-wrap">
-              {tool.logs.map((log, i) => (
-                <div key={i}>{log}</div>
-              ))}
+              {presentation.details}
             </div>
           </motion.div>
         )}
@@ -51,44 +82,59 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
 };
 
 export const AgentMessage = ({ message }: AgentMessageProps) => {
-  const [isThinkingExpanded, setThinkingExpanded] = useState(true);
+  const [isThinkingExpanded, setThinkingExpanded] = useState(!!message.isThinking);
+
+  useEffect(() => {
+    if (!message.isThinking) {
+      setThinkingExpanded(false);
+    }
+  }, [message.isThinking]);
 
   return (
     <>
-      {/* Thinking Phase */}
-      {(message.isThinking || message.thinkingTimeCostMs) && (
-        <motion.div 
+      {/* Thinking Phase - show when actively thinking OR when had a thinking phase */}
+      {(message.isThinking || message.thinkingTimeCostMs !== undefined) && (
+        <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
           className="py-2 ml-4 mt-4"
         >
-          <button 
+          <button
             onClick={() => setThinkingExpanded(!isThinkingExpanded)}
             className="flex items-center gap-2 text-[13px] text-gray-600 hover:text-gray-800 transition-colors cursor-pointer outline-none"
           >
             {message.isThinking ? (
-              <>
-                <Loader2 size={14} className="animate-spin text-blue-600" />
-                <span className="font-medium text-blue-600">正在思考中</span>
-              </>
+              <span className="font-bold text-gray-800">思考中...</span>
             ) : (
               <span className="font-bold text-gray-800">已思考</span>
             )}
-            {message.thinkingTimeCostMs && <span className={message.isThinking ? "text-gray-500" : "text-gray-800"}>{(message.thinkingTimeCostMs / 1000).toFixed(1)}s</span>}
-            {isThinkingExpanded ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
+
+            <span className="text-gray-500">
+              <Timer 
+                isRunning={!!message.isThinking || !!(message as any).isInsideThink} 
+                startTime={message.thinkingStartTime || message.createdAt} 
+                finalMs={message.thinkingTimeCostMs ?? 0} 
+              />
+            </span>
+
+            {isThinkingExpanded ? <ChevronDown size={14} className="text-gray-400 ml-1" /> : <ChevronRight size={14} className="text-gray-400 ml-1" />}
           </button>
-          
+
           <AnimatePresence>
-            {isThinkingExpanded && message.isThinking && (
+            {isThinkingExpanded && (message.isThinking || message.thinkingContent) && (
               <motion.div 
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 className="overflow-hidden mt-2"
               >
-                <div className="text-[13px] text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3 max-w-[95%] max-h-[150px] overflow-y-auto custom-scrollbar">
-                  <p className="animate-pulse">正在生成执行规划...</p>
+                <div className="text-[13px] text-gray-500 bg-gray-50 border border-gray-100 rounded-lg p-3 max-w-[95%] max-h-[200px] overflow-y-auto custom-scrollbar whitespace-pre-wrap leading-relaxed">
+                  {message.thinkingContent ? (
+                    message.thinkingContent
+                  ) : (
+                    <p className="animate-pulse">...</p>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -97,11 +143,11 @@ export const AgentMessage = ({ message }: AgentMessageProps) => {
       )}
 
       {/* Main Content & Tools Container */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: 0.1 }}
-        className="group relative pt-4 ml-4 pr-12 pb-6 border-transparent"
+        className="group relative pt-2 ml-4 pr-12 pb-6 border-transparent"
       >
         {/* Tool Blocks */}
         {message.toolCalls && message.toolCalls.length > 0 && (
@@ -114,7 +160,7 @@ export const AgentMessage = ({ message }: AgentMessageProps) => {
 
         {/* Markdown Content */}
         {message.content && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.3 }}

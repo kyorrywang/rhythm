@@ -3,6 +3,7 @@ use crate::shared::schema::ServerEventChunk;
 use crate::infrastructure::config;
 use crate::core::models;
 use crate::core::agent_loop::AgentLoop;
+use crate::core::state;
 
 #[tauri::command]
 pub async fn chat_stream(
@@ -29,4 +30,12 @@ pub async fn chat_stream(
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn submit_user_answer(
+    session_id: String,
+    answer: String,
+) -> Result<(), String> {
+    state::resume_ask(&session_id, answer).await
 }

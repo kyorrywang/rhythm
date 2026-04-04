@@ -4,7 +4,7 @@ import { useSessionStore } from '@/store/useSessionStore';
 import { Message, ServerEventChunk } from '@/types/schema';
 
 export const useLLMStream = () => {
-  const { addMessage, processChunk, activeSessionId } = useSessionStore();
+  const { addMessage, processChunk, activeSessionId, popQueuedMessage } = useSessionStore();
   const [isStreaming, setIsStreaming] = useState(false);
 
   const connectStream = useCallback(async (prompt: string, messageMode: Message['mode']) => {
@@ -38,7 +38,13 @@ export const useLLMStream = () => {
       onEvent.onmessage = (chunk) => {
         processChunk(activeSessionId, aiMessageId, chunk);
         if (chunk.type === 'done') {
-           setIsStreaming(false);
+           // Queue check
+           const nextMsg = popQueuedMessage(activeSessionId);
+           if (nextMsg) {
+             setTimeout(() => connectStream(nextMsg.content, nextMsg.mode), 100);
+           } else {
+             setIsStreaming(false);
+           }
         }
       };
 
@@ -52,7 +58,7 @@ export const useLLMStream = () => {
       console.error("Stream failed", err);
       setIsStreaming(false);
     }
-  }, [activeSessionId, addMessage, processChunk]);
+  }, [activeSessionId, addMessage, processChunk, popQueuedMessage]);
 
   return { connectStream, isStreaming };
 };

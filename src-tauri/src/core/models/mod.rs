@@ -7,11 +7,30 @@ use std::pin::Pin;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<LlmToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
+    pub blocks: Vec<ChatMessageBlock>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+pub enum ChatMessageBlock {
+    #[serde(rename = "text")]
+    Text {
+        text: String,
+    },
+    #[serde(rename = "tool_call")]
+    ToolCall {
+        id: String,
+        name: String,
+        arguments: Value,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        content: String,
+        #[serde(default)]
+        is_error: bool,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -30,6 +49,7 @@ pub struct LlmToolDefinition {
 
 pub enum LlmResponse {
     TextDelta(String),
+    ThinkingDelta(String),
     ToolCall(LlmToolCall),
     ThinkingEnd,
     Done,

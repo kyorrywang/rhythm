@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use futures::{StreamExt, Stream};
+use futures::StreamExt;
 use crate::infrastructure::config::LlmConfig;
-use super::{LlmClient, ChatMessage, LlmToolDefinition, LlmResponse, LlmResponseStream};
+use super::{ChatMessage, ChatMessageBlock, LlmClient, LlmToolDefinition, LlmResponse, LlmResponseStream};
 use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 pub struct OpenAiClient {
     config: LlmConfig,
@@ -20,12 +22,51 @@ impl OpenAiClient {
 }
 
 #[derive(Serialize)]
+struct OpenAiTool {
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: OpenAiFunction,
+}
+
+#[derive(Serialize)]
+struct OpenAiFunction {
+    name: String,
+    description: String,
+    parameters: Value,
+}
+
+#[derive(Serialize)]
 struct OpenAiChatRequest {
     model: String,
-    messages: Vec<ChatMessage>,
+    messages: Vec<OpenAiMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<Value>>,
+    tools: Option<Vec<OpenAiTool>>,
     stream: bool,
+}
+
+#[derive(Serialize)]
+struct OpenAiMessage {
+    role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<OpenAiRequestToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct OpenAiRequestToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: OpenAiRequestToolFunction,
+}
+
+#[derive(Serialize)]
+struct OpenAiRequestToolFunction {
+    name: String,
+    arguments: String,
 }
 
 #[derive(Deserialize)]
@@ -42,7 +83,149 @@ struct OpenAiChoice {
 #[derive(Deserialize)]
 struct OpenAiDelta {
     content: Option<String>,
-    tool_calls: Option<Vec<Value>>, // Simplified
+    reasoning_content: Option<String>,
+    tool_calls: Option<Vec<OpenAiToolCallChunk>>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiToolCallChunk {
+    index: Option<usize>,
+    id: Option<String>,
+    function: Option<OpenAiToolFunctionChunk>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiToolFunctionChunk {
+    name: Option<String>,
+    arguments: Option<String>,
+}
+
+#[derive(Default)]
+struct ToolCallAccumulator {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+fn process_openai_line(data: &str, tool_calls_accum: &mut HashMap<usize, ToolCallAccumulator>) -> Vec<Result<LlmResponse, String>> {
+    let mut deltas = Vec::new();
+
+    if data == "[DONE]" {
+        for (_, tc) in tool_calls_accum.iter() {
+            if !tc.id.is_empty() && !tc.name.is_empty() {
+                deltas.push(Ok(LlmResponse::ToolCall(super::LlmToolCall {
+                    id: tc.id.clone(),
+                    name: tc.name.clone(),
+                    arguments: if tc.arguments.is_empty() { "{}".to_string() } else { tc.arguments.clone() },
+                })));
+            }
+        }
+        deltas.push(Ok(LlmResponse::Done));
+        return deltas;
+    }
+
+    let Ok(chunk) = serde_json::from_str::<OpenAiChunk>(data) else {
+        return deltas;
+    };
+
+    let Some(choice) = chunk.choices.first() else {
+        return deltas;
+    };
+
+    if let Some(reasoning) = &choice.delta.reasoning_content {
+        if !reasoning.is_empty() {
+            deltas.push(Ok(LlmResponse::ThinkingDelta(reasoning.clone())));
+        }
+    }
+
+    if let Some(content) = &choice.delta.content {
+        if !content.is_empty() {
+            deltas.push(Ok(LlmResponse::TextDelta(content.clone())));
+        }
+    }
+
+    if let Some(tool_calls) = &choice.delta.tool_calls {
+        for tc in tool_calls {
+            if let Some(index) = tc.index {
+                let entry = tool_calls_accum.entry(index).or_insert_with(ToolCallAccumulator::default);
+                if let Some(id) = &tc.id {
+                    entry.id = id.clone();
+                }
+                if let Some(func) = &tc.function {
+                    if let Some(name) = &func.name {
+                        entry.name = name.clone();
+                    }
+                    if let Some(args) = &func.arguments {
+                        entry.arguments.push_str(args);
+                    }
+                }
+            }
+        }
+    }
+
+    match choice.finish_reason.as_deref() {
+        Some("stop") => {
+            deltas.push(Ok(LlmResponse::Done));
+        }
+        Some("tool_calls") => {
+            for (_, tc) in tool_calls_accum.iter() {
+                if !tc.id.is_empty() && !tc.name.is_empty() {
+                    deltas.push(Ok(LlmResponse::ToolCall(super::LlmToolCall {
+                        id: tc.id.clone(),
+                        name: tc.name.clone(),
+                        arguments: if tc.arguments.is_empty() { "{}".to_string() } else { tc.arguments.clone() },
+                    })));
+                }
+            }
+        }
+        _ => {}
+    }
+
+    deltas
+}
+
+fn map_messages(messages: Vec<ChatMessage>) -> Vec<OpenAiMessage> {
+    let mut mapped = Vec::new();
+
+    for message in messages {
+        for block in message.blocks {
+            match block {
+                ChatMessageBlock::Text { text } => {
+                    mapped.push(OpenAiMessage {
+                        role: message.role.clone(),
+                        content: Some(text),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
+                }
+                ChatMessageBlock::ToolCall { id, name, arguments } => {
+                    mapped.push(OpenAiMessage {
+                        role: "assistant".to_string(),
+                        content: None,
+                        tool_calls: Some(vec![OpenAiRequestToolCall {
+                            id,
+                            tool_type: "function".to_string(),
+                            function: OpenAiRequestToolFunction {
+                                name,
+                                arguments: arguments.to_string(),
+                            },
+                        }]),
+                        tool_call_id: None,
+                    });
+                }
+                ChatMessageBlock::ToolResult { tool_call_id, content, .. } => {
+                    mapped.push(OpenAiMessage {
+                        role: "tool".to_string(),
+                        content: Some(content),
+                        tool_calls: None,
+                        tool_call_id: Some(tool_call_id),
+                    });
+                }
+            }
+        }
+    }
+
+    mapped
 }
 
 #[async_trait]
@@ -50,14 +233,27 @@ impl LlmClient for OpenAiClient {
     async fn chat_stream(
         &self,
         messages: Vec<ChatMessage>,
-        _tools: Vec<LlmToolDefinition>, // Tools temporarily skipped for simplicity in first pass, or implemented later
+        tools: Vec<LlmToolDefinition>,
     ) -> Result<LlmResponseStream, String> {
         let url = format!("{}/chat/completions", self.config.base_url);
-        
+
+        let tools_mapped = if tools.is_empty() {
+            None
+        } else {
+            Some(tools.into_iter().map(|t| OpenAiTool {
+                tool_type: "function".to_string(),
+                function: OpenAiFunction {
+                    name: t.name,
+                    description: t.description,
+                    parameters: t.parameters,
+                },
+            }).collect())
+        };
+
         let req = OpenAiChatRequest {
             model: self.config.model.clone(),
-            messages,
-            tools: None, // Tools will be added next
+            messages: map_messages(messages),
+            tools: tools_mapped,
             stream: true,
         };
 
@@ -68,31 +264,62 @@ impl LlmClient for OpenAiClient {
             .await
             .map_err(|e| e.to_string())?;
 
+        let tool_calls_accum: Arc<Mutex<HashMap<usize, ToolCallAccumulator>>> = Arc::new(Mutex::new(HashMap::new()));
+        let buffer: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+
         let stream = response.bytes_stream().map(move |item| {
             match item {
                Ok(bytes) => {
-                   let text = String::from_utf8_lossy(&bytes);
-                   // OpenAI streams send multiple "data: {json}" lines
+                   let chunk_text = String::from_utf8_lossy(&bytes);
                    let mut deltas = Vec::new();
-                   for line in text.split('\n') {
-                       if line.starts_with("data: ") {
-                           let data = &line[6..].trim();
-                           if *data == "[DONE]" {
-                               deltas.push(Ok(LlmResponse::Done));
-                           } else if let Ok(chunk) = serde_json::from_str::<OpenAiChunk>(data) {
-                               if let Some(choice) = chunk.choices.first() {
-                                   if let Some(content) = &choice.delta.content {
-                                       deltas.push(Ok(LlmResponse::TextDelta(content.clone())));
-                                   }
-                               }
+
+                   {
+                       let mut buf = buffer.lock().unwrap();
+                       buf.push_str(&chunk_text);
+
+                       let mut acc = tool_calls_accum.lock().unwrap();
+
+                       while let Some(newline_pos) = buf.find('\n') {
+                           let line = buf[..newline_pos].to_string();
+                           *buf = buf[newline_pos + 1..].to_string();
+
+                           let line = line.trim_end_matches('\r');
+
+                           if line.starts_with("data: ") {
+                               let data = &line[6..];
+                               let line_deltas = process_openai_line(data, &mut acc);
+                               deltas.extend(line_deltas);
                            }
                        }
                    }
+
                    futures::stream::iter(deltas)
                }
-               Err(e) => futures::stream::iter(vec![Err(e.to_string())]),
+               Err(e) => {
+                   let mut buf = buffer.lock().unwrap();
+                   let mut acc = tool_calls_accum.lock().unwrap();
+                   let mut deltas = Vec::new();
+
+                   if !buf.is_empty() {
+                       let remaining = std::mem::take(&mut *buf);
+                       for line in remaining.split('\n') {
+                           let line = line.trim();
+                           if line.starts_with("data: ") {
+                               let data = &line[6..];
+                               let line_deltas = process_openai_line(data, &mut acc);
+                               deltas.extend(line_deltas);
+                           }
+                       }
+                   }
+
+                   if deltas.is_empty() {
+                       deltas.push(Err(e.to_string()));
+                   }
+
+                   futures::stream::iter(deltas)
+               },
             }
-        }).flatten();
+         }).flatten();
 
         Ok(Box::pin(stream))
     }

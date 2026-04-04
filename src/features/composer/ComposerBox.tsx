@@ -1,34 +1,59 @@
 import { useState, useEffect } from 'react';
-import { Plus, ArrowUp, Shield, ChevronDown, CheckSquare, Square, Minus, Trash2, MoreHorizontal, ArrowRight, CornerDownRight } from 'lucide-react';
+import { Plus, ArrowUp, Shield, ChevronDown, CheckSquare, Square, Trash2, MoreHorizontal, ArrowRight, CornerDownRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLLMStream } from '@/features/session/hooks/useLLMStream';
 import { Message } from '@/types/schema';
 
+import { invoke } from '@tauri-apps/api/core';
+import { useSessionStore } from '@/store/useSessionStore';
+
 export const ComposerBox = () => {
+  const { activeSessionId, sessions, queueMessage, clearAskRequest } = useSessionStore();
+  const activeSession = sessions.find(s => s.id === activeSessionId);
+  const currentAsk = activeSession?.currentAsk;
+
   const [text, setText] = useState('');
   const [mode, setMode] = useState<Message['mode']>('normal');
+  const [selectedAskOptions, setSelectedAskOptions] = useState<string[]>([]);
   const { connectStream, isStreaming } = useLLMStream();
   
-  // Watch for slash commands to toggle modes for demo purposes
+  // Sync mode with store
   useEffect(() => {
-    if (text === '/task') {
-      setMode('task');
-      setText('');
-    } else if (text === '/ask') {
+    if (currentAsk) {
       setMode('ask');
-      setText('');
-    } else if (text === '/append') {
+    } else if (isStreaming && text.length > 0 && mode !== 'ask') {
       setMode('append');
-      setText('');
-    } else if (text === '/normal') {
+    } else if (!isStreaming && !currentAsk && mode === 'append') {
       setMode('normal');
-      setText('');
     }
-  }, [text]);
+  }, [currentAsk, isStreaming, text.length]);
 
   const handleSend = () => {
-    if (isStreaming) return; // Disallow send while streaming
-    if (text.trim() || mode === 'ask') {
+    if (mode === 'ask' && currentAsk && activeSessionId) {
+      // Send user answer
+      const answer = text.trim() ? text.trim() : selectedAskOptions.join(', ');
+      invoke('submit_user_answer', { sessionId: activeSessionId, answer }).catch(console.error);
+      clearAskRequest(activeSessionId);
+      setMode('normal');
+      setText('');
+      setSelectedAskOptions([]);
+      return;
+    }
+
+    if (isStreaming && activeSessionId) {
+      // Queue message
+      queueMessage(activeSessionId, {
+        id: Date.now().toString(),
+        role: 'user',
+        content: text,
+        mode: 'append',
+        createdAt: Date.now(),
+      });
+      setText('');
+      return;
+    }
+
+    if (text.trim()) {
       connectStream(text, mode);
       setText('');
       setMode('normal');
@@ -83,44 +108,61 @@ export const ComposerBox = () => {
   );
 
   // Ask Dock
-  if (mode === 'ask') {
+  if (mode === 'ask' && currentAsk) {
     return (
       <div className="w-full max-w-[700px] mx-auto pb-6 relative z-20">
         <div className="bg-white border text-left border-gray-200 rounded-xl shadow-[0_2px_10px_rgba(0,0,0,0.04)] overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-            <span className="text-[13px] font-medium text-gray-800">1/1 个问题</span>
-            <button className="text-gray-400 hover:text-gray-600 focus:outline-none" onClick={() => setMode('normal')}>
-              <Minus size={16} />
-            </button>
+            <span className="text-[13px] font-medium text-gray-800">需要您的输入</span>
           </div>
           <div className="p-4">
             <div className="mb-4">
-              <h3 className="text-[14px] font-medium text-gray-800">你喜欢什么编程语言?</h3>
-              <p className="text-[12px] text-gray-400 mt-1">可多选</p>
+              <h3 className="text-[14px] font-medium text-gray-800">{currentAsk.question}</h3>
+              {currentAsk.options.length > 0 && <p className="text-[12px] text-gray-400 mt-1">请选择或输入回答</p>}
             </div>
             <div className="space-y-2">
-              {[
-                { title: 'TypeScript', desc: '类型安全的 JavaScript 超集' },
-                { title: 'Python', desc: '简洁易读的脚本语言' },
-                { title: 'Go', desc: '谷歌开发的并发语言' },
-                { title: 'Rust', desc: '注重安全和性能的系统编程语言' },
-                { title: '输入自己的答案', desc: '输入你的答案...' }
-              ].map((opt, i) => (
-                <div key={i} className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:border-blue-300 cursor-pointer transition-colors">
-                  <div className="mt-0.5 w-4 h-4 border border-gray-300 rounded flex-shrink-0 bg-white"></div>
-                  <div>
-                    <div className="text-[14px] text-gray-800">{opt.title}</div>
-                    <div className="text-[12px] text-gray-400 mt-0.5">{opt.desc}</div>
+              {currentAsk.options.map((opt, i) => {
+                const isSelected = selectedAskOptions.includes(opt);
+                return (
+                  <div 
+                    key={i} 
+                    onClick={() => {
+                      setSelectedAskOptions(prev => 
+                        prev.includes(opt) ? prev.filter(p => p !== opt) : [...prev, opt]
+                      )
+                    }}
+                    className={cn(
+                      "flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors",
+                      isSelected ? "border-blue-500 bg-blue-50/30" : "border-gray-200 hover:border-blue-300"
+                    )}
+                  >
+                    <div className={cn(
+                      "mt-0.5 w-4 h-4 border rounded flex-shrink-0 flex items-center justify-center",
+                      isSelected ? "border-blue-500 bg-blue-500" : "border-gray-300 bg-white"
+                    )}>
+                      {isSelected && <CheckSquare size={12} className="text-white" />}
+                    </div>
+                    <div className="text-[14px] text-gray-800">{opt}</div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
+            </div>
+            <div className="mt-4">
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="补充说明或直接回答..."
+                className="w-full resize-none border border-gray-200 rounded-lg p-3 text-[14px] outline-none focus:border-blue-300 min-h-[60px]"
+              />
             </div>
           </div>
           <div className="flex items-center justify-between px-4 py-3 bg-[#fbfbfb] border-t border-gray-100">
-            <button className="text-[13px] text-gray-600 hover:text-gray-800" onClick={() => setMode('normal')}>
-              忽略
-            </button>
-            <button onClick={handleSend} className="px-4 py-1.5 bg-[#1f1f1f] hover:bg-black text-white text-[13px] rounded-md transition-colors">
+            <div />
+            <button 
+              onClick={handleSend} 
+              disabled={selectedAskOptions.length === 0 && !text.trim()}
+              className="px-4 py-1.5 bg-[#1f1f1f] hover:bg-black disabled:opacity-50 text-white text-[13px] rounded-md transition-colors"
+            >
               提交
             </button>
           </div>

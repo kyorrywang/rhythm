@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use futures::{StreamExt, Stream};
+use futures::StreamExt;
 use crate::infrastructure::config::LlmConfig;
-use super::{LlmClient, ChatMessage, LlmToolDefinition, LlmResponse, LlmResponseStream};
+use super::{ChatMessage, ChatMessageBlock, LlmClient, LlmToolDefinition, LlmResponse, LlmResponseStream};
 use async_trait::async_trait;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 pub struct AnthropicClient {
     config: LlmConfig,
@@ -20,35 +23,201 @@ impl AnthropicClient {
 }
 
 #[derive(Serialize)]
-struct AnthropicChatRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    max_tokens: u32,
-    stream: bool,
+struct AnthropicTool {
+    name: String,
+    description: String,
+    input_schema: Value,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize)]
+struct AnthropicChatRequest {
+    model: String,
+    messages: Vec<AnthropicMessage>,
+    max_tokens: u32,
+    stream: bool,
+    thinking: Option<AnthropicThinking>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<AnthropicTool>>,
+}
+
+#[derive(Serialize)]
+struct AnthropicMessage {
+    role: String,
+    content: Vec<AnthropicContent>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type")]
+enum AnthropicContent {
+    #[serde(rename = "text")]
+    Text {
+        text: String,
+    },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        #[serde(rename = "tool_use_id")]
+        tool_use_id: String,
+        content: String,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        is_error: bool,
+    },
+}
+
+#[derive(Serialize)]
+struct AnthropicThinking {
+    #[serde(rename = "type")]
+    thinking_type: String,
+    budget_tokens: u32,
+}
+
+#[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
 enum AnthropicEvent {
     #[serde(rename = "message_start")]
-    MessageStart { message: Value },
+    MessageStart,
+    #[serde(rename = "content_block_start")]
+    ContentBlockStart { index: u32, content_block: AnthropicContentBlock },
     #[serde(rename = "content_block_delta")]
-    ContentBlockDelta { delta: AnthropicDelta },
+    ContentBlockDelta { index: u32, delta: AnthropicDelta },
+    #[serde(rename = "content_block_stop")]
+    ContentBlockStop { index: u32 },
     #[serde(rename = "message_delta")]
-    MessageDelta { delta: Value },
+    MessageDelta,
     #[serde(rename = "message_stop")]
     MessageStop,
     #[serde(rename = "ping")]
     Ping,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
+struct AnthropicContentBlock {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(rename = "type")]
+    block_type: String,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
 enum AnthropicDelta {
     #[serde(rename = "text_delta")]
     TextDelta { text: String },
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta { thinking: String },
+    #[serde(rename = "input_json_delta")]
+    InputJsonDelta { partial_json: String },
     #[serde(other)]
     Other,
+}
+
+struct ToolUseAccumulator {
+    id: String,
+    name: String,
+    input_json: String,
+}
+
+fn process_anthropic_line(data: &str, thinking_indices: &mut HashSet<u32>, tool_use_accum: &mut HashMap<u32, ToolUseAccumulator>) -> Vec<Result<LlmResponse, String>> {
+    let mut deltas = Vec::new();
+
+    let Ok(ev) = serde_json::from_str::<AnthropicEvent>(data) else {
+        return deltas;
+    };
+
+    match ev {
+        AnthropicEvent::ContentBlockStart { index, content_block } => {
+            match content_block.block_type.as_str() {
+                "thinking" => {
+                    thinking_indices.insert(index);
+                },
+                "tool_use" => {
+                    if let Some(name) = &content_block.name {
+                        tool_use_accum.insert(index, ToolUseAccumulator {
+                            id: content_block.id.unwrap_or_default(),
+                            name: name.clone(),
+                            input_json: String::new(),
+                        });
+                    }
+                },
+                _ => {}
+            }
+        },
+        AnthropicEvent::ContentBlockDelta { delta: AnthropicDelta::TextDelta { text }, .. } => {
+            deltas.push(Ok(LlmResponse::TextDelta(text)));
+        },
+        AnthropicEvent::ContentBlockDelta { delta: AnthropicDelta::ThinkingDelta { thinking }, .. } => {
+            deltas.push(Ok(LlmResponse::ThinkingDelta(thinking)));
+        },
+        AnthropicEvent::ContentBlockDelta { delta: AnthropicDelta::InputJsonDelta { partial_json }, index } => {
+            tool_use_accum
+                .entry(index)
+                .and_modify(|acc| acc.input_json.push_str(&partial_json));
+        },
+        AnthropicEvent::ContentBlockStop { index } => {
+            if thinking_indices.contains(&index) {
+                deltas.push(Ok(LlmResponse::ThinkingEnd));
+            }
+            if let Some(acc) = tool_use_accum.remove(&index) {
+                deltas.push(Ok(LlmResponse::ToolCall(super::LlmToolCall {
+                    id: if acc.id.is_empty() { format!("toolu_{}", index) } else { acc.id },
+                    name: acc.name,
+                    arguments: if acc.input_json.is_empty() { "{}".to_string() } else { acc.input_json },
+                })));
+            }
+        },
+        AnthropicEvent::MessageStop => {
+            deltas.push(Ok(LlmResponse::Done));
+        },
+        _ => {}
+    }
+
+    deltas
+}
+
+fn map_messages(messages: Vec<ChatMessage>) -> Vec<AnthropicMessage> {
+    let mut mapped = Vec::new();
+
+    for message in messages {
+        let mut content = Vec::new();
+
+        for block in message.blocks {
+            match block {
+                ChatMessageBlock::Text { text } => {
+                    content.push(AnthropicContent::Text { text });
+                }
+                ChatMessageBlock::ToolCall { id, name, arguments } => {
+                    content.push(AnthropicContent::ToolUse {
+                        id,
+                        name,
+                        input: arguments,
+                    });
+                }
+                ChatMessageBlock::ToolResult { tool_call_id, content: block_content, is_error } => {
+                    content.push(AnthropicContent::ToolResult {
+                        tool_use_id: tool_call_id,
+                        content: block_content,
+                        is_error,
+                    });
+                }
+            }
+        }
+
+        if !content.is_empty() {
+            mapped.push(AnthropicMessage {
+                role: message.role,
+                content,
+            });
+        }
+    }
+
+    mapped
 }
 
 #[async_trait]
@@ -56,55 +225,100 @@ impl LlmClient for AnthropicClient {
     async fn chat_stream(
         &self,
         messages: Vec<ChatMessage>,
-        _tools: Vec<LlmToolDefinition>,
+        tools: Vec<LlmToolDefinition>,
     ) -> Result<LlmResponseStream, String> {
         let url = format!("{}/messages", self.config.base_url);
-        
+
+        let tools_mapped = if tools.is_empty() {
+            None
+        } else {
+            Some(tools.into_iter().map(|t| AnthropicTool {
+                name: t.name,
+                description: t.description,
+                input_schema: t.parameters,
+            }).collect())
+        };
+
         let req = AnthropicChatRequest {
             model: self.config.model.clone(),
-            messages,
-            max_tokens: 4096,
+            messages: map_messages(messages),
+            max_tokens: 8192,
             stream: true,
+            thinking: Some(AnthropicThinking {
+                thinking_type: "enabled".to_string(),
+                budget_tokens: 4096,
+            }),
+            tools: tools_mapped,
         };
 
         let response = self.client.post(&url)
             .header("x-api-key", &self.config.api_key)
             .header("anthropic-version", "2023-06-01")
+            .header("anthropic-beta", "extended-thinking-2025-05-14")
             .json(&req)
             .send()
             .await
             .map_err(|e| e.to_string())?;
 
+        let thinking_indices: Arc<Mutex<HashSet<u32>>> = Arc::new(Mutex::new(HashSet::new()));
+        let tool_use_accum: Arc<Mutex<HashMap<u32, ToolUseAccumulator>>> = Arc::new(Mutex::new(HashMap::new()));
+        let buffer: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+
         let stream = response.bytes_stream().map(move |item| {
             match item {
                Ok(bytes) => {
-                   let text = String::from_utf8_lossy(&bytes);
+                   let chunk_text = String::from_utf8_lossy(&bytes);
                    let mut deltas = Vec::new();
-                   let mut current_event = String::new();
-                   
-                   for line in text.split('\n') {
-                       if line.starts_with("event: ") {
-                           current_event = line[7..].trim().to_string();
-                       } else if line.starts_with("data: ") {
-                           let data = line[6..].trim();
-                           if let Ok(ev) = serde_json::from_str::<AnthropicEvent>(data) {
-                               match ev {
-                                   AnthropicEvent::ContentBlockDelta { delta: AnthropicDelta::TextDelta { text } } => {
-                                       deltas.push(Ok(LlmResponse::TextDelta(text.clone())));
-                                   },
-                                   AnthropicEvent::MessageStop => {
-                                       deltas.push(Ok(LlmResponse::Done));
-                                   },
-                                   _ => {}
-                               }
+
+                   {
+                       let mut buf = buffer.lock().unwrap();
+                       buf.push_str(&chunk_text);
+
+                       let mut thinking = thinking_indices.lock().unwrap();
+                       let mut tools = tool_use_accum.lock().unwrap();
+
+                       while let Some(newline_pos) = buf.find('\n') {
+                           let line = buf[..newline_pos].to_string();
+                           *buf = buf[newline_pos + 1..].to_string();
+
+                           let line = line.trim_end_matches('\r');
+
+                           if line.starts_with("data: ") {
+                               let data = &line[6..];
+                               let line_deltas = process_anthropic_line(data, &mut thinking, &mut tools);
+                               deltas.extend(line_deltas);
                            }
                        }
                    }
+
                    futures::stream::iter(deltas)
                }
-               Err(e) => futures::stream::iter(vec![Err(e.to_string())]),
+               Err(e) => {
+                   let mut buf = buffer.lock().unwrap();
+                   let mut thinking = thinking_indices.lock().unwrap();
+                   let mut tools = tool_use_accum.lock().unwrap();
+                   let mut deltas = Vec::new();
+
+                   if !buf.is_empty() {
+                       let remaining = std::mem::take(&mut *buf);
+                       for line in remaining.split('\n') {
+                           let line = line.trim();
+                           if line.starts_with("data: ") {
+                               let data = &line[6..];
+                               let line_deltas = process_anthropic_line(data, &mut thinking, &mut tools);
+                               deltas.extend(line_deltas);
+                           }
+                       }
+                   }
+
+                   if deltas.is_empty() {
+                       deltas.push(Err(e.to_string()));
+                   }
+
+                   futures::stream::iter(deltas)
+               },
             }
-        }).flatten();
+         }).flatten();
 
         Ok(Box::pin(stream))
     }

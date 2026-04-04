@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Loader2, MoreHorizontal, GitBranch } from 'lucide-react';
+import { Loader2, MoreHorizontal, GitBranch, ChevronLeft } from 'lucide-react';
 import { ComposerBox } from '@/features/composer/ComposerBox';
 import { UserMessage } from './components/UserMessage';
 import { AgentMessage } from './components/AgentMessage';
@@ -49,7 +49,17 @@ export const SessionContainer = () => {
           <div className="max-w-[700px] w-full mx-auto relative pointer-events-auto z-10">
             {/* Header */}
             <div className="flex items-center justify-between py-6 sticky top-0 bg-white/95 backdrop-blur-sm z-20">
-              <h2 className="text-[16px] font-medium text-gray-800">{activeSession?.title}</h2>
+              <div className="flex items-center gap-3">
+                {activeSession?.parentId && (
+                  <button 
+                    onClick={() => useSessionStore.getState().navigateBack()}
+                    className="flex items-center gap-1 text-[13px] text-gray-500 hover:text-gray-800 transition-colors"
+                  >
+                    <ChevronLeft size={16} /> 返回主会话
+                  </button>
+                )}
+                <h2 className="text-[16px] font-medium text-gray-800">{activeSession?.title}</h2>
+              </div>
               <div className="flex items-center gap-3">
                 {isRunning && <Loader2 size={16} className="animate-spin text-gray-400" />}
                 <button className="text-gray-400 hover:text-gray-600 focus:outline-none">

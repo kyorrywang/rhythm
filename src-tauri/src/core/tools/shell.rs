@@ -20,12 +20,25 @@ impl AgentTool for ShellTool {
     }
 
     fn description(&self) -> &'static str {
-        "Execute a bash shell command. Arguments: { \"command\": \"string\" }"
+        "Execute a shell command. Arguments: { \"command\": \"string\" }"
     }
 
-    async fn execute(&self, args: Value, stream: &Channel<ServerEventChunk>) -> Result<String, String> {
+    fn parameters(&self) -> Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute"
+                }
+            },
+            "required": ["command"]
+        })
+    }
+
+    async fn execute(&self, _session_id: &str, tool_call_id: &str, args: Value, stream: &Channel<ServerEventChunk>) -> Result<String, String> {
         let args: ShellArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
-        let tool_id = "process-shell"; // unique id for tool outputs in current turn
+        let tool_id = tool_call_id; // unique id for tool outputs in current turn
 
         // Stream basic command starting log
         let _ = stream.send(ServerEventChunk::ToolOutput {
