@@ -6,7 +6,6 @@ interface SessionState {
   sessions: Session[];
   activeSessionId: string | null;
   flowStep: number;
-  isThinkingExpanded: boolean;
   isAskMinimized: boolean;
   isTaskMinimized: boolean;
   isAppendMinimized: boolean;
@@ -20,7 +19,6 @@ interface SessionState {
   getQueueLength: (sessionId: string) => number;
   transitionPhase: (sessionId: string, phase: SessionPhase) => void;
   setFlowStep: (step: number) => void;
-  setThinkingExpanded: (expanded: boolean) => void;
   toggleAskMinimized: () => void;
   toggleTaskMinimized: () => void;
   toggleAppendMinimized: () => void;
@@ -47,14 +45,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   ],
   activeSessionId: '1',
   flowStep: 0,
-  isThinkingExpanded: false,
   isAskMinimized: false,
   isTaskMinimized: false,
   isAppendMinimized: false,
 
   setActiveSession: (id) => set({ activeSessionId: id }),
   setFlowStep: (step) => set({ flowStep: step }),
-  setThinkingExpanded: (exp) => set({ isThinkingExpanded: exp }),
   toggleAskMinimized: () => set((state) => ({ isAskMinimized: !state.isAskMinimized })),
   toggleTaskMinimized: () => set((state) => ({ isTaskMinimized: !state.isTaskMinimized })),
   toggleAppendMinimized: () => set((state) => ({ isAppendMinimized: !state.isAppendMinimized })),

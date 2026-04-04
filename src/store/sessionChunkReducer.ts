@@ -1,8 +1,7 @@
-import { Message, ServerEventChunk, Session, ToolCall } from '@/types/schema';
+import { Message, MessageSegment, ServerEventChunk, Session, ToolCall } from '@/types/schema';
 
 type InternalMessage = Message & {
-  isInsideThink?: boolean;
-  hasFakeThinking?: boolean;
+  _liveTextIndex?: number;
 };
 
 export interface ChunkEffect {
@@ -30,31 +29,73 @@ const updateMessage = (
   ),
 });
 
+const findLiveThinking = (segments: MessageSegment[]): { index: number; segment: MessageSegment & { type: 'thinking' } } | null => {
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const seg = segments[i];
+    if (seg.type === 'thinking' && seg.isLive) {
+      return { index: i, segment: seg as MessageSegment & { type: 'thinking' } };
+    }
+  }
+  return null;
+};
+
+const getOrCreateTextIndex = (message: InternalMessage): number => {
+  if (message._liveTextIndex !== undefined) return message._liveTextIndex;
+
+  const segments = [...(message.segments || [])];
+  const lastIdx = segments.length;
+  segments.push({ type: 'text', content: '' });
+  return lastIdx;
+};
+
+const appendText = (message: InternalMessage, text: string): InternalMessage => {
+  const segments = [...(message.segments || [])];
+  const idx = getOrCreateTextIndex(message);
+
+  if (idx < segments.length && segments[idx].type === 'text') {
+    const seg = segments[idx];
+    segments[idx] = { ...seg, content: seg.content + text };
+  } else {
+    segments.push({ type: 'text', content: text });
+  }
+
+  return { ...message, segments, _liveTextIndex: idx };
+};
+
 const applyTextDelta = (
   message: InternalMessage,
   chunk: Extract<ServerEventChunk, { type: 'text_delta' }>,
   sessionId: string,
   effects: ChunkEffect[],
 ): InternalMessage => {
-  let newContent = message.content || '';
-  let newThinking = message.thinkingContent || '';
-  let isInsideThink = message.isInsideThink || false;
-  let hasFakeThinking = message.hasFakeThinking || false;
+  let segments = [...(message.segments || [])];
   let buffer = chunk.content;
 
-  if (!isInsideThink && buffer.includes('<think>')) {
-    isInsideThink = true;
+  const liveThinking = findLiveThinking(segments);
+
+  // Handle fake thinking tags (<think>...</think>)
+  if (!liveThinking && buffer.includes('<think>')) {
     const parts = buffer.split('<think>');
-    newContent += parts[0];
-    buffer = parts[1] ?? '';
-    hasFakeThinking = true;
+    if (parts[0]) {
+      const textIdx = segments.length;
+      segments.push({ type: 'text', content: parts[0] });
+      message = { ...message, segments, _liveTextIndex: textIdx };
+    }
+    buffer = parts.slice(1).join('<think>');
+    segments = [...segments, { type: 'thinking', content: '', isLive: true, startTime: Date.now() }];
   }
 
-  if (isInsideThink && buffer.includes('</think>')) {
-    isInsideThink = false;
+  const newLiveThinking = findLiveThinking(segments);
+
+  if (newLiveThinking && buffer.includes('</think>')) {
     const parts = buffer.split('</think>');
-    newThinking += parts[0];
-    buffer = parts[1] ?? '';
+    segments[newLiveThinking.index] = {
+      ...newLiveThinking.segment,
+      content: newLiveThinking.segment.content + parts[0],
+      isLive: false,
+      timeCostMs: Date.now() - (newLiveThinking.segment.startTime || Date.now()),
+    };
+    buffer = parts.slice(1).join('</think>');
     effects.push({
       type: 'schedule_thinking_end',
       sessionId,
@@ -64,20 +105,20 @@ const applyTextDelta = (
     });
   }
 
-  if (isInsideThink) {
-    newThinking += buffer;
+  const currentLiveThinking = findLiveThinking(segments);
+
+  if (currentLiveThinking) {
+    segments[currentLiveThinking.index] = {
+      ...currentLiveThinking.segment,
+      content: currentLiveThinking.segment.content + buffer,
+    };
   } else {
-    newContent += buffer;
+    message = { ...message, segments };
+    message = appendText(message, buffer);
+    segments = message.segments || [];
   }
 
-  return {
-    ...message,
-    content: newContent,
-    thinkingContent: newThinking,
-    hadThinking: message.hadThinking || hasFakeThinking,
-    isInsideThink,
-    hasFakeThinking,
-  };
+  return { ...message, segments };
 };
 
 const applyChunkToMessage = (
@@ -86,13 +127,19 @@ const applyChunkToMessage = (
   sessionId: string,
   effects: ChunkEffect[],
 ): InternalMessage => {
+  let segments = [...(message.segments || [])];
+
   if (chunk.type === 'thinking_delta') {
-    return {
-      ...message,
-      thinkingContent: (message.thinkingContent || '') + chunk.content,
-      hadThinking: true,
-      thinkingStartTime: message.thinkingStartTime || Date.now(),
-    };
+    const liveThinking = findLiveThinking(segments);
+    if (liveThinking) {
+      segments[liveThinking.index] = {
+        ...liveThinking.segment,
+        content: liveThinking.segment.content + chunk.content,
+      };
+    } else {
+      segments.push({ type: 'thinking', content: chunk.content, isLive: true, startTime: Date.now() });
+    }
+    return { ...message, segments };
   }
 
   if (chunk.type === 'text_delta') {
@@ -100,15 +147,26 @@ const applyChunkToMessage = (
   }
 
   if (chunk.type === 'thinking_end') {
-    return {
-      ...message,
-      isThinking: false,
-      thinkingTimeCostMs: chunk.timeCostMs,
-      hadThinking: message.hadThinking || chunk.timeCostMs > 0,
-    };
+    const liveThinking = findLiveThinking(segments);
+    if (liveThinking) {
+      segments[liveThinking.index] = {
+        ...liveThinking.segment,
+        isLive: false,
+        timeCostMs: chunk.timeCostMs,
+      };
+    }
+    return { ...message, segments };
   }
 
   if (chunk.type === 'tool_start') {
+    const liveThinking = findLiveThinking(segments);
+    if (liveThinking) {
+      segments[liveThinking.index] = {
+        ...liveThinking.segment,
+        isLive: false,
+      };
+    }
+
     const newTool: ToolCall = {
       id: chunk.toolId,
       name: chunk.toolName,
@@ -117,14 +175,18 @@ const applyChunkToMessage = (
       logs: [],
       startTime: Date.now(),
     };
-    return { ...message, toolCalls: [...(message.toolCalls || []), newTool] };
+
+    segments.push({ type: 'tool', tool: newTool });
+    return { ...message, segments };
   }
 
   if (chunk.type === 'tool_output') {
     return {
       ...message,
-      toolCalls: message.toolCalls?.map((tool) =>
-        tool.id === chunk.toolId ? { ...tool, logs: [...(tool.logs || []), chunk.logLine] } : tool,
+      segments: segments.map((seg) =>
+        seg.type === 'tool' && seg.tool.id === chunk.toolId
+          ? { ...seg, tool: { ...seg.tool, logs: [...(seg.tool.logs || []), chunk.logLine] } }
+          : seg,
       ),
     };
   }
@@ -132,14 +194,17 @@ const applyChunkToMessage = (
   if (chunk.type === 'tool_end') {
     return {
       ...message,
-      toolCalls: message.toolCalls?.map((tool) =>
-        tool.id === chunk.toolId
+      segments: segments.map((seg) =>
+        seg.type === 'tool' && seg.tool.id === chunk.toolId
           ? {
-              ...tool,
-              status: chunk.exitCode === 0 ? 'completed' : 'error',
-              executionTime: Date.now() - (tool.startTime || Date.now()),
+              ...seg,
+              tool: {
+                ...seg.tool,
+                status: chunk.exitCode === 0 ? 'completed' : 'error',
+                executionTime: Date.now() - (seg.tool.startTime || Date.now()),
+              },
             }
-          : tool,
+          : seg,
       ),
     };
   }
@@ -149,27 +214,35 @@ const applyChunkToMessage = (
   }
 
   if (chunk.type === 'done') {
-    const updates: Partial<InternalMessage> = { 
+    const liveThinking = findLiveThinking(segments);
+    if (liveThinking) {
+      segments[liveThinking.index] = {
+        ...liveThinking.segment,
+        isLive: false,
+      };
+    }
+    return {
+      ...message,
+      segments,
       status: 'completed',
       totalTimeMs: Date.now() - message.createdAt,
     };
-    if (message.isInsideThink) {
-      updates.isInsideThink = false;
-      updates.thinkingTimeCostMs = Date.now() - message.createdAt;
-    }
-    return { ...message, ...updates };
   }
 
   if (chunk.type === 'interrupted') {
-    const updates: Partial<InternalMessage> = { 
+    const liveThinking = findLiveThinking(segments);
+    if (liveThinking) {
+      segments[liveThinking.index] = {
+        ...liveThinking.segment,
+        isLive: false,
+      };
+    }
+    return {
+      ...message,
+      segments,
       status: 'completed',
       totalTimeMs: Date.now() - message.createdAt,
     };
-    if (message.isInsideThink) {
-      updates.isInsideThink = false;
-      updates.thinkingTimeCostMs = Date.now() - message.createdAt;
-    }
-    return { ...message, ...updates };
   }
 
   return message;

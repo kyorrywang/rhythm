@@ -37,7 +37,7 @@ export const useLLMStream = () => {
       role: 'assistant',
       content: '',
       createdAt: Date.now(),
-      isThinking: true,
+      segments: [{ type: 'thinking', content: '', isLive: true, startTime: Date.now() }],
     };
     addMessage(sessionId, initAiMsg);
 
@@ -56,7 +56,7 @@ export const useLLMStream = () => {
             role: 'assistant',
             content: '',
             createdAt: Date.now(),
-            isThinking: true,
+            segments: [{ type: 'thinking', content: '', isLive: true, startTime: Date.now() }],
           });
 
           subSessionMessageMapRef.current.set(chunk.subSessionId, subAiMessageId);

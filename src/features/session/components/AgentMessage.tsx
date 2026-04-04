@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Message, ToolCall } from '@/types/schema';
+import { Message, MessageSegment, ToolCall } from '@/types/schema';
 import { getToolPresentation } from '@/features/session/toolPresentation';
 import { useSessionStore } from '@/store/useSessionStore';
 
@@ -112,17 +112,69 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
   );
 };
 
-export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessageProps) => {
-  const [isThinkingExpanded, setThinkingExpanded] = useState(!!message.isThinking);
+const ThinkingSegment = ({ segment, isLive }: { segment: MessageSegment & { type: 'thinking' }, isLive: boolean }) => {
+  const [isExpanded, setIsExpanded] = useState(isLive);
 
   useEffect(() => {
-    if (!message.isThinking) {
-      setThinkingExpanded(false);
+    if (!isLive) {
+      setIsExpanded(false);
     }
-  }, [message.isThinking]);
+  }, [isLive]);
 
+  return (
+    <div className="py-2">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center gap-2 cursor-pointer select-none hover:text-gray-600 w-fit text-[13px] outline-none"
+      >
+        <span className="font-bold text-gray-800">思考过程</span>
+
+        <span className="text-gray-500">思考</span>
+
+        {segment.timeCostMs !== undefined ? (
+          <span className="text-gray-500 ml-1">
+            (<Timer isRunning={false} startTime={0} finalMs={segment.timeCostMs} />)
+          </span>
+        ) : isLive && segment.startTime ? (
+          <span className="text-gray-500 ml-1">
+            (<Timer isRunning={true} startTime={segment.startTime} />)
+          </span>
+        ) : null}
+
+        {isLive && <Loader2 size={12} className="animate-spin text-gray-400 ml-1" />}
+        {isExpanded ? <ChevronDown size={14} className="text-gray-400 ml-1" /> : <ChevronRight size={14} className="text-gray-400 ml-1" />}
+      </button>
+
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden mt-2"
+          >
+            <div className="text-[13px] text-gray-500 bg-gray-50 border border-gray-100 rounded-lg p-3 max-w-[95%] max-h-[200px] overflow-y-auto custom-scrollbar whitespace-pre-wrap leading-relaxed">
+              {segment.content ? (
+                segment.content
+              ) : (
+                <p className="animate-pulse">...</p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessageProps) => {
   const isMessageRunning = isSessionRunning && isLast;
   const isMessageComplete = !isSessionRunning && isLast;
+
+  const segments = message.segments || [];
+  const hasSegments = segments.length > 0;
+  const hasLegacyContent = message.content && !hasSegments;
+  const hasLegacyToolCalls = message.toolCalls && message.toolCalls.length > 0 && !hasSegments;
 
   return (
     <motion.div
@@ -131,132 +183,137 @@ export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessage
       transition={{ duration: 0.3 }}
       className="group relative pt-2 ml-4 pr-12 pb-6 flex flex-col border-transparent"
     >
-      {/* Thinking Phase - show when actively thinking OR when had a thinking phase */}
-      {(message.isThinking || message.thinkingTimeCostMs !== undefined) && (
-        <div className="py-2 mt-2">
-          <button
-            onClick={() => setThinkingExpanded(!isThinkingExpanded)}
-            className="flex items-center gap-2 cursor-pointer select-none hover:text-gray-600 w-fit text-[13px] outline-none"
-          >
-            <span className="font-bold text-gray-800">思考过程</span>
-
-            {message.isThinking ? (
-              <span className="text-gray-500">正在思考...</span>
-            ) : (
-              <span className="font-mono text-[12px] text-gray-600 truncate max-w-[360px]">
-                详情
-              </span>
-            )}
-
-            <span className="text-gray-500 ml-1">
-              (<Timer 
-                isRunning={!!message.isThinking || !!(message as any).isInsideThink} 
-                startTime={message.thinkingStartTime || message.createdAt} 
-                finalMs={message.thinkingTimeCostMs ?? 0} 
-              />)
-            </span>
-
-            {message.isThinking && <Loader2 size={12} className="animate-spin text-gray-400 ml-1" />}
-            {isThinkingExpanded ? <ChevronDown size={14} className="text-gray-400 ml-1" /> : <ChevronRight size={14} className="text-gray-400 ml-1" />}
-          </button>
-
-          <AnimatePresence>
-            {isThinkingExpanded && (message.isThinking || message.thinkingContent) && (
-              <motion.div 
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden mt-2"
-              >
-                <div className="text-[13px] text-gray-500 bg-gray-50 border border-gray-100 rounded-lg p-3 max-w-[95%] max-h-[200px] overflow-y-auto custom-scrollbar whitespace-pre-wrap leading-relaxed">
-                  {message.thinkingContent ? (
-                    message.thinkingContent
-                  ) : (
-                    <p className="animate-pulse">...</p>
-                  )}
+      {/* Segments-based rendering (new timeline approach) */}
+      {hasSegments && (
+        <div className="relative pt-2">
+          {segments.map((segment, index) => (
+            <div key={index}>
+              {segment.type === 'thinking' && (
+                <ThinkingSegment
+                  segment={segment}
+                  isLive={segment.isLive || false}
+                />
+              )}
+              {segment.type === 'tool' && (
+                <div className="mb-2">
+                  <ToolBlock tool={segment.tool} />
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              )}
+              {segment.type === 'text' && segment.content && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.3 }}
+                  className="prose prose-sm max-w-none text-gray-800 mt-2"
+                >
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      code({ className, children, ...props }: any) {
+                        const match = /language-(\w+)/.exec(className || '');
+                        return match ? (
+                          <SyntaxHighlighter
+                            {...props}
+                            style={vscDarkPlus}
+                            language={match[1]}
+                            PreTag="div"
+                            className="rounded-md my-2 text-sm"
+                          >
+                            {String(children).replace(/\n$/, '')}
+                          </SyntaxHighlighter>
+                        ) : (
+                          <code {...props} className={`${className || ''} bg-gray-100 rounded-md px-1.5 py-0.5 text-sm text-pink-600 font-mono`}>
+                            {children}
+                          </code>
+                        );
+                      }
+                    }}
+                  >
+                    {segment.content}
+                  </ReactMarkdown>
+                </motion.div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Main Content & Tools Container */}
-      <div className="relative pt-2">
-        {/* Tool Blocks */}
-        {message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mb-4 flex flex-col gap-3 text-[13px] text-gray-800">
-            {message.toolCalls.map(tool => (
-              <ToolBlock key={tool.id} tool={tool} />
-            ))}
-          </div>
-        )}
-
-        {/* Markdown Content */}
-        {message.content && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.3 }}
-            className="prose prose-sm max-w-none text-gray-800 mt-2"
-          >
-            <ReactMarkdown 
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({ className, children, ...props }: any) {
-                  const match = /language-(\w+)/.exec(className || '');
-                  return match ? (
-                    <SyntaxHighlighter
-                      {...props}
-                      style={vscDarkPlus}
-                      language={match[1]}
-                      PreTag="div"
-                      className="rounded-md my-2 text-sm"
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                  ) : (
-                    <code {...props} className={`${className || ''} bg-gray-100 rounded-md px-1.5 py-0.5 text-sm text-pink-600 font-mono`}>
-                      {children}
-                    </code>
-                  );
-                }
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
-          </motion.div>
-        )}
-
-        {/* Footer actions area */}
-        <div className="mt-3 h-6 flex flex-col justify-center">
-          {isMessageRunning ? (
-            <div className="flex items-center justify-start text-[12px] text-gray-400">
-              <Loader2 size={14} className="animate-spin text-gray-400" />
-              <span className="mx-2">·</span>
-              <Timer isRunning={true} startTime={message.createdAt} />
-            </div>
-          ) : (
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-start text-[12px] text-gray-400">
-              <button className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1.5 rounded-lg transition-colors flex items-center" title="Copy">
-                <Copy size={14} />
-              </button>
-              
-              {!message.isThinking && (
-                <>
-                  <span className="mx-2 text-gray-300">|</span>
-                  <span>Rhythm AI</span>
-                  {isMessageComplete && (
-                    <>
-                      <span className="mx-2 text-gray-300">·</span>
-                      <Timer isRunning={false} startTime={message.createdAt} finalMs={message.totalTimeMs} />
-                    </>
-                  )}
-                </>
-              )}
+      {/* Legacy content fallback (for backward compatibility) */}
+      {!hasSegments && (
+        <div className="relative pt-2">
+          {hasLegacyToolCalls && (
+            <div className="mb-4 flex flex-col gap-3 text-[13px] text-gray-800">
+              {message.toolCalls!.map(tool => (
+                <ToolBlock key={tool.id} tool={tool} />
+              ))}
             </div>
           )}
+
+          {hasLegacyContent && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.3 }}
+              className="prose prose-sm max-w-none text-gray-800 mt-2"
+            >
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code({ className, children, ...props }: any) {
+                    const match = /language-(\w+)/.exec(className || '');
+                    return match ? (
+                      <SyntaxHighlighter
+                        {...props}
+                        style={vscDarkPlus}
+                        language={match[1]}
+                        PreTag="div"
+                        className="rounded-md my-2 text-sm"
+                      >
+                        {String(children).replace(/\n$/, '')}
+                      </SyntaxHighlighter>
+                    ) : (
+                      <code {...props} className={`${className || ''} bg-gray-100 rounded-md px-1.5 py-0.5 text-sm text-pink-600 font-mono`}>
+                        {children}
+                      </code>
+                    );
+                  }
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </motion.div>
+          )}
         </div>
+      )}
+
+      {/* Footer actions area */}
+      <div className="mt-3 h-6 flex flex-col justify-center">
+        {isMessageRunning ? (
+          <div className="flex items-center justify-start text-[12px] text-gray-400">
+            <Loader2 size={14} className="animate-spin text-gray-400" />
+            <span className="mx-2">·</span>
+            <Timer isRunning={true} startTime={message.createdAt} />
+          </div>
+        ) : (
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-start text-[12px] text-gray-400">
+            <button className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1.5 rounded-lg transition-colors flex items-center" title="Copy">
+              <Copy size={14} />
+            </button>
+
+            {message.status !== 'running' && (
+              <>
+                <span className="mx-2 text-gray-300">|</span>
+                <span>Rhythm AI</span>
+                {isMessageComplete && (
+                  <>
+                    <span className="mx-2 text-gray-300">·</span>
+                    <Timer isRunning={false} startTime={message.createdAt} finalMs={message.totalTimeMs} />
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
     </motion.div>
   );

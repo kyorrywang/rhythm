@@ -61,6 +61,11 @@ export type SessionPhase =
   | 'waiting_for_ask'
   | 'interrupting';
 
+export type MessageSegment =
+  | { type: 'thinking'; content: string; timeCostMs?: number; isLive?: boolean; startTime?: number }
+  | { type: 'tool'; tool: ToolCall }
+  | { type: 'text'; content: string };
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -68,11 +73,7 @@ export interface Message {
   mode?: 'normal' | 'build' | 'task' | 'ask' | 'append';
   toolCalls?: ToolCall[];
   createdAt: number;
-  isThinking?: boolean;
-  thinkingContent?: string;
-  thinkingTimeCostMs?: number;
-  thinkingStartTime?: number;
-  hadThinking?: boolean;
+  segments?: MessageSegment[];
   status?: 'running' | 'waiting_for_user' | 'completed';
   totalTimeMs?: number;
 }
