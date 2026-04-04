@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Plus, ArrowUp, Shield, ChevronDown, CheckSquare, Square, Minus, Trash2, MoreHorizontal, ArrowRight, CornerDownRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useLLMStream } from '@/features/session/hooks/useLLMStream';
+import { Message } from '@/types/schema';
 
-export const Composer = ({ onSend, mode, setMode }: any) => {
+export const ComposerBox = () => {
   const [text, setText] = useState('');
+  const [mode, setMode] = useState<Message['mode']>('normal');
+  const { connectStream, isStreaming } = useLLMStream();
   
   // Watch for slash commands to toggle modes for demo purposes
   useEffect(() => {
@@ -19,11 +24,12 @@ export const Composer = ({ onSend, mode, setMode }: any) => {
       setMode('normal');
       setText('');
     }
-  }, [text, setMode]);
+  }, [text]);
 
   const handleSend = () => {
+    if (isStreaming) return; // Disallow send while streaming
     if (text.trim() || mode === 'ask') {
-      onSend(text, mode);
+      connectStream(text, mode);
       setText('');
       setMode('normal');
     }
@@ -155,9 +161,12 @@ export const Composer = ({ onSend, mode, setMode }: any) => {
           
           <button 
             onClick={handleSend}
-            className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
-              text.trim().length > 0 ? 'bg-black text-white hover:bg-gray-800 shadow-[0_2px_4px_rgba(0,0,0,0.2)]' : 'bg-[#dbdbdb] text-white cursor-not-allowed'
-            }`}
+            className={cn(
+              "w-8 h-8 flex items-center justify-center rounded-md transition-colors",
+              text.trim().length > 0
+                ? "bg-black text-white hover:bg-gray-800 shadow-[0_2px_4px_rgba(0,0,0,0.2)]"
+                : "bg-[#dbdbdb] text-white cursor-not-allowed"
+            )}
           >
             {mode === 'append' ? <Square size={13} fill="currentColor" strokeWidth={0} /> : <ArrowUp size={16} strokeWidth={2.5} />}
           </button>
