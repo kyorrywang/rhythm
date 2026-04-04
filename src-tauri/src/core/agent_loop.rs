@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::shared::schema::EventPayload;
 use crate::core::models::{ChatMessageBlock, LlmClient, ChatMessage, LlmResponse, LlmToolDefinition};
-use crate::core::tools::{AgentTool, shell::ShellTool, file_system::FileSystemTool, ask::AskTool, subagent::SubagentTool, plan::PlanTool};
+use crate::core::tools::{AgentTool, shell::ShellTool, ask::AskTool, subagent::SubagentTool, plan::PlanTool, read_file::ReadFileTool, write_file::WriteFileTool, edit_file::EditFileTool, delete_file::DeleteFileTool};
 use crate::core::state;
 use crate::core::event_bus;
 
@@ -24,7 +24,10 @@ impl AgentLoop {
             client,
             tools: vec![
                 Box::new(ShellTool),
-                Box::new(FileSystemTool),
+                Box::new(ReadFileTool),
+                Box::new(WriteFileTool),
+                Box::new(EditFileTool),
+                Box::new(DeleteFileTool),
                 Box::new(PlanTool),
                 Box::new(AskTool),
                 Box::new(SubagentTool),

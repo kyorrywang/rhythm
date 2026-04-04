@@ -9,12 +9,6 @@ export interface ToolPresentation {
 
 type ToolPresenter = (tool: ToolCall) => ToolPresentation;
 
-const toTitleCase = (name: string) =>
-  name
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-
 const joinLogs = (tool: ToolCall) => (tool.logs && tool.logs.length > 0 ? tool.logs.join('\n') : '');
 
 const presenters: Record<string, ToolPresenter> = {
@@ -24,31 +18,27 @@ const presenters: Record<string, ToolPresenter> = {
     details: joinLogs(tool),
     defaultExpanded: tool.status === 'running',
   }),
-  file_system: (tool) => {
-    const action = tool.arguments?.action;
-    const path = tool.arguments?.path;
-    const fallbackDetails =
-      action === 'write' && tool.arguments?.content
-        ? `Writing ${path}\n\n${tool.arguments.content}`
-        : '';
-
-    return {
-      title: 'File System',
-      summary:
-        action === 'list'
-          ? `列出 ${path}`
-          : action === 'read'
-            ? `读取 ${path}`
-            : action === 'write'
-              ? `写入 ${path}`
-              : JSON.stringify(tool.arguments),
-      details: joinLogs(tool) || fallbackDetails,
-      defaultExpanded: tool.status === 'running',
-    };
-  },
-  ask_user: (tool) => ({
-    title: 'Ask User',
-    summary: tool.arguments?.question || '等待用户输入',
+  read: (tool) => ({
+    title: 'READ',
+    summary: tool.arguments?.path || '',
+    details: joinLogs(tool),
+    defaultExpanded: tool.status === 'running',
+  }),
+  write: (tool) => ({
+    title: 'WRITE',
+    summary: tool.arguments?.path || '',
+    details: joinLogs(tool),
+    defaultExpanded: tool.status === 'running',
+  }),
+  edit: (tool) => ({
+    title: 'EDIT',
+    summary: tool.arguments?.path || '',
+    details: joinLogs(tool),
+    defaultExpanded: tool.status === 'running',
+  }),
+  delete: (tool) => ({
+    title: 'DELETE',
+    summary: tool.arguments?.path || '',
     details: joinLogs(tool),
     defaultExpanded: tool.status === 'running',
   }),
@@ -71,8 +61,8 @@ export const getToolPresentation = (tool: ToolCall): ToolPresentation => {
   }
 
   return {
-    title: toTitleCase(tool.name),
-    summary: JSON.stringify(tool.arguments),
+    title: tool.name,
+    summary: tool.arguments?.path || JSON.stringify(tool.arguments),
     details: joinLogs(tool),
     defaultExpanded: tool.status === 'running',
   };

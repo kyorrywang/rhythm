@@ -167,6 +167,10 @@ const applyChunkToMessage = (
       };
     }
 
+    if (chunk.toolName === 'ask_user') {
+      return { ...message, segments };
+    }
+
     const newTool: ToolCall = {
       id: chunk.toolId,
       name: chunk.toolName,
@@ -210,10 +214,6 @@ const applyChunkToMessage = (
   }
 
   if (chunk.type === 'ask_request') {
-    return { ...message, status: 'waiting_for_user' };
-  }
-
-  if (chunk.type === 'done') {
     const liveThinking = findLiveThinking(segments);
     if (liveThinking) {
       segments[liveThinking.index] = {
@@ -221,11 +221,26 @@ const applyChunkToMessage = (
         isLive: false,
       };
     }
+    segments.push({
+      type: 'ask',
+      question: chunk.question,
+      options: chunk.options,
+      selectionType: chunk.selectionType,
+      questions: chunk.questions,
+      status: 'waiting',
+    });
+    return { ...message, segments, status: 'waiting_for_user' };
+  }
+
+  if (chunk.type === 'ask_answered') {
     return {
       ...message,
-      segments,
-      status: 'completed',
-      totalTimeMs: Date.now() - message.createdAt,
+      segments: segments.map((seg) =>
+        seg.type === 'ask' && seg.status === 'waiting'
+          ? { ...seg, status: 'answered', answer: chunk.answer }
+          : seg,
+      ),
+      status: 'running',
     };
   }
 
@@ -243,6 +258,10 @@ const applyChunkToMessage = (
       status: 'completed',
       totalTimeMs: Date.now() - message.createdAt,
     };
+  }
+
+  if (chunk.type === 'task_update') {
+    return message;
   }
 
   return message;
@@ -295,6 +314,20 @@ export const reduceSessionChunk = (
       }
       return s;
     });
+
+    return {
+      sessions: updatedSessions,
+      effects,
+    };
+  }
+
+  if (chunk.type === 'ask_answered') {
+    const updatedSessions = sessions.map((session) => {
+      if (session.id !== sessionId) return session;
+      return updateMessage(session, messageId, (message) =>
+        applyChunkToMessage(message, chunk, sessionId, effects),
+      );
+    }).map(s => s.id === sessionId ? { ...s, currentAsk: null } : s);
 
     return {
       sessions: updatedSessions,

@@ -26,6 +26,7 @@ interface SessionState {
   navigateBack: () => void;
   setSessionRunning: (sessionId: string, running: boolean) => void;
   clearAskRequest: (sessionId: string) => void;
+  recordAskAnswer: (sessionId: string, messageId: string, answer: { selected: string[]; text: string }) => void;
   clearTasks: (sessionId: string) => void;
   migrateQueueToChild: (parentSessionId: string, childSessionId: string) => void;
   restoreQueueToParent: (childSessionId: string, parentSessionId: string) => void;
@@ -129,6 +130,28 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     sessions: state.sessions.map(s =>
       s.id === sessionId ? { ...s, currentAsk: null } : s
     )
+  })),
+
+  recordAskAnswer: (sessionId: string, messageId: string, answer: { selected: string[]; text: string }) => set((state) => ({
+    sessions: state.sessions.map(s => {
+      if (s.id !== sessionId) return s;
+      return {
+        ...s,
+        currentAsk: null,
+        messages: s.messages.map(m => {
+          if (m.id !== messageId || !m.segments) return m;
+          return {
+            ...m,
+            segments: m.segments.map(seg =>
+              seg.type === 'ask' && seg.status === 'waiting'
+                ? { ...seg, status: 'answered' as const, answer }
+                : seg,
+            ),
+            status: 'running' as const,
+          };
+        }),
+      };
+    })
   })),
 
   clearTasks: (sessionId) => set((state) => ({

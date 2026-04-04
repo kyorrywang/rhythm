@@ -12,7 +12,7 @@ interface UseComposerActionsParams {
 }
 
 export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTasksDone }: UseComposerActionsParams) => {
-  const { enqueueMessage, clearAskRequest, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, toggleAskMinimized, toggleTaskMinimized } = useSessionStore();
+  const { enqueueMessage, clearAskRequest, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, toggleAskMinimized, toggleTaskMinimized, recordAskAnswer } = useSessionStore();
   const { connectStream, isStreaming, requestInterrupt } = useLLMStream();
 
   const [text, setText] = useState('');
@@ -88,8 +88,19 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
     if (phase === 'waiting_for_ask' && currentAsk) {
       const answer = buildAskAnswer();
       if (!answer) return;
+
+      const state = useSessionStore.getState();
+      const session = state.sessions.find(s => s.id === activeSessionId);
+      const lastAiMessage = session?.messages.filter(m => m.role === 'assistant').pop();
+
+      if (lastAiMessage) {
+        recordAskAnswer(activeSessionId, lastAiMessage.id, {
+          selected: selectedAskOptions,
+          text: text.trim(),
+        });
+      }
+
       invoke('submit_user_answer', { sessionId: activeSessionId, answer }).catch(console.error);
-      clearAskRequest(activeSessionId);
       setText('');
       setSelectedAskOptions([]);
       return;
@@ -114,7 +125,7 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
       connectStream(text, 'normal');
       setText('');
     }
-  }, [activeSessionId, phase, currentAsk, text, selectedAskOptions, isStreaming, enqueueMessage, clearAskRequest, connectStream, transitionPhase, buildAskAnswer]);
+  }, [activeSessionId, phase, currentAsk, text, selectedAskOptions, isStreaming, enqueueMessage, clearAskRequest, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer]);
 
   const handleCancelQueue = useCallback(() => {
     if (!activeSessionId) return;

@@ -2,10 +2,13 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 pub mod shell;
-pub mod file_system;
 pub mod ask;
 pub mod subagent;
 pub mod plan;
+pub mod read_file;
+pub mod write_file;
+pub mod edit_file;
+pub mod delete_file;
 
 #[async_trait]
 pub trait AgentTool: Send + Sync {

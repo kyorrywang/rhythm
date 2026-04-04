@@ -40,6 +40,7 @@ export type ServerEventChunk =
   | { type: 'tool_output'; sessionId: string; toolId: string; logLine: string }
   | { type: 'tool_end'; sessionId: string; toolId: string; exitCode: number }
   | { type: 'ask_request'; sessionId: string; toolId: string; question: string; options: string[]; selectionType?: SelectionType; questions?: AskQuestion[] }
+  | { type: 'ask_answered'; sessionId: string; answer: { selected: string[]; text: string } }
   | { type: 'task_update'; sessionId: string; tasks: Task[] }
   | { type: 'subagent_start'; sessionId: string; parentSessionId: string; subSessionId: string; title: string }
   | { type: 'subagent_end'; sessionId: string; subSessionId: string; result: string; isError: boolean }
@@ -64,6 +65,7 @@ export type SessionPhase =
 export type MessageSegment =
   | { type: 'thinking'; content: string; timeCostMs?: number; isLive?: boolean; startTime?: number }
   | { type: 'tool'; tool: ToolCall }
+  | { type: 'ask'; question: string; options: string[]; selectionType?: SelectionType; questions?: AskQuestion[]; status: 'waiting' | 'answered'; answer?: { selected: string[]; text: string } }
   | { type: 'text'; content: string };
 
 export interface Message {
