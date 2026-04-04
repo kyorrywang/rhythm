@@ -7,6 +7,7 @@ pub mod shell;
 pub mod file_system;
 pub mod ask;
 pub mod subagent;
+pub mod plan;
 
 #[async_trait]
 pub trait AgentTool: Send + Sync {

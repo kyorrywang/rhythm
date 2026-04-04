@@ -149,7 +149,22 @@ const applyChunkToMessage = (
   }
 
   if (chunk.type === 'done') {
-    const updates: Partial<InternalMessage> = { status: 'completed' };
+    const updates: Partial<InternalMessage> = { 
+      status: 'completed',
+      totalTimeMs: Date.now() - message.createdAt,
+    };
+    if (message.isInsideThink) {
+      updates.isInsideThink = false;
+      updates.thinkingTimeCostMs = Date.now() - message.createdAt;
+    }
+    return { ...message, ...updates };
+  }
+
+  if (chunk.type === 'interrupted') {
+    const updates: Partial<InternalMessage> = { 
+      status: 'completed',
+      totalTimeMs: Date.now() - message.createdAt,
+    };
     if (message.isInsideThink) {
       updates.isInsideThink = false;
       updates.thinkingTimeCostMs = Date.now() - message.createdAt;
@@ -198,6 +213,8 @@ export const reduceSessionChunk = (
           toolId: chunk.toolId,
           question: chunk.question,
           options: chunk.options,
+          selectionType: chunk.selectionType,
+          questions: chunk.questions,
         },
       };
     } else if (chunk.type === 'task_update') {

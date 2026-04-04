@@ -13,7 +13,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::chat::chat_stream,
             commands::chat::submit_user_answer,
-            commands::session::get_sessions
+            commands::session::get_sessions,
+            commands::interrupt::interrupt_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

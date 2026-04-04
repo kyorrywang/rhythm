@@ -1,6 +1,18 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+fn default_selection_type() -> String {
+    "multiple_with_input".to_string()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AskQuestion {
+    pub question: String,
+    pub options: Vec<String>,
+    #[serde(rename = "selectionType", default = "default_selection_type")]
+    pub selection_type: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Task {
     pub id: String,
@@ -12,44 +24,40 @@ pub struct Task {
 #[serde(tag = "type")]
 pub enum ServerEventChunk {
     #[serde(rename = "text_delta")]
-    TextDelta { 
-        content: String 
-    },
+    TextDelta { content: String },
 
     #[serde(rename = "thinking_delta")]
-    ThinkingDelta {
-        content: String
-    },
-    
+    ThinkingDelta { content: String },
+
     #[serde(rename = "thinking_end")]
-    ThinkingEnd { 
+    ThinkingEnd {
         #[serde(rename = "timeCostMs")]
-        time_cost_ms: u64 
+        time_cost_ms: u64,
     },
-    
+
     #[serde(rename = "tool_start")]
-    ToolStart { 
+    ToolStart {
         #[serde(rename = "toolId")]
-        tool_id: String, 
+        tool_id: String,
         #[serde(rename = "toolName")]
-        tool_name: String, 
-        args: Value 
+        tool_name: String,
+        args: Value,
     },
-    
+
     #[serde(rename = "tool_output")]
-    ToolOutput { 
+    ToolOutput {
         #[serde(rename = "toolId")]
-        tool_id: String, 
+        tool_id: String,
         #[serde(rename = "logLine")]
-        log_line: String 
+        log_line: String,
     },
-    
+
     #[serde(rename = "tool_end")]
-    ToolEnd { 
+    ToolEnd {
         #[serde(rename = "toolId")]
-        tool_id: String, 
+        tool_id: String,
         #[serde(rename = "exitCode")]
-        exit_code: i32 
+        exit_code: i32,
     },
 
     #[serde(rename = "ask_request")]
@@ -58,12 +66,14 @@ pub enum ServerEventChunk {
         tool_id: String,
         question: String,
         options: Vec<String>,
+        #[serde(rename = "selectionType", default = "default_selection_type")]
+        selection_type: String,
+        #[serde(rename = "questions", default)]
+        questions: Vec<AskQuestion>,
     },
 
     #[serde(rename = "task_update")]
-    TaskUpdate {
-        tasks: Vec<Task>
-    },
+    TaskUpdate { tasks: Vec<Task> },
 
     #[serde(rename = "subagent_start")]
     SubagentStart {
@@ -73,7 +83,10 @@ pub enum ServerEventChunk {
         sub_session_id: String,
         title: String,
     },
-    
+
     #[serde(rename = "done")]
     Done,
+
+    #[serde(rename = "interrupted")]
+    Interrupted,
 }

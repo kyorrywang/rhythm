@@ -8,6 +8,8 @@ import { getToolPresentation } from '@/features/session/toolPresentation';
 
 interface AgentMessageProps {
   message: Message;
+  isLast?: boolean;
+  isSessionRunning?: boolean;
 }
 
 const Timer = ({ isRunning, startTime, finalMs }: { isRunning: boolean, startTime: number, finalMs?: number }) => {
@@ -81,7 +83,7 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
   );
 };
 
-export const AgentMessage = ({ message }: AgentMessageProps) => {
+export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessageProps) => {
   const [isThinkingExpanded, setThinkingExpanded] = useState(!!message.isThinking);
 
   useEffect(() => {
@@ -89,6 +91,9 @@ export const AgentMessage = ({ message }: AgentMessageProps) => {
       setThinkingExpanded(false);
     }
   }, [message.isThinking]);
+
+  const isMessageRunning = isSessionRunning && isLast;
+  const isMessageComplete = !isSessionRunning && isLast;
 
   return (
     <>
@@ -172,8 +177,30 @@ export const AgentMessage = ({ message }: AgentMessageProps) => {
           </motion.div>
         )}
 
-        {/* Hover Actions */}
-        {!message.isThinking && (
+        {/* Running indicator - always visible for last message while session is running */}
+        {isMessageRunning && (
+          <div className="flex items-center justify-start mt-2 text-[11px] text-gray-400">
+            <Loader2 size={12} className="animate-spin" />
+            <span className="mx-1.5">·</span>
+            <Timer isRunning={true} startTime={message.createdAt} />
+          </div>
+        )}
+
+        {/* Hover Actions - completed last message shows copy · model · time */}
+        {isMessageComplete && (
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-start mt-2 text-[11px] text-gray-400 absolute bottom-1 left-0 bg-white/80 pr-2">
+            <button className="hover:text-gray-700 hover:bg-gray-100 p-1 rounded transition-colors flex items-center gap-1.5 text-gray-500" title="Copy">
+              <Copy size={12} />
+            </button>
+            <span className="mx-1">·</span>
+            <span>Rhythm AI</span>
+            <span className="mx-1">·</span>
+            <Timer isRunning={false} startTime={message.createdAt} finalMs={message.totalTimeMs} />
+          </div>
+        )}
+
+        {/* Hover Actions - non-last messages show copy · model */}
+        {!isLast && !message.isThinking && (
           <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-start mt-2 text-[11px] text-gray-400 absolute bottom-1 left-0 bg-white/80 pr-2">
             <button className="hover:text-gray-700 hover:bg-gray-100 p-1 rounded transition-colors flex items-center gap-1.5 text-gray-500" title="Copy">
               <Copy size={12} />

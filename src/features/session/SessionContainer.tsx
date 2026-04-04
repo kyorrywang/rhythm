@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
-import { Loader2, MoreHorizontal, GitBranch, ChevronLeft } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { MoreHorizontal, GitBranch, ChevronLeft } from 'lucide-react';
 import { ComposerBox } from '@/features/composer/ComposerBox';
 import { UserMessage } from './components/UserMessage';
 import { AgentMessage } from './components/AgentMessage';
+import { ContextUsagePanel } from './components/ContextUsagePanel';
 import { useSessionStore } from '@/store/useSessionStore';
 
 // Mock Empty State
@@ -23,19 +24,19 @@ const EmptyState = () => (
 
 export const SessionContainer = () => {
   const { activeSessionId, sessions } = useSessionStore();
+  const [isContextPanelOpen, setIsContextPanelOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeSession = sessions.find(s => s.id === activeSessionId);
 
   const messages = activeSession?.messages ?? [];
-  const lastMsg = messages[messages.length - 1];
-  const isRunning = lastMsg?.role === 'assistant' && lastMsg?.isThinking === true;
+  const isSessionRunning = activeSession?.running ?? false;
 
   // Auto scroll down whenever messages change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages.length, lastMsg?.content, lastMsg?.toolCalls?.length]);
+  }, [messages.length, messages[messages.length - 1]?.content, messages[messages.length - 1]?.toolCalls?.length]);
 
   const isEmpty = !activeSession || messages.length === 0;
 
@@ -61,7 +62,20 @@ export const SessionContainer = () => {
                 <h2 className="text-[16px] font-medium text-gray-800">{activeSession?.title}</h2>
               </div>
               <div className="flex items-center gap-3">
-                {isRunning && <Loader2 size={16} className="animate-spin text-gray-400" />}
+                <button 
+                  className="relative flex items-center justify-center w-[18px] h-[18px] rounded-full shrink-0 group cursor-pointer text-gray-300 hover:text-gray-400 focus:outline-none"
+                  title="上下文用量"
+                  onClick={() => setIsContextPanelOpen(true)}
+                >
+                  <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
+                    <path className="text-zinc-200" strokeWidth="6" stroke="currentColor" fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" 
+                    />
+                    <path className="text-zinc-400 group-hover:text-zinc-500 transition-colors" strokeWidth="6" strokeDasharray="6, 100" stroke="currentColor" fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    />
+                  </svg>
+                </button>
                 <button className="text-gray-400 hover:text-gray-600 focus:outline-none">
                   <MoreHorizontal size={18} />
                 </button>
@@ -73,7 +87,12 @@ export const SessionContainer = () => {
                 msg.role === 'user' ? (
                   <UserMessage key={msg.id || index} message={msg} />
                 ) : (
-                  <AgentMessage key={msg.id || index} message={msg} />
+                  <AgentMessage 
+                    key={msg.id || index} 
+                    message={msg} 
+                    isLast={index === messages.length - 1}
+                    isSessionRunning={isSessionRunning}
+                  />
                 )
               ))}
             </div>
@@ -85,6 +104,14 @@ export const SessionContainer = () => {
       <div className="absolute bottom-0 left-0 right-0 bg-transparent py-4 bg-gradient-to-t from-white via-white/95 to-transparent pointer-events-none z-30">
         <ComposerBox />
       </div>
+
+      {activeSession && (
+        <ContextUsagePanel 
+          session={activeSession} 
+          isOpen={isContextPanelOpen} 
+          onClose={() => setIsContextPanelOpen(false)} 
+        />
+      )}
     </div>
   );
 };
