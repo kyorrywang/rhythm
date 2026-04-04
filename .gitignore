@@ -21,7 +21,7 @@ debug-radix.log
 
 # --- Dependencies ---
 node_modules/
-package-lock.json.bak
+package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
