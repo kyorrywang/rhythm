@@ -1,4 +1,15 @@
-# Logs
+# --- IDE & Editors ---
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.vs
+
+# --- Logs & Debug ---
 logs
 *.log
 npm-debug.log*
@@ -6,19 +17,43 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+debug-radix.log
 
-node_modules
-dist
-dist-ssr
+# --- Dependencies ---
+node_modules/
+package-lock.json.bak
+yarn.lock
+pnpm-lock.yaml
+
+# --- Production Build ---
+dist/
+dist-ssr/
+build/
+out/
+.vercel
+
+# --- Environment & Local Config ---
+.env
+.env.local
+.env.*.local
 *.local
+.npmrc
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# --- OS Specific ---
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+Thumbs.db
+desktop.ini
+
+# --- Tauri / Rust Specific ---
+src-tauri/target/
+src-tauri/bin/
+src-tauri/gen/
+target/
+
+# --- System & Tools ---
+.gemini/
+.agents/
+.agent/
+_agents/
+_agent/
+.github/
