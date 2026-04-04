@@ -78,7 +78,11 @@ export const useLLMStream = () => {
         const targetAiMessageId = subSessionMessageMapRef.current.get(targetSessionId) || aiMessageId;
         processChunk(targetSessionId, targetAiMessageId, chunk);
 
-        if (chunk.type === 'done' || chunk.type === 'interrupted') {
+        // Only trigger queue processing for the root session.
+        // Sub-session done is handled by the subsequent subagent_end event
+        // which calls restoreQueueToParent.
+        const isSubSession = subSessionMessageMapRef.current.has(targetSessionId);
+        if (!isSubSession && (chunk.type === 'done' || chunk.type === 'interrupted')) {
           if (chunk.type === 'interrupted') {
             transitionPhase(targetSessionId, 'interrupting');
           }

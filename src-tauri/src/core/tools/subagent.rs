@@ -89,6 +89,9 @@ impl AgentTool for SubagentTool {
             1,
         );
 
+        // Register parent-child relationship in event_bus so all sub-agent events
+        // automatically bubble up to the parent's IPC channel via the child_parent chain.
+        // This replaces the old manual forward_task approach and avoids double-sending.
         event_bus::register_child(agent_id, &sub_agent_id);
 
         state::register_session_child(session_id.to_string(), sub_session_id.clone()).await;
@@ -97,33 +100,22 @@ impl AgentTool for SubagentTool {
         let client = models::create_client(&settings.llm);
         let agent = AgentLoop::new(client);
 
-        let mut event_rx = event_bus::subscribe(&sub_agent_id);
-
-        let sub_session_id_for_forward = sub_session_id.clone();
-        let sub_session_id_for_run = sub_session_id.clone();
-        let parent_agent_id = agent_id.to_string();
-        let forward_task = tokio::spawn(async move {
-            while let Some(chunk) = event_rx.recv().await {
-                event_bus::emit(&parent_agent_id, &sub_session_id_for_forward, chunk.payload);
-            }
-        });
-
         let result = agent
             .run_stream(
                 &sub_agent_id,
-                sub_session_id_for_run,
+                sub_session_id.clone(),
                 args.message,
                 args.system_prompt,
             )
             .await;
-
-        let _ = forward_task.abort();
 
         let (result_str, is_error) = match result {
             Ok(_) => ("Subagent completed successfully".to_string(), false),
             Err(e) => (format!("Subagent failed: {}", e), true),
         };
 
+        // Emit SubagentEnd via sub_agent_id — it will bubble up through child_parent
+        // to the parent's IPC channel. unregister happens AFTER this emit.
         event_bus::emit(
             &sub_agent_id,
             &sub_session_id,

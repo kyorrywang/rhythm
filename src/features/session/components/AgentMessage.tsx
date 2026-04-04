@@ -34,6 +34,7 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
   const isRunning = tool.status === 'running';
   const presentation = getToolPresentation(tool);
   const [isExpanded, setIsExpanded] = useState(presentation.defaultExpanded);
+  const setActiveSession = useSessionStore(s => s.setActiveSession);
 
   useEffect(() => {
     if (isRunning) {
@@ -52,7 +53,7 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
 
         {tool.subSessionId ? (
           <button
-            onClick={() => useSessionStore.getState().setActiveSession(tool.subSessionId!)}
+            onClick={() => setActiveSession(tool.subSessionId!)}
             className="text-blue-600 hover:text-blue-800 underline cursor-pointer"
           >
             {presentation.summary}
@@ -62,10 +63,8 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
         )}
 
         <span className="text-gray-500 ml-1">
-          (<Timer isRunning={isRunning} startTime={(tool as any).startTime || Date.now()} finalMs={tool.executionTime} />)
+          (<Timer isRunning={false} startTime={(tool as any).startTime || Date.now()} finalMs={tool.executionTime} />)
         </span>
-
-        {isRunning && <Loader2 size={12} className="animate-spin text-gray-400 ml-1" />}
       </div>
     );
   }

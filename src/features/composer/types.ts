@@ -18,8 +18,7 @@ export interface AskDockProps {
   selectedAskOptions: string[];
   onOptionToggle: (opt: string) => void;
   onSubmit: () => void;
-  isMinimized: boolean;
-  onToggleMinimize: () => void;
+  onIgnore?: () => void;
 }
 
 export interface TaskDockProps {

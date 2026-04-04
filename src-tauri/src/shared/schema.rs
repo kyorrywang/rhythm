@@ -5,12 +5,34 @@ fn default_selection_type() -> String {
     "multiple_with_input".to_string()
 }
 
+fn is_valid_selection_type(st: &str) -> bool {
+    st == "single_with_input" || st == "multiple_with_input"
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AskQuestion {
     pub question: String,
     pub options: Vec<String>,
     #[serde(rename = "selectionType", default = "default_selection_type")]
     pub selection_type: String,
+}
+
+impl AskQuestion {
+    pub fn validate(&self) -> Result<(), String> {
+        if !is_valid_selection_type(&self.selection_type) {
+            return Err(format!(
+                "Invalid selectionType '{}'. Only 'single_with_input' and 'multiple_with_input' are allowed.",
+                self.selection_type
+            ));
+        }
+        if self.options.is_empty() {
+            return Err(format!(
+                "At least one option is required for question: {}",
+                self.question
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -49,13 +49,13 @@ fn to_schema_question() -> Value {
             "options": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Optional list of answer options"
+                "description": "List of answer options (required)"
             },
             "selectionType": {
                 "type": "string",
-                "enum": ["single", "multiple", "input", "single_with_input", "multiple_with_input"],
+                "enum": ["single_with_input", "multiple_with_input"],
                 "default": "multiple_with_input",
-                "description": "How the user should respond: single (radio), multiple (checkbox), input (text only), single_with_input (radio + text), multiple_with_input (checkbox + text)"
+                "description": "How the user should respond: single_with_input (radio + text), multiple_with_input (checkbox + text)"
             },
             "questions": {
                 "type": "array",
@@ -64,7 +64,7 @@ fn to_schema_question() -> Value {
                     "properties": {
                         "question": { "type": "string", "description": "The question to ask" },
                         "options": { "type": "array", "items": { "type": "string" }, "description": "Answer options" },
-                        "selectionType": { "type": "string", "enum": ["single", "multiple", "input", "single_with_input", "multiple_with_input"], "default": "multiple_with_input" }
+                        "selectionType": { "type": "string", "enum": ["single_with_input", "multiple_with_input"], "default": "multiple_with_input" }
                     },
                     "required": ["question"]
                 },
@@ -111,10 +111,7 @@ impl AgentTool for AskTool {
         }
 
         for q in &questions {
-            let st = &q.selection_type;
-            if (st == "single" || st == "multiple") && q.options.is_empty() {
-                return Err(format!("selectionType '{}' requires at least one option for question: {}", st, q.question));
-            }
+            q.validate().map_err(|e| format!("Invalid question: {}", e))?;
         }
 
         let (tx, rx) = oneshot::channel();

@@ -297,7 +297,12 @@ export const reduceSessionChunk = (
             ? { ...tool, subSessionId: chunk.subSessionId }
             : tool
         );
-        return { ...message, toolCalls: updatedTools };
+        const updatedSegments = message.segments?.map((seg) =>
+          seg.type === 'tool' && seg.tool.name === 'spawn_subagent' && seg.tool.status === 'running' && !seg.tool.subSessionId
+            ? { ...seg, tool: { ...seg.tool, subSessionId: chunk.subSessionId } }
+            : seg
+        );
+        return { ...message, toolCalls: updatedTools, segments: updatedSegments };
       });
     });
 

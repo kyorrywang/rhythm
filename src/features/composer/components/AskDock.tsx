@@ -1,10 +1,10 @@
-import { Minimize2, Maximize2, CheckSquare, ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AskDockProps } from '../types';
 import { useState, useCallback, useMemo } from 'react';
 import { AskQuestion } from '@/types/schema';
 
-export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptionToggle, onSubmit, isMinimized, onToggleMinimize }: Omit<AskDockProps, 'isSubmitDisabled'>) => {
+export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptionToggle, onSubmit, onIgnore }: Omit<AskDockProps, 'isSubmitDisabled' | 'isMinimized' | 'onToggleMinimize'> & { onIgnore?: () => void }) => {
   const questions = useMemo((): AskQuestion[] => {
     if (currentAsk.questions && currentAsk.questions.length > 0) {
       return currentAsk.questions;
@@ -23,8 +23,7 @@ export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptio
   const currentQ = questions[currentQIndex] || questions[0];
   const selectionType = currentQ.selectionType || 'multiple_with_input';
   const hasOptions = currentQ.options.length > 0;
-  const isSingle = selectionType === 'single' || selectionType === 'single_with_input';
-  const hasInput = selectionType === 'input' || selectionType === 'single_with_input' || selectionType === 'multiple_with_input';
+  const isSingle = selectionType === 'single_with_input';
   const isLastQuestion = currentQIndex === questions.length - 1;
 
   const currentSelections = qAnswers[currentQIndex]?.options || selectedAskOptions;
@@ -79,11 +78,6 @@ export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptio
     const hasInput = currentText.trim().length > 0;
     const hasSelection = currentSelections.length > 0;
     switch (selectionType) {
-      case 'single':
-      case 'multiple':
-        return !hasSelection;
-      case 'input':
-        return !hasInput;
       case 'single_with_input':
       case 'multiple_with_input':
         return !hasSelection && !hasInput;
@@ -92,64 +86,9 @@ export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptio
     }
   }, [selectionType, currentText, currentSelections]);
 
-  const placeholderText = (() => {
-    switch (selectionType) {
-      case 'single':
-      case 'multiple':
-        return '请选择一个选项';
-      case 'input':
-        return '请输入您的回答...';
-      case 'single_with_input':
-      case 'multiple_with_input':
-        return hasOptions ? '选择选项或补充说明...' : '请输入您的回答...';
-      default:
-        return '请输入...';
-    }
-  })();
+  const placeholderText = hasOptions ? '选择选项或补充说明...' : '请输入您的回答...';
 
-  const headerLabel = (() => {
-    switch (selectionType) {
-      case 'single':
-        return '请选择一项';
-      case 'multiple':
-        return '可多选';
-      case 'input':
-        return '需要您的输入';
-      case 'single_with_input':
-      case 'multiple_with_input':
-        return '请选择或补充说明';
-      default:
-        return '需要您的输入';
-    }
-  })();
-
-  if (isMinimized) {
-    return (
-      <div className="w-full max-w-[700px] mx-auto pb-6 relative z-20 pointer-events-auto">
-        <div className="bg-white border text-left border-gray-200 rounded-xl shadow-[0_2px_10px_rgba(0,0,0,0.04)] overflow-hidden">
-          <div
-            className="flex items-center justify-between px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors"
-            onClick={onToggleMinimize}
-          >
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-              <span className="text-[13px] font-medium text-gray-800 truncate max-w-[400px]">
-                {isMultiQuestion ? `问题 ${currentQIndex + 1}/${questions.length}` : currentAsk.question}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {currentSelections.length > 0 && (
-                <span className="text-[11px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                  已选 {currentSelections.length} 项
-                </span>
-              )}
-              <Maximize2 size={13} className="text-gray-400" />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const headerLabel = '请选择或补充说明';
 
   return (
     <div className="w-full max-w-[700px] mx-auto pb-6 relative z-20 pointer-events-auto">
@@ -168,9 +107,6 @@ export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptio
               </span>
             )}
           </div>
-          <button onClick={onToggleMinimize} className="text-gray-400 hover:text-gray-600 transition-colors" title="最小化">
-            <Minimize2 size={14} />
-          </button>
         </div>
 
         {isMultiQuestion && (
@@ -215,7 +151,7 @@ export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptio
                       {isSingle ? (
                         isSelected && <div className="w-1.5 h-1.5 bg-white rounded-full" />
                       ) : (
-                        isSelected && <CheckSquare size={12} className="text-white" />
+                        isSelected && <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="M9 12l2 2 4-4"/></svg>
                       )}
                     </div>
                     <div className="text-[14px] text-gray-800">{opt}</div>
@@ -225,31 +161,37 @@ export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptio
             </div>
           )}
 
-          {hasInput && (
-            <div className={cn(hasOptions && "mt-4")}>
-              <textarea
-                value={currentText}
-                onChange={(e) => {
-                  setText(e.target.value);
-                  setQAnswers(prev => ({
-                    ...prev,
-                    [currentQIndex]: { ...(prev[currentQIndex] || { options: selectedAskOptions }), text: e.target.value },
-                  }));
-                }}
-                placeholder={placeholderText}
-                className="w-full resize-none border border-gray-200 rounded-lg p-3 text-[14px] outline-none focus:border-blue-300 min-h-[60px]"
-              />
-            </div>
-          )}
+          <div className={cn(hasOptions && "mt-4")}>
+            <textarea
+              value={currentText}
+              onChange={(e) => {
+                setText(e.target.value);
+                setQAnswers(prev => ({
+                  ...prev,
+                  [currentQIndex]: { ...(prev[currentQIndex] || { options: selectedAskOptions }), text: e.target.value },
+                }));
+              }}
+              placeholder={placeholderText}
+              className="w-full resize-none border border-gray-200 rounded-lg p-3 text-[14px] outline-none focus:border-blue-300 min-h-[60px]"
+            />
+          </div>
         </div>
         <div className="flex items-center justify-between px-4 py-3 bg-[#fbfbfb] border-t border-gray-100">
-          <div>
+          <div className="flex items-center gap-2">
             {currentQIndex > 0 && (
               <button 
                 onClick={handleBack}
                 className="px-3 py-1.5 text-[13px] text-gray-600 hover:text-gray-800 transition-colors flex items-center gap-1"
               >
                 <ArrowLeft size={13} /> 上一步
+              </button>
+            )}
+            {onIgnore && (
+              <button 
+                onClick={onIgnore}
+                className="px-3 py-1.5 text-[13px] text-gray-400 hover:text-red-500 transition-colors flex items-center gap-1"
+              >
+                <X size={13} /> 忽略
               </button>
             )}
           </div>

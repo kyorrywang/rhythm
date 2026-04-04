@@ -27,7 +27,9 @@ const EmptyState = () => (
 export const SessionContainer = () => {
   const { activeSessionId, sessions } = useSessionStore();
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(200);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const activeSession = sessions.find(s => s.id === activeSessionId);
 
   const messages = activeSession?.messages ?? [];
@@ -40,6 +42,25 @@ export const SessionContainer = () => {
     }
   }, [messages.length, messages[messages.length - 1]?.content, messages[messages.length - 1]?.toolCalls?.length]);
 
+  // Observe composer height changes
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const height = entry.contentRect.height;
+        setComposerHeight(height);
+      }
+    });
+
+    observer.observe(el);
+    // Set initial height
+    setComposerHeight(el.getBoundingClientRect().height);
+
+    return () => observer.disconnect();
+  }, []);
+
   const isEmpty = !activeSession || messages.length === 0;
 
   return (
@@ -48,7 +69,7 @@ export const SessionContainer = () => {
       {isEmpty ? (
         <EmptyState />
       ) : (
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-10 pb-[200px] no-scrollbar flex flex-col smooth-scroll">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto no-scrollbar flex flex-col smooth-scroll" style={{ paddingBottom: `${composerHeight + 32}px` }}>
           <div className="max-w-[700px] w-full mx-auto relative pointer-events-auto z-10">
             {/* Header */}
             <div className="flex items-center justify-between py-6 sticky top-0 bg-white/95 backdrop-blur-sm z-20">
@@ -103,7 +124,7 @@ export const SessionContainer = () => {
       )}
       
       {/* Absolute positioned Composer at the bottom */}
-      <div className="absolute bottom-0 left-0 right-0 bg-transparent py-4 bg-gradient-to-t from-white via-white/95 to-transparent pointer-events-none z-30">
+      <div ref={composerRef} className="absolute bottom-0 left-0 right-0 bg-transparent py-4 bg-gradient-to-t from-white via-white/95 to-transparent pointer-events-none z-30">
         <ComposerBox />
       </div>
 

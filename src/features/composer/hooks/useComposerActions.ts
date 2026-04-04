@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useSessionStore } from '@/store/useSessionStore';
 import { useLLMStream } from '@/features/session/hooks/useLLMStream';
@@ -12,7 +12,7 @@ interface UseComposerActionsParams {
 }
 
 export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTasksDone }: UseComposerActionsParams) => {
-  const { enqueueMessage, clearAskRequest, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, toggleAskMinimized, toggleTaskMinimized, recordAskAnswer } = useSessionStore();
+  const { enqueueMessage, clearAskRequest, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, toggleTaskMinimized, recordAskAnswer } = useSessionStore();
   const { connectStream, isStreaming, requestInterrupt } = useLLMStream();
 
   const [text, setText] = useState('');
@@ -23,7 +23,6 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
       transitionPhase(activeSessionId!, 'waiting_for_ask');
       setSelectedAskOptions([]);
       setText('');
-      toggleAskMinimized();
     }
   }, [currentAsk?.toolId, phase, activeSessionId, transitionPhase]);
 
@@ -46,11 +45,6 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
     const selected = selectedAskOptions.join(',');
 
     switch (selectionType) {
-      case 'single':
-      case 'multiple':
-        return selected;
-      case 'input':
-        return input;
       case 'single_with_input':
       case 'multiple_with_input':
         if (input) {
@@ -59,26 +53,6 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
         return selected;
       default:
         return selected || input;
-    }
-  }, [currentAsk, text, selectedAskOptions]);
-
-  const isAskSubmitDisabled = useMemo((): boolean => {
-    if (!currentAsk) return false;
-    const selectionType = currentAsk.selectionType || 'multiple_with_input';
-    const hasInput = text.trim().length > 0;
-    const hasSelection = selectedAskOptions.length > 0;
-
-    switch (selectionType) {
-      case 'single':
-      case 'multiple':
-        return !hasSelection;
-      case 'input':
-        return !hasInput;
-      case 'single_with_input':
-      case 'multiple_with_input':
-        return !hasSelection && !hasInput;
-      default:
-        return false;
     }
   }, [currentAsk, text, selectedAskOptions]);
 
@@ -127,6 +101,25 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
     }
   }, [activeSessionId, phase, currentAsk, text, selectedAskOptions, isStreaming, enqueueMessage, clearAskRequest, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer]);
 
+  const handleIgnoreAsk = useCallback(() => {
+    if (!activeSessionId || !currentAsk) return;
+
+    const state = useSessionStore.getState();
+    const session = state.sessions.find(s => s.id === activeSessionId);
+    const lastAiMessage = session?.messages.filter(m => m.role === 'assistant').pop();
+
+    if (lastAiMessage) {
+      recordAskAnswer(activeSessionId, lastAiMessage.id, {
+        selected: [],
+        text: '',
+      });
+    }
+
+    invoke('submit_user_answer', { sessionId: activeSessionId, answer: '' }).catch(console.error);
+    setText('');
+    setSelectedAskOptions([]);
+  }, [activeSessionId, currentAsk, recordAskAnswer]);
+
   const handleCancelQueue = useCallback(() => {
     if (!activeSessionId) return;
     clearQueue(activeSessionId);
@@ -151,7 +144,7 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
   const handleAskOptionToggle = useCallback((opt: string) => {
     if (!currentAsk) return;
     const selectionType = currentAsk.selectionType || 'multiple_with_input';
-    const isSingle = selectionType === 'single' || selectionType === 'single_with_input';
+    const isSingle = selectionType === 'single_with_input';
 
     if (isSingle) {
       setSelectedAskOptions([opt]);
@@ -168,8 +161,8 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
     selectedAskOptions,
     setSelectedAskOptions,
     isStreaming,
-    isAskSubmitDisabled,
     handleSend,
+    handleIgnoreAsk,
     handleCancelQueue,
     handleRemoveQueuedItem,
     handleInterrupt,

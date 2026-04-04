@@ -7,7 +7,7 @@ import { TaskDock } from './components/TaskDock';
 import { AppendDock } from './components/AppendDock';
 
 export const ComposerBox = () => {
-  const { activeSessionId, sessions, isAskMinimized, isTaskMinimized, isAppendMinimized, toggleAskMinimized, toggleTaskMinimized, toggleAppendMinimized } = useSessionStore();
+  const { activeSessionId, sessions, isTaskMinimized, isAppendMinimized, toggleTaskMinimized, toggleAppendMinimized } = useSessionStore();
   const activeSession = sessions.find(s => s.id === activeSessionId);
   const currentAsk = activeSession?.currentAsk;
   const currentTasks = activeSession?.currentTasks;
@@ -27,6 +27,7 @@ export const ComposerBox = () => {
     handleRemoveQueuedItem,
     handleInterrupt,
     handleAskOptionToggle,
+    handleIgnoreAsk,
   } = useComposerActions({ activeSessionId, phase, currentAsk: currentAsk || null, allTasksDone });
 
   if (dockType === 'ask' && currentAsk) {
@@ -38,8 +39,7 @@ export const ComposerBox = () => {
         selectedAskOptions={selectedAskOptions}
         onOptionToggle={handleAskOptionToggle}
         onSubmit={handleSend}
-        isMinimized={isAskMinimized}
-        onToggleMinimize={toggleAskMinimized}
+        onIgnore={handleIgnoreAsk}
       />
     );
   }
