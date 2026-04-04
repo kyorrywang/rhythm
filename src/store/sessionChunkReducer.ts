@@ -184,19 +184,47 @@ export const reduceSessionChunk = (
   const effects: ChunkEffect[] = [];
 
   if (chunk.type === 'subagent_start') {
+    const parentSession = sessions.find(s => s.id === sessionId);
+    const parentUserMessage = parentSession?.messages.filter(m => m.role === 'user').pop();
+
     const newSession: Session = {
       id: chunk.subSessionId,
       title: chunk.title,
       updatedAt: Date.now(),
       running: true,
-      messages: [],
+      messages: parentUserMessage ? [parentUserMessage] : [],
       parentId: chunk.parentSessionId,
       queuedMessages: [],
     };
 
+    const updatedSessions = sessions.map((session) => {
+      if (session.id !== sessionId) return session;
+      return updateMessage(session, messageId, (message) => {
+        const updatedTools = message.toolCalls?.map((tool) =>
+          tool.name === 'spawn_subagent' && tool.status === 'running' && !tool.subSessionId
+            ? { ...tool, subSessionId: chunk.subSessionId }
+            : tool
+        );
+        return { ...message, toolCalls: updatedTools };
+      });
+    });
+
     return {
-      sessions: [...sessions, newSession],
-      activeSessionId: chunk.subSessionId,
+      sessions: [...updatedSessions, newSession],
+      effects,
+    };
+  }
+
+  if (chunk.type === 'subagent_end') {
+    const updatedSessions = sessions.map(s => {
+      if (s.id === chunk.subSessionId) {
+        return { ...s, running: false };
+      }
+      return s;
+    });
+
+    return {
+      sessions: updatedSessions,
       effects,
     };
   }

@@ -1,4 +1,4 @@
-import { Minimize2, Maximize2, CheckSquare, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, CheckSquare, X, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TaskDockProps } from '../types';
 
@@ -10,14 +10,17 @@ const TaskItem = ({ task }: { task: TaskDockProps['tasks'][number] }) => {
   return (
     <div className={cn(
       "flex items-center gap-2 text-[13px] transition-colors",
-      isCompleted ? "text-gray-400" : isRunning ? "text-gray-800" : isError ? "text-red-600" : "text-gray-600"
+      isCompleted ? "text-gray-400" : isRunning ? "text-gray-800" : isError ? "text-red-600" : "text-gray-500"
     )}>
       <div className={cn(
-        "w-3.5 h-3.5 flex items-center justify-center shrink-0 rounded-[3px]",
-        isCompleted ? "bg-gray-300 text-white" : isRunning ? "border-2 border-amber-500 bg-white" : isError ? "border border-red-400 bg-red-50" : "border border-gray-300 bg-white"
+        "w-3.5 h-3.5 flex items-center justify-center shrink-0 rounded-[4px]",
+        isCompleted ? "bg-gray-100 border border-gray-200" : 
+        isRunning ? "bg-gray-100 border border-gray-200" : 
+        isError ? "border border-red-200 bg-red-50" : 
+        "border border-gray-200 bg-transparent"
       )}>
-        {isCompleted && <CheckSquare size={12} />}
-        {isRunning && <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />}
+        {isCompleted && <Check size={10} className="text-gray-400" strokeWidth={3} />}
+        {isRunning && <div className="w-[5px] h-[5px] bg-gray-400 rounded-full" />}
         {isError && <X size={10} className="text-red-500" />}
       </div>
       <span className={cn(isCompleted && "line-through")}>{task.text}</span>
@@ -40,7 +43,7 @@ export const TaskDock = ({ tasks, isMinimized, onToggleMinimize }: TaskDockProps
           <CheckSquare size={13} className={allDone ? "text-green-500" : "text-gray-400"} />
           <span>已完成 {completed}/{total} 个任务</span>
         </div>
-        <Maximize2 size={13} className="text-gray-400" />
+        <ChevronUp size={14} className="text-gray-400" />
       </div>
     );
   }
@@ -50,10 +53,10 @@ export const TaskDock = ({ tasks, isMinimized, onToggleMinimize }: TaskDockProps
       <div className="flex items-center justify-between text-[12px] text-gray-800 font-medium mb-3">
         <span>已完成 {completed} 个任务 (共 {total} 个)</span>
         <button onClick={onToggleMinimize} className="text-gray-400 hover:text-gray-600 transition-colors" title="最小化">
-          <Minimize2 size={13} />
+          <ChevronDown size={14} />
         </button>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
         {tasks.map((task) => (
           <TaskItem key={task.id} task={task} />
         ))}

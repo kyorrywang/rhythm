@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
-use tauri::ipc::Channel;
-use crate::shared::schema::{ServerEventChunk, Task};
+use crate::shared::schema::{EventPayload, Task};
+use crate::core::event_bus;
 use super::AgentTool;
 
 pub struct PlanTool;
@@ -54,13 +54,13 @@ impl AgentTool for PlanTool {
         })
     }
 
-    async fn execute(&self, _session_id: &str, _tool_call_id: &str, args: Value, stream: &Channel<ServerEventChunk>) -> Result<String, String> {
+    async fn execute(&self, agent_id: &str, _session_id: &str, _tool_call_id: &str, args: Value) -> Result<String, String> {
         let args: PlanArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
         let task_count = args.tasks.len();
         let completed_count = args.tasks.iter().filter(|t| t.status == "completed").count();
 
-        let _ = stream.send(ServerEventChunk::TaskUpdate {
+        event_bus::emit(agent_id, _session_id, EventPayload::TaskUpdate {
             tasks: args.tasks,
         });
 

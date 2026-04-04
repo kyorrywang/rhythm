@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 use std::process::{Command as StdCommand, Stdio};
-use tauri::ipc::Channel;
-use crate::shared::schema::ServerEventChunk;
+use crate::shared::schema::EventPayload;
+use crate::core::event_bus;
 use super::AgentTool;
 
 pub struct ShellTool;
@@ -36,19 +36,15 @@ impl AgentTool for ShellTool {
         })
     }
 
-    async fn execute(&self, _session_id: &str, tool_call_id: &str, args: Value, stream: &Channel<ServerEventChunk>) -> Result<String, String> {
+    async fn execute(&self, agent_id: &str, session_id: &str, tool_call_id: &str, args: Value) -> Result<String, String> {
         let args: ShellArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
-        let tool_id = tool_call_id; // unique id for tool outputs in current turn
+        let tool_id = tool_call_id;
 
-        // Stream basic command starting log
-        let _ = stream.send(ServerEventChunk::ToolOutput {
+        event_bus::emit(agent_id, session_id, EventPayload::ToolOutput {
             tool_id: tool_id.to_string(),
             log_line: format!("Executing: {}\n", args.command),
         });
 
-        // Use std command (or tokio but std is simpler for simple shell tasks)
-        // Adjust for OS if needed, but on Windows pwsh -c is standard if pwsh is available.
-        // We'll use cmd /c for basic Windows support.
         let output = if cfg!(target_os = "windows") {
             StdCommand::new("cmd")
                 .args(&["/C", &args.command])
@@ -69,13 +65,13 @@ impl AgentTool for ShellTool {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         if !stdout.is_empty() {
-             let _ = stream.send(ServerEventChunk::ToolOutput {
+            event_bus::emit(agent_id, session_id, EventPayload::ToolOutput {
                 tool_id: tool_id.to_string(),
                 log_line: stdout.clone(),
             });
         }
         if !stderr.is_empty() {
-            let _ = stream.send(ServerEventChunk::ToolOutput {
+            event_bus::emit(agent_id, session_id, EventPayload::ToolOutput {
                 tool_id: tool_id.to_string(),
                 log_line: stderr.clone(),
             });

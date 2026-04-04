@@ -52,12 +52,16 @@ const presenters: Record<string, ToolPresenter> = {
     details: joinLogs(tool),
     defaultExpanded: tool.status === 'running',
   }),
-  spawn_subagent: (tool) => ({
-    title: 'Subagent',
-    summary: tool.arguments?.goal || '启动子代理',
-    details: joinLogs(tool),
-    defaultExpanded: tool.status === 'running',
-  }),
+  spawn_subagent: (tool) => {
+    const title = tool.arguments?.title || tool.arguments?.message || '启动子代理';
+    const shortTitle = title.length > 20 ? title.slice(0, 20) + '...' : title;
+    return {
+      title: 'Dynamic 智能体',
+      summary: shortTitle,
+      details: joinLogs(tool),
+      defaultExpanded: false,
+    };
+  },
 };
 
 export const getToolPresentation = (tool: ToolCall): ToolPresentation => {

@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
-use tauri::ipc::Channel;
-use crate::shared::schema::{ServerEventChunk, AskQuestion};
-use super::AgentTool;
+use crate::shared::schema::{EventPayload, AskQuestion};
+use crate::core::event_bus;
 use crate::core::state;
+use super::AgentTool;
 use tokio::sync::oneshot;
 
 pub struct AskTool;
@@ -89,7 +89,7 @@ impl AgentTool for AskTool {
         to_schema_question()
     }
 
-    async fn execute(&self, session_id: &str, tool_call_id: &str, args: Value, stream: &Channel<ServerEventChunk>) -> Result<String, String> {
+    async fn execute(&self, agent_id: &str, session_id: &str, tool_call_id: &str, args: Value) -> Result<String, String> {
         let args: AskArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
         let questions: Vec<AskQuestion> = if let Some(qs) = &args.questions {
@@ -121,7 +121,7 @@ impl AgentTool for AskTool {
         state::set_ask_waiter(session_id.to_string(), tx).await;
 
         let first = &questions[0];
-        let _ = stream.send(ServerEventChunk::AskRequest {
+        event_bus::emit(agent_id, session_id, EventPayload::AskRequest {
             tool_id: tool_call_id.to_string(),
             question: first.question.clone(),
             options: first.options.clone(),

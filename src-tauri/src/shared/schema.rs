@@ -17,12 +17,20 @@ pub struct AskQuestion {
 pub struct Task {
     pub id: String,
     pub text: String,
-    pub status: String, // 'pending', 'running', 'completed', 'error'
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ServerEventChunk {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(flatten)]
+    pub payload: EventPayload,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
-pub enum ServerEventChunk {
+pub enum EventPayload {
     #[serde(rename = "text_delta")]
     TextDelta { content: String },
 
@@ -82,6 +90,15 @@ pub enum ServerEventChunk {
         #[serde(rename = "subSessionId")]
         sub_session_id: String,
         title: String,
+    },
+
+    #[serde(rename = "subagent_end")]
+    SubagentEnd {
+        #[serde(rename = "subSessionId")]
+        sub_session_id: String,
+        result: String,
+        #[serde(rename = "isError")]
+        is_error: bool,
     },
 
     #[serde(rename = "done")]

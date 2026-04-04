@@ -7,6 +7,7 @@ export interface ToolCall {
   executionTime?: number;
   logs?: string[];
   startTime?: number;
+  subSessionId?: string;
 }
 
 export interface Task {
@@ -31,18 +32,19 @@ export interface AskRequest {
   questions?: AskQuestion[];
 }
 
-export type ServerEventChunk = 
-  | { type: 'text_delta'; content: string } 
-  | { type: 'thinking_delta'; content: string }
-  | { type: 'thinking_end'; timeCostMs: number }
-  | { type: 'tool_start'; toolId: string; toolName: string; args: any }
-  | { type: 'tool_output'; toolId: string; logLine: string }
-  | { type: 'tool_end'; toolId: string; exitCode: number }
-  | { type: 'ask_request'; toolId: string; question: string; options: string[]; selectionType?: SelectionType; questions?: AskQuestion[] }
-  | { type: 'task_update'; tasks: Task[] }
-  | { type: 'subagent_start'; parentSessionId: string; subSessionId: string; title: string }
-  | { type: 'done' }
-  | { type: 'interrupted' };
+export type ServerEventChunk =
+  | { type: 'text_delta'; sessionId: string; content: string }
+  | { type: 'thinking_delta'; sessionId: string; content: string }
+  | { type: 'thinking_end'; sessionId: string; timeCostMs: number }
+  | { type: 'tool_start'; sessionId: string; toolId: string; toolName: string; args: any }
+  | { type: 'tool_output'; sessionId: string; toolId: string; logLine: string }
+  | { type: 'tool_end'; sessionId: string; toolId: string; exitCode: number }
+  | { type: 'ask_request'; sessionId: string; toolId: string; question: string; options: string[]; selectionType?: SelectionType; questions?: AskQuestion[] }
+  | { type: 'task_update'; sessionId: string; tasks: Task[] }
+  | { type: 'subagent_start'; sessionId: string; parentSessionId: string; subSessionId: string; title: string }
+  | { type: 'subagent_end'; sessionId: string; subSessionId: string; result: string; isError: boolean }
+  | { type: 'done'; sessionId: string }
+  | { type: 'interrupted'; sessionId: string };
 
 export interface QueuedMessage {
   id: string;
@@ -51,7 +53,7 @@ export interface QueuedMessage {
   createdAt: number;
 }
 
-export type SessionPhase = 
+export type SessionPhase =
   | 'idle'
   | 'streaming'
   | 'streaming_with_queue'

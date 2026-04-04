@@ -1,12 +1,12 @@
-use tauri::ipc::Channel;
 use futures::future::join_all;
 use futures::StreamExt;
 use serde_json::Value;
 
-use crate::shared::schema::ServerEventChunk;
+use crate::shared::schema::EventPayload;
 use crate::core::models::{ChatMessageBlock, LlmClient, ChatMessage, LlmResponse, LlmToolDefinition};
 use crate::core::tools::{AgentTool, shell::ShellTool, file_system::FileSystemTool, ask::AskTool, subagent::SubagentTool, plan::PlanTool};
 use crate::core::state;
+use crate::core::event_bus;
 
 pub struct AgentLoop {
     client: Box<dyn LlmClient>,
@@ -34,16 +34,24 @@ impl AgentLoop {
 
     pub async fn run_stream(
         &self,
+        agent_id: &str,
         session_id: String,
         prompt: String,
-        on_event: Channel<ServerEventChunk>,
+        system_prompt: Option<String>,
     ) -> Result<(), String> {
-        let mut history = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                blocks: vec![ChatMessageBlock::Text { text: prompt }],
-            }
-        ];
+        let mut history = Vec::new();
+
+        if let Some(sys) = system_prompt {
+            history.push(ChatMessage {
+                role: "system".to_string(),
+                blocks: vec![ChatMessageBlock::Text { text: sys }],
+            });
+        }
+
+        history.push(ChatMessage {
+            role: "user".to_string(),
+            blocks: vec![ChatMessageBlock::Text { text: prompt }],
+        });
 
         let tool_defs: Vec<LlmToolDefinition> = self.tools.iter().map(|t| {
             LlmToolDefinition {
@@ -66,25 +74,25 @@ impl AgentLoop {
                         if thinking_started_at.is_none() {
                             thinking_started_at = Some(std::time::Instant::now());
                         }
-                        let _ = on_event.send(ServerEventChunk::ThinkingDelta { content: delta });
+                        event_bus::emit(agent_id, &session_id, EventPayload::ThinkingDelta { content: delta });
                     },
                     Ok(LlmResponse::TextDelta(delta)) => {
                         if !thinking_ended {
                             let elapsed = thinking_started_at.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
-                            let _ = on_event.send(ServerEventChunk::ThinkingEnd { time_cost_ms: elapsed });
+                            event_bus::emit(agent_id, &session_id, EventPayload::ThinkingEnd { time_cost_ms: elapsed });
                             thinking_ended = true;
                         }
-                        let _ = on_event.send(ServerEventChunk::TextDelta { content: delta });
+                        event_bus::emit(agent_id, &session_id, EventPayload::TextDelta { content: delta });
                     },
                     Ok(LlmResponse::ThinkingEnd) => {
                         let elapsed = thinking_started_at.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
-                        let _ = on_event.send(ServerEventChunk::ThinkingEnd { time_cost_ms: elapsed });
+                        event_bus::emit(agent_id, &session_id, EventPayload::ThinkingEnd { time_cost_ms: elapsed });
                         thinking_ended = true;
                     },
                     Ok(LlmResponse::ToolCall(tool_call)) => {
                         if !thinking_ended {
                             let elapsed = thinking_started_at.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
-                            let _ = on_event.send(ServerEventChunk::ThinkingEnd { time_cost_ms: elapsed });
+                            event_bus::emit(agent_id, &session_id, EventPayload::ThinkingEnd { time_cost_ms: elapsed });
                             thinking_ended = true;
                         }
                         pending_tool_calls.push(tool_call);
@@ -92,9 +100,9 @@ impl AgentLoop {
                     Ok(LlmResponse::Done) => {
                          if !pending_tool_calls.is_empty() {
                              let result = self.execute_tools(
+                                 agent_id,
                                  &session_id,
                                  std::mem::take(&mut pending_tool_calls),
-                                 &on_event,
                              ).await;
 
                              history.push(ChatMessage {
@@ -108,13 +116,13 @@ impl AgentLoop {
 
                              if state::is_interrupted(&session_id).await {
                                  state::clear_interrupt(&session_id).await;
-                                 let _ = on_event.send(ServerEventChunk::Interrupted);
+                                 event_bus::emit(agent_id, &session_id, EventPayload::Interrupted);
                                  return Ok(());
                              }
 
                              continue 'outer;
                          }
-                         let _ = on_event.send(ServerEventChunk::Done);
+                         event_bus::emit(agent_id, &session_id, EventPayload::Done);
                          return Ok(());
                     },
                     Err(e) => return Err(e),
@@ -123,9 +131,9 @@ impl AgentLoop {
 
             if !pending_tool_calls.is_empty() {
                 let result = self.execute_tools(
+                    agent_id,
                     &session_id,
                     std::mem::take(&mut pending_tool_calls),
-                    &on_event,
                 ).await;
 
                 history.push(ChatMessage {
@@ -139,7 +147,7 @@ impl AgentLoop {
 
                 if state::is_interrupted(&session_id).await {
                     state::clear_interrupt(&session_id).await;
-                    let _ = on_event.send(ServerEventChunk::Interrupted);
+                    event_bus::emit(agent_id, &session_id, EventPayload::Interrupted);
                     return Ok(());
                 }
 
@@ -153,9 +161,9 @@ impl AgentLoop {
 
     async fn execute_tools(
         &self,
+        agent_id: &str,
         session_id: &str,
         tool_calls: Vec<crate::core::models::LlmToolCall>,
-        on_event: &Channel<ServerEventChunk>,
     ) -> ToolExecutionResult {
         let tool_call_blocks: Vec<ChatMessageBlock> = tool_calls.iter().map(|tool_call| {
             let args: Value = serde_json::from_str(&tool_call.arguments).unwrap_or(Value::Null);
@@ -170,18 +178,19 @@ impl AgentLoop {
             let tool_name = tool_call.name.clone();
             let tool_id = tool_call.id.clone();
             let args: Value = serde_json::from_str(&tool_call.arguments).unwrap_or(Value::Null);
-            let on_event = on_event.clone();
+            let agent_id = agent_id.to_string();
+            let session_id = session_id.to_string();
             let tools: Vec<&Box<dyn AgentTool>> = self.tools.iter().collect();
 
             async move {
-                let _ = on_event.send(ServerEventChunk::ToolStart {
+                event_bus::emit(&agent_id, &session_id, EventPayload::ToolStart {
                     tool_id: tool_id.clone(),
                     tool_name: tool_name.clone(),
                     args: args.clone(),
                 });
 
                 let result = if let Some(tool) = tools.iter().find(|tool| tool.name() == tool_name) {
-                    tool.execute(session_id, &tool_id, args, &on_event).await
+                    tool.execute(&agent_id, &session_id, &tool_id, args).await
                 } else {
                     Err(format!("Error: Tool {} not found", tool_name))
                 };
@@ -189,7 +198,7 @@ impl AgentLoop {
                 let is_error = result.is_err();
                 let content = result.unwrap_or_else(|e| e);
 
-                let _ = on_event.send(ServerEventChunk::ToolEnd {
+                event_bus::emit(&agent_id, &session_id, EventPayload::ToolEnd {
                     tool_id: tool_id.clone(),
                     exit_code: if is_error { 1 } else { 0 },
                 });

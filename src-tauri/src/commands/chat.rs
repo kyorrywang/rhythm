@@ -1,9 +1,11 @@
 use tauri::ipc::Channel;
-use crate::shared::schema::ServerEventChunk;
-use crate::infrastructure::config;
-use crate::core::models;
+use crate::shared::schema::{ServerEventChunk, EventPayload};
 use crate::core::agent_loop::AgentLoop;
+use crate::core::models;
 use crate::core::state;
+use crate::core::agent_registry;
+use crate::core::event_bus;
+use crate::infrastructure::config;
 
 #[tauri::command]
 pub async fn chat_stream(
@@ -11,22 +13,30 @@ pub async fn chat_stream(
     prompt: String,
     on_event: Channel<ServerEventChunk>,
 ) -> Result<(), String> {
-    
-    tokio::spawn(async move {
-        // 1. Load settings
-        let settings = config::load_settings();
-           
-        // 2. Create client based on provider
-        let client = models::create_client(&settings.llm);
+    let agent_id = agent_registry::register_agent(
+        session_id.clone(),
+        None,
+        0,
+    );
 
-        // 3. Coordinate via AgentLoop
+    event_bus::register_ipc_channel(&agent_id, on_event.clone());
+
+    tokio::spawn(async move {
+        let settings = config::load_settings();
+        let client = models::create_client(&settings.llm);
         let agent = AgentLoop::new(client);
-        
-        if let Err(e) = agent.run_stream(session_id, prompt, on_event.clone()).await {
+
+        if let Err(e) = agent.run_stream(&agent_id, session_id.clone(), prompt, None).await {
             eprintln!("Generation error: {}", e);
-            let _ = on_event.send(ServerEventChunk::TextDelta { content: format!("\n[Error: {}]", e) });
-            let _ = on_event.send(ServerEventChunk::Done);
+            event_bus::emit(&agent_id, &session_id, EventPayload::TextDelta {
+                content: format!("\n[Error: {}]", e),
+            });
+            event_bus::emit(&agent_id, &session_id, EventPayload::Done);
         }
+
+        event_bus::unregister(&agent_id);
+        agent_registry::unregister_agent(&agent_id);
+        state::unregister_session_tree(&session_id).await;
     });
 
     Ok(())

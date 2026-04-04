@@ -188,6 +188,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         setTimeout(() => {
           get().processChunk(effect.sessionId, effect.messageId, {
             type: 'thinking_end',
+            sessionId: effect.sessionId,
             timeCostMs: effect.timeCostMs,
           });
         }, effect.delayMs);

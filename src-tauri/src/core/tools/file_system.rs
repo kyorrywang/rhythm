@@ -3,15 +3,15 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
-use tauri::ipc::Channel;
-use crate::shared::schema::ServerEventChunk;
+use crate::shared::schema::EventPayload;
+use crate::core::event_bus;
 use super::AgentTool;
 
 pub struct FileSystemTool;
 
 #[derive(Deserialize)]
 struct FileArgs {
-    action: String, // "read", "write", "list"
+    action: String,
     path: String,
     content: Option<String>,
 }
@@ -49,14 +49,14 @@ impl AgentTool for FileSystemTool {
         })
     }
 
-    async fn execute(&self, _session_id: &str, tool_call_id: &str, args: Value, stream: &Channel<ServerEventChunk>) -> Result<String, String> {
+    async fn execute(&self, agent_id: &str, session_id: &str, tool_call_id: &str, args: Value) -> Result<String, String> {
         let args: FileArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
         let path = PathBuf::from(args.path);
 
         match args.action.as_str() {
             "read" => {
                 let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-                let _ = stream.send(ServerEventChunk::ToolOutput {
+                event_bus::emit(agent_id, session_id, EventPayload::ToolOutput {
                     tool_id: tool_call_id.to_string(),
                     log_line: format!("Reading {}\n\n{}", path.display(), content),
                 });
@@ -68,7 +68,7 @@ impl AgentTool for FileSystemTool {
                         let _ = fs::create_dir_all(parent);
                     }
                     fs::write(&path, &content).map_err(|e| e.to_string())?;
-                    let _ = stream.send(ServerEventChunk::ToolOutput {
+                    event_bus::emit(agent_id, session_id, EventPayload::ToolOutput {
                         tool_id: tool_call_id.to_string(),
                         log_line: format!("Writing {}\n\n{}", path.display(), content),
                     });
@@ -84,7 +84,7 @@ impl AgentTool for FileSystemTool {
                     .map(|e| e.file_name().to_string_lossy().to_string())
                     .collect::<Vec<String>>()
                     .join("\n");
-                let _ = stream.send(ServerEventChunk::ToolOutput {
+                event_bus::emit(agent_id, session_id, EventPayload::ToolOutput {
                     tool_id: tool_call_id.to_string(),
                     log_line: format!("Listing {}\n\n{}", path.display(), list),
                 });

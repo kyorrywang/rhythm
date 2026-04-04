@@ -3,8 +3,11 @@ import { Loader2, ChevronRight, ChevronDown, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Message, ToolCall } from '@/types/schema';
 import { getToolPresentation } from '@/features/session/toolPresentation';
+import { useSessionStore } from '@/store/useSessionStore';
 
 interface AgentMessageProps {
   message: Message;
@@ -32,7 +35,6 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
   const presentation = getToolPresentation(tool);
   const [isExpanded, setIsExpanded] = useState(presentation.defaultExpanded);
 
-  // Auto-collapse when finished
   useEffect(() => {
     if (isRunning) {
       setIsExpanded(true);
@@ -40,6 +42,33 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
       setIsExpanded(false);
     }
   }, [isRunning]);
+
+  const isSubagent = tool.name === 'spawn_subagent';
+
+  if (isSubagent) {
+    return (
+      <div className="flex items-center gap-2 text-[13px]">
+        <span className="font-bold text-gray-800">{presentation.title}</span>
+
+        {tool.subSessionId ? (
+          <button
+            onClick={() => useSessionStore.getState().setActiveSession(tool.subSessionId!)}
+            className="text-blue-600 hover:text-blue-800 underline cursor-pointer"
+          >
+            {presentation.summary}
+          </button>
+        ) : (
+          <span className="text-gray-500">{presentation.summary}</span>
+        )}
+
+        <span className="text-gray-500 ml-1">
+          (<Timer isRunning={isRunning} startTime={(tool as any).startTime || Date.now()} finalMs={tool.executionTime} />)
+        </span>
+
+        {isRunning && <Loader2 size={12} className="animate-spin text-gray-400 ml-1" />}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -171,7 +200,29 @@ export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessage
             transition={{ duration: 0.3 }}
             className="prose prose-sm max-w-none text-gray-800 mt-2"
           >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown 
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code({ className, children, ...props }: any) {
+                  const match = /language-(\w+)/.exec(className || '');
+                  return match ? (
+                    <SyntaxHighlighter
+                      {...props}
+                      style={vscDarkPlus}
+                      language={match[1]}
+                      PreTag="div"
+                      className="rounded-md my-2 text-sm"
+                    >
+                      {String(children).replace(/\n$/, '')}
+                    </SyntaxHighlighter>
+                  ) : (
+                    <code {...props} className={`${className || ''} bg-gray-100 rounded-md px-1.5 py-0.5 text-sm text-pink-600 font-mono`}>
+                      {children}
+                    </code>
+                  );
+                }
+              }}
+            >
               {message.content}
             </ReactMarkdown>
           </motion.div>
