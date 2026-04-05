@@ -85,9 +85,8 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
         id: Date.now().toString(),
         role: 'user',
         content: text,
-        mode: 'append',
         createdAt: Date.now(),
-      }, 'urgent');
+      }, 'urgent', 'append');
       setText('');
       if (phase === 'streaming') {
         transitionPhase(activeSessionId, 'streaming_with_queue');

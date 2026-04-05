@@ -112,6 +112,7 @@ pub enum EventPayload {
         #[serde(rename = "subSessionId")]
         sub_session_id: String,
         title: String,
+        message: String,
     },
 
     #[serde(rename = "subagent_end")]

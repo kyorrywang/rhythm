@@ -33,14 +33,14 @@ export const SessionContainer = () => {
   const activeSession = sessions.find(s => s.id === activeSessionId);
 
   const messages = activeSession?.messages ?? [];
-  const isSessionRunning = activeSession?.running ?? false;
+  const isSessionRunning = activeSession?.phase !== 'idle' && activeSession?.phase !== undefined;
 
   // Auto scroll down whenever messages change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages.length, messages[messages.length - 1]?.content, messages[messages.length - 1]?.toolCalls?.length]);
+  }, [messages.length, messages[messages.length - 1]?.segments]);
 
   // Observe composer height changes
   useEffect(() => {

@@ -80,6 +80,7 @@ impl AgentTool for SubagentTool {
                 parent_session_id: session_id.to_string(),
                 sub_session_id: sub_session_id.clone(),
                 title: display_title.clone(),
+                message: args.message.clone(),
             },
         );
 

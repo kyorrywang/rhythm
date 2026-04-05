@@ -1,4 +1,5 @@
 import { Message, MessageSegment, ServerEventChunk, Session, ToolCall } from '@/types/schema';
+import { isUiOnlyTool } from '@/features/session/toolRegistry';
 
 type InternalMessage = Message & {
   _liveTextIndex?: number;
@@ -39,27 +40,32 @@ const findLiveThinking = (segments: MessageSegment[]): { index: number; segment:
   return null;
 };
 
-const getOrCreateTextIndex = (message: InternalMessage): number => {
-  if (message._liveTextIndex !== undefined) return message._liveTextIndex;
-
-  const segments = [...(message.segments || [])];
-  const lastIdx = segments.length;
-  segments.push({ type: 'text', content: '' });
-  return lastIdx;
-};
-
 const appendText = (message: InternalMessage, text: string): InternalMessage => {
   const segments = [...(message.segments || [])];
-  const idx = getOrCreateTextIndex(message);
 
-  if (idx < segments.length && segments[idx].type === 'text') {
-    const seg = segments[idx];
-    segments[idx] = { ...seg, content: seg.content + text };
-  } else {
-    segments.push({ type: 'text', content: text });
+  // If we have a cached live text index, append to it
+  if (message._liveTextIndex !== undefined) {
+    const idx = message._liveTextIndex;
+    if (idx < segments.length && segments[idx].type === 'text') {
+      const seg = segments[idx];
+      segments[idx] = { ...seg, content: seg.content + text };
+      return { ...message, segments };
+    }
+    // Index is stale (e.g. a tool was inserted after it), fall through to create new
   }
 
-  return { ...message, segments, _liveTextIndex: idx };
+  // Find the last text segment at the end of the array (no tool/ask segments after it)
+  const lastIdx = segments.length - 1;
+  if (lastIdx >= 0 && segments[lastIdx].type === 'text') {
+    const seg = segments[lastIdx];
+    segments[lastIdx] = { ...seg, content: seg.content + text };
+    return { ...message, segments, _liveTextIndex: lastIdx };
+  }
+
+  // No suitable text segment found — create a new one
+  const newIdx = segments.length;
+  segments.push({ type: 'text', content: text });
+  return { ...message, segments, _liveTextIndex: newIdx };
 };
 
 const applyTextDelta = (
@@ -167,7 +173,7 @@ const applyChunkToMessage = (
       };
     }
 
-    if (chunk.toolName === 'ask_user') {
+    if (isUiOnlyTool(chunk.toolName)) {
       return { ...message, segments };
     }
 
@@ -181,7 +187,7 @@ const applyChunkToMessage = (
     };
 
     segments.push({ type: 'tool', tool: newTool });
-    return { ...message, segments };
+    return { ...message, segments, _liveTextIndex: undefined };
   }
 
   if (chunk.type === 'tool_output') {
@@ -228,6 +234,7 @@ const applyChunkToMessage = (
       selectionType: chunk.selectionType,
       questions: chunk.questions,
       status: 'waiting',
+      startTime: Date.now(),
     });
     return { ...message, segments, status: 'waiting_for_user' };
   }
@@ -237,7 +244,7 @@ const applyChunkToMessage = (
       ...message,
       segments: segments.map((seg) =>
         seg.type === 'ask' && seg.status === 'waiting'
-          ? { ...seg, status: 'answered', answer: chunk.answer }
+          ? { ...seg, status: 'answered', answer: chunk.answer, timeCostMs: Date.now() - (seg.startTime || Date.now()) }
           : seg,
       ),
       status: 'running',
@@ -276,15 +283,19 @@ export const reduceSessionChunk = (
   const effects: ChunkEffect[] = [];
 
   if (chunk.type === 'subagent_start') {
-    const parentSession = sessions.find(s => s.id === sessionId);
-    const parentUserMessage = parentSession?.messages.filter(m => m.role === 'user').pop();
+    const newUserMessage: Message = {
+      id: Date.now().toString() + '-u-sub',
+      role: 'user',
+      content: chunk.message,
+      createdAt: Date.now(),
+    };
 
     const newSession: Session = {
       id: chunk.subSessionId,
       title: chunk.title,
       updatedAt: Date.now(),
-      running: true,
-      messages: parentUserMessage ? [parentUserMessage] : [],
+      phase: 'streaming',
+      messages: [newUserMessage],
       parentId: chunk.parentSessionId,
       queuedMessages: [],
     };
@@ -292,17 +303,12 @@ export const reduceSessionChunk = (
     const updatedSessions = sessions.map((session) => {
       if (session.id !== sessionId) return session;
       return updateMessage(session, messageId, (message) => {
-        const updatedTools = message.toolCalls?.map((tool) =>
-          tool.name === 'spawn_subagent' && tool.status === 'running' && !tool.subSessionId
-            ? { ...tool, subSessionId: chunk.subSessionId }
-            : tool
-        );
         const updatedSegments = message.segments?.map((seg) =>
           seg.type === 'tool' && seg.tool.name === 'spawn_subagent' && seg.tool.status === 'running' && !seg.tool.subSessionId
             ? { ...seg, tool: { ...seg.tool, subSessionId: chunk.subSessionId } }
             : seg
         );
-        return { ...message, toolCalls: updatedTools, segments: updatedSegments };
+        return { ...message, segments: updatedSegments };
       });
     });
 
@@ -315,7 +321,7 @@ export const reduceSessionChunk = (
   if (chunk.type === 'subagent_end') {
     const updatedSessions = sessions.map(s => {
       if (s.id === chunk.subSessionId) {
-        return { ...s, running: false };
+        return { ...s, phase: 'idle' as const };
       }
       return s;
     });
@@ -332,7 +338,14 @@ export const reduceSessionChunk = (
       return updateMessage(session, messageId, (message) =>
         applyChunkToMessage(message, chunk, sessionId, effects),
       );
-    }).map(s => s.id === sessionId ? { ...s, currentAsk: null } : s);
+    }).map(s => {
+      if (s.id !== sessionId) return s;
+      const next = { ...s, currentAsk: null };
+      if (s.phase === 'waiting_for_ask') {
+        next.phase = 'streaming';
+      }
+      return next;
+    });
 
     return {
       sessions: updatedSessions,
@@ -359,7 +372,7 @@ export const reduceSessionChunk = (
     } else if (chunk.type === 'task_update') {
       nextSession = { ...nextSession, currentTasks: chunk.tasks };
     } else if (chunk.type === 'done') {
-      nextSession = { ...nextSession, running: false };
+      nextSession = { ...nextSession, phase: 'idle' as const };
     }
 
     return updateMessage(nextSession, messageId, (message) =>

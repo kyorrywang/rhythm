@@ -4,7 +4,6 @@ export interface ToolPresentation {
   title: string;
   summary: string;
   details: string;
-  defaultExpanded: boolean;
 }
 
 type ToolPresenter = (tool: ToolCall) => ToolPresentation;
@@ -16,31 +15,26 @@ const presenters: Record<string, ToolPresenter> = {
     title: 'Shell',
     summary: tool.arguments?.command || '命令',
     details: joinLogs(tool),
-    defaultExpanded: tool.status === 'running',
   }),
   read: (tool) => ({
     title: 'READ',
     summary: tool.arguments?.path || '',
     details: joinLogs(tool),
-    defaultExpanded: tool.status === 'running',
   }),
   write: (tool) => ({
     title: 'WRITE',
     summary: tool.arguments?.path || '',
     details: joinLogs(tool),
-    defaultExpanded: tool.status === 'running',
   }),
   edit: (tool) => ({
     title: 'EDIT',
     summary: tool.arguments?.path || '',
     details: joinLogs(tool),
-    defaultExpanded: tool.status === 'running',
   }),
   delete: (tool) => ({
     title: 'DELETE',
     summary: tool.arguments?.path || '',
     details: joinLogs(tool),
-    defaultExpanded: tool.status === 'running',
   }),
   spawn_subagent: (tool) => {
     const title = tool.arguments?.title || tool.arguments?.message || '启动子代理';
@@ -49,7 +43,6 @@ const presenters: Record<string, ToolPresenter> = {
       title: 'Dynamic 智能体',
       summary: shortTitle,
       details: joinLogs(tool),
-      defaultExpanded: false,
     };
   },
 };
@@ -64,6 +57,5 @@ export const getToolPresentation = (tool: ToolCall): ToolPresentation => {
     title: tool.name,
     summary: tool.arguments?.path || JSON.stringify(tool.arguments),
     details: joinLogs(tool),
-    defaultExpanded: tool.status === 'running',
   };
 };

@@ -11,7 +11,7 @@ export const useLLMStream = () => {
   const rootAiMessageIdRef = useRef<string | null>(null);
   const subSessionMessageMapRef = useRef<Map<string, string>>(new Map());
 
-  const connectStream = useCallback(async (prompt: string, messageMode: Message['mode']) => {
+  const connectStream = useCallback(async (prompt: string, messageMode: 'normal' | 'build' | 'task' | 'ask' | 'append') => {
     const state = useSessionStore.getState();
     const sessionId = state.activeSessionId;
     if (!sessionId) return;
@@ -25,7 +25,6 @@ export const useLLMStream = () => {
       id: Date.now().toString() + '-u',
       role: 'user',
       content: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
-      mode: messageMode,
       createdAt: Date.now(),
     };
     addMessage(sessionId, userMsg);
@@ -37,7 +36,7 @@ export const useLLMStream = () => {
       role: 'assistant',
       content: '',
       createdAt: Date.now(),
-      segments: [{ type: 'thinking', content: '', isLive: true, startTime: Date.now() }],
+      segments: [],
     };
     addMessage(sessionId, initAiMsg);
 
@@ -56,7 +55,7 @@ export const useLLMStream = () => {
             role: 'assistant',
             content: '',
             createdAt: Date.now(),
-            segments: [{ type: 'thinking', content: '', isLive: true, startTime: Date.now() }],
+            segments: [],
           });
 
           subSessionMessageMapRef.current.set(chunk.subSessionId, subAiMessageId);
@@ -105,13 +104,13 @@ export const useLLMStream = () => {
     }
   }, [addMessage, processChunk, dequeueMessage, transitionPhase, migrateQueueToChild, restoreQueueToParent]);
 
-  const processQueueAfterDone = useCallback(async (sessionId: string, _lastMode: Message['mode']) => {
+  const processQueueAfterDone = useCallback(async (sessionId: string, _lastMode: 'normal' | 'build' | 'task' | 'ask' | 'append') => {
     const queuedItem = dequeueMessage(sessionId);
     if (queuedItem) {
       transitionPhase(sessionId, 'processing_queue');
       await microtaskDelay();
       if (!abortRef.current) {
-        connectStream(queuedItem.message.content, queuedItem.message.mode);
+        connectStream(queuedItem.message.content || '', queuedItem.mode || 'normal');
       }
     } else {
       setIsStreaming(false);

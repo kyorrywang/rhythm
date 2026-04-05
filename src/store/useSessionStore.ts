@@ -11,7 +11,7 @@ interface SessionState {
   
   setActiveSession: (id: string) => void;
   addMessage: (sessionId: string, message: Message) => void;
-  enqueueMessage: (sessionId: string, message: Message, priority: 'normal' | 'urgent') => void;
+  enqueueMessage: (sessionId: string, message: Message, priority: 'normal' | 'urgent', mode?: 'normal' | 'build' | 'task' | 'ask' | 'append') => void;
   dequeueMessage: (sessionId: string) => QueuedMessage | null;
   removeQueuedMessage: (sessionId: string, queuedMessageId: string) => void;
   clearQueue: (sessionId: string) => void;
@@ -22,7 +22,6 @@ interface SessionState {
   toggleAppendMinimized: () => void;
   processChunk: (sessionId: string, messageId: string, chunk: ServerEventChunk) => void;
   navigateBack: () => void;
-  setSessionRunning: (sessionId: string, running: boolean) => void;
   clearAskRequest: (sessionId: string) => void;
   recordAskAnswer: (sessionId: string, messageId: string, answer: { selected: string[]; text: string }) => void;
   clearTasks: (sessionId: string) => void;
@@ -36,7 +35,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       id: '1',
       title: '响应式会话演示',
       updatedAt: Date.now(),
-      running: false,
       phase: 'idle',
       messages: [],
       queuedMessages: [],
@@ -58,13 +56,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     )
   })),
 
-  enqueueMessage: (sessionId, message, priority) => set((state) => ({
+  enqueueMessage: (sessionId, message, priority, mode) => set((state) => ({
     sessions: state.sessions.map(s => {
       if (s.id !== sessionId) return s;
       const existing = s.queuedMessages || [];
       const queued: QueuedMessage = {
         id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         message,
+        mode,
         priority,
         createdAt: Date.now(),
       };
@@ -114,12 +113,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (s.id !== sessionId) return s;
       return { ...s, phase };
     })
-  })),
-
-  setSessionRunning: (sessionId, running) => set((state) => ({
-    sessions: state.sessions.map(s =>
-      s.id === sessionId ? { ...s, running } : s
-    )
   })),
 
   clearAskRequest: (sessionId) => set((state) => ({
