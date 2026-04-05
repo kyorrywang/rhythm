@@ -111,7 +111,8 @@ impl AgentTool for SubagentTool {
             .await;
 
         let (result_str, is_error) = match result {
-            Ok(_) => ("Subagent completed successfully".to_string(), false),
+            Ok(text) if !text.is_empty() && text != "Subagent completed successfully" => (text, false),
+            Ok(_) => (format!("Subagent '{}' completed. Output was minimal.", display_title), false),
             Err(e) => (format!("Subagent failed: {}", e), true),
         };
 

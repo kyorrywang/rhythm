@@ -41,8 +41,9 @@ impl AgentLoop {
         session_id: String,
         prompt: String,
         system_prompt: Option<String>,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let mut history = Vec::new();
+        let mut collected_text = String::new();
 
         if let Some(sys) = system_prompt {
             history.push(ChatMessage {
@@ -77,7 +78,8 @@ impl AgentLoop {
                         if thinking_started_at.is_none() {
                             thinking_started_at = Some(std::time::Instant::now());
                         }
-                        event_bus::emit(agent_id, &session_id, EventPayload::ThinkingDelta { content: delta });
+                        event_bus::emit(agent_id, &session_id, EventPayload::ThinkingDelta { content: delta.clone() });
+                        collected_text.push_str(&delta);
                     },
                     Ok(LlmResponse::TextDelta(delta)) => {
                         if !thinking_ended {
@@ -85,7 +87,8 @@ impl AgentLoop {
                             event_bus::emit(agent_id, &session_id, EventPayload::ThinkingEnd { time_cost_ms: elapsed });
                             thinking_ended = true;
                         }
-                        event_bus::emit(agent_id, &session_id, EventPayload::TextDelta { content: delta });
+                        event_bus::emit(agent_id, &session_id, EventPayload::TextDelta { content: delta.clone() });
+                        collected_text.push_str(&delta);
                     },
                     Ok(LlmResponse::ThinkingEnd) => {
                         let elapsed = thinking_started_at.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
@@ -100,34 +103,34 @@ impl AgentLoop {
                         }
                         pending_tool_calls.push(tool_call);
                     },
-                    Ok(LlmResponse::Done) => {
-                         if !pending_tool_calls.is_empty() {
-                             let result = self.execute_tools(
-                                 agent_id,
-                                 &session_id,
-                                 std::mem::take(&mut pending_tool_calls),
-                             ).await;
+                     Ok(LlmResponse::Done) => {
+                          if !pending_tool_calls.is_empty() {
+                              let result = self.execute_tools(
+                                  agent_id,
+                                  &session_id,
+                                  std::mem::take(&mut pending_tool_calls),
+                              ).await;
 
-                             history.push(ChatMessage {
-                                 role: "assistant".to_string(),
-                                 blocks: result.tool_call_blocks,
-                             });
-                             history.push(ChatMessage {
-                                 role: "user".to_string(),
-                                 blocks: result.tool_results,
-                             });
+                              history.push(ChatMessage {
+                                  role: "assistant".to_string(),
+                                  blocks: result.tool_call_blocks,
+                              });
+                              history.push(ChatMessage {
+                                  role: "user".to_string(),
+                                  blocks: result.tool_results,
+                              });
 
-                             if state::is_interrupted(&session_id).await {
-                                 state::clear_interrupt(&session_id).await;
-                                 event_bus::emit(agent_id, &session_id, EventPayload::Interrupted);
-                                 return Ok(());
-                             }
+                              if state::is_interrupted(&session_id).await {
+                                  state::clear_interrupt(&session_id).await;
+                                  event_bus::emit(agent_id, &session_id, EventPayload::Interrupted);
+                                  return Ok(collected_text);
+                              }
 
-                             continue 'outer;
-                         }
-                         event_bus::emit(agent_id, &session_id, EventPayload::Done);
-                         return Ok(());
-                    },
+                              continue 'outer;
+                          }
+                          event_bus::emit(agent_id, &session_id, EventPayload::Done);
+                          return Ok(collected_text);
+                     },
                     Err(e) => return Err(e),
                 }
             }
@@ -151,7 +154,7 @@ impl AgentLoop {
                 if state::is_interrupted(&session_id).await {
                     state::clear_interrupt(&session_id).await;
                     event_bus::emit(agent_id, &session_id, EventPayload::Interrupted);
-                    return Ok(());
+                    return Ok(collected_text);
                 }
 
                 continue 'outer;
@@ -159,7 +162,7 @@ impl AgentLoop {
             break;
         }
 
-        Ok(())
+        Ok(collected_text)
     }
 
     async fn execute_tools(
