@@ -11,7 +11,7 @@ use crate::infrastructure::config;
 use crate::hooks::executor::HookExecutor;
 use crate::hooks::loader::load_hook_registry_for_cwd;
 use crate::mcp::McpClientManager;
-use crate::models;
+use crate::llm;
 use crate::permissions::PermissionChecker;
 use crate::prompts::build_runtime_prompt;
 use crate::tools::ToolRegistry;
@@ -117,7 +117,7 @@ impl CronRunner {
     async fn run_prompt(&self, prompt: &str, cwd: &str) -> (bool, String) {
         let settings = config::load_settings();
         let cwd_path = PathBuf::from(cwd);
-        let client = Arc::from(models::create_client(&settings.llm));
+        let client = Arc::from(llm::create_client(&settings.llm));
         let system_prompt = build_runtime_prompt(&settings, &cwd_path, Some(prompt));
 
         let merged_mcp_configs = McpClientManager::merged_server_configs(&settings, &cwd_path);

@@ -1,4 +1,4 @@
-use crate::models::ChatMessage;
+use crate::llm::ChatMessage;
 use crate::shared::error::RhythmError;
 use super::context::QueryContext;
 use super::stream_events::UsageTracker;
@@ -48,7 +48,7 @@ impl QueryEngine {
         if self.messages.is_empty() && !self.context.system_prompt.is_empty() {
             self.messages.push(ChatMessage {
                 role: "system".to_string(),
-                blocks: vec![crate::models::ChatMessageBlock::Text {
+blocks: vec![crate::llm::ChatMessageBlock::Text {
                     text: self.context.system_prompt.clone(),
                 }],
             });
@@ -57,7 +57,7 @@ impl QueryEngine {
         // Append user message
         self.messages.push(ChatMessage {
             role: "user".to_string(),
-            blocks: vec![crate::models::ChatMessageBlock::Text { text: prompt }],
+            blocks: vec![crate::llm::ChatMessageBlock::Text { text: prompt }],
         });
 
         run_query(&self.context, &mut self.messages, &mut self.usage_tracker).await

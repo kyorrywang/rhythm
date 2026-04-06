@@ -1,7 +1,7 @@
 pub mod shared;
 pub mod infrastructure;
 pub mod commands;
-pub mod models;
+pub mod llm;
 pub mod runtime;
 
 // ── New top-level modules (refactored architecture) ──────────────────────────

@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::shared::schema::EventPayload;
 use crate::infrastructure::event_bus;
 use crate::infrastructure::config;
-use crate::models;
+use crate::llm;
 use crate::coordinator::get_builtin_agent;
 use crate::mcp::McpClientManager;
 use crate::prompts::build_runtime_prompt_with_addition;
@@ -111,7 +111,7 @@ impl BaseTool for SubagentTool {
         use crate::hooks::executor::HookExecutor;
 
         let settings = config::load_settings();
-        let client = models::create_client(&settings.llm);
+        let client = llm::create_client(&settings.llm);
         let agent_def = args
             .subagent_type
             .as_deref()

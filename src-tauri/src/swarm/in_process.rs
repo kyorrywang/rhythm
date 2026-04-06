@@ -14,7 +14,7 @@ use crate::coordinator::{
 use crate::infrastructure::config;
 use crate::infrastructure::event_bus;
 use crate::mcp::McpClientManager;
-use crate::models;
+use crate::llm;
 use crate::permissions::PermissionChecker;
 use crate::prompts::build_runtime_prompt;
 use crate::shared::schema::EventPayload;
@@ -58,7 +58,7 @@ impl InProcessBackend {
 
         let task = tokio::spawn(async move {
             let settings = config::load_settings();
-            let client = Arc::from(models::create_client(&settings.llm));
+            let client = Arc::from(llm::create_client(&settings.llm));
             let cwd = std::path::PathBuf::from(&config_clone.cwd);
             let agent_def = config_clone
                 .subagent_type

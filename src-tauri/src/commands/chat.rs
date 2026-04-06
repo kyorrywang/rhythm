@@ -11,7 +11,7 @@ use crate::permissions::PermissionChecker;
 use crate::hooks::loader::load_hook_registry_for_cwd;
 use crate::hooks::executor::HookExecutor;
 use crate::mcp::McpClientManager;
-use crate::models;
+use crate::llm;
 use crate::prompts::builder::build_runtime_prompt;
 use crate::runtime::{ask, permissions, session_tree, sessions};
 use crate::swarm::agent_registry;
@@ -31,7 +31,7 @@ pub async fn chat_stream(
 
     tokio::spawn(async move {
         let settings = config::load_settings();
-        let client = Arc::from(models::create_client(&settings.llm));
+        let client = Arc::from(llm::create_client(&settings.llm));
 
         let cwd_path = cwd
             .map(PathBuf::from)

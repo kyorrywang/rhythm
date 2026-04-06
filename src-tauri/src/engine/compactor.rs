@@ -1,4 +1,4 @@
-use crate::models::{ChatMessage, ChatMessageBlock, LlmClient, LlmToolDefinition};
+use crate::llm::{ChatMessage, ChatMessageBlock, LlmClient, LlmToolDefinition};
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -185,7 +185,7 @@ async fn call_llm_for_summary(
     messages: Vec<ChatMessage>,
 ) -> String {
     use futures::StreamExt;
-    use crate::models::LlmResponse;
+    use crate::llm::LlmResponse;
 
     let _ = model; // model is baked into the client; exposed for future override support
 

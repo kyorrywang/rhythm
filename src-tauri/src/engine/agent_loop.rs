@@ -4,7 +4,7 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::infrastructure::event_bus;
-use crate::models::{ChatMessage, ChatMessageBlock, LlmResponse, LlmToolCall, LlmToolDefinition};
+use crate::llm::{ChatMessage, ChatMessageBlock, LlmResponse, LlmToolCall, LlmToolDefinition};
 use crate::coordinator::coordinator_mode;
 use crate::runtime::{interrupts, permissions};
 use crate::shared::schema::EventPayload;

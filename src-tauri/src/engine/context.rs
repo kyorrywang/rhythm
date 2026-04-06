@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::hooks::executor::HookExecutor;
+use crate::llm::LlmClient;
 use crate::mcp::client::McpClientManager;
-use crate::models::LlmClient;
 use crate::permissions::PermissionChecker;
 use crate::tools::ToolRegistry;
 
