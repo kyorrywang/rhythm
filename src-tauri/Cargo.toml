@@ -28,3 +28,10 @@ sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 dirs = "5.0"
 futures = "0.3"
+fnmatch-regex = "0.2"
+regex = "1"
+sha1 = "0.10"
+hostname = "0.4"
+cron = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }

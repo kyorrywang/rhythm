@@ -25,12 +25,6 @@ impl AskQuestion {
                 self.selection_type
             ));
         }
-        if self.options.is_empty() {
-            return Err(format!(
-                "At least one option is required for question: {}",
-                self.question
-            ));
-        }
         Ok(())
     }
 }
@@ -124,9 +118,47 @@ pub enum EventPayload {
         is_error: bool,
     },
 
+    #[serde(rename = "permission_request")]
+    PermissionRequest {
+        #[serde(rename = "toolId")]
+        tool_id: String,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        reason: String,
+    },
+
+    #[serde(rename = "max_turns_exceeded")]
+    MaxTurnsExceeded { turns: usize },
+
     #[serde(rename = "done")]
     Done,
 
     #[serde(rename = "interrupted")]
     Interrupted,
+
+    #[serde(rename = "context_compacted")]
+    ContextCompacted {
+        #[serde(rename = "compactType")]
+        compact_type: String,
+        #[serde(rename = "tokensSaved")]
+        tokens_saved: Option<usize>,
+    },
+
+    #[serde(rename = "cron_job_triggered")]
+    CronJobTriggered {
+        #[serde(rename = "jobId")]
+        job_id: String,
+        name: String,
+    },
+
+    #[serde(rename = "cron_job_completed")]
+    CronJobCompleted {
+        #[serde(rename = "jobId")]
+        job_id: String,
+        name: String,
+        success: bool,
+        output: String,
+        #[serde(rename = "durationMs")]
+        duration_ms: u64,
+    },
 }

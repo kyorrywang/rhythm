@@ -1,5 +1,6 @@
+use crate::runtime::sessions;
+
 #[tauri::command]
-pub async fn get_sessions() -> Result<Vec<String>, String> {
-    // Stub implementation
-    Ok(vec!["sess-1".to_string()])
+pub async fn get_sessions() -> Result<Vec<sessions::SessionInfo>, String> {
+    Ok(sessions::list_sessions().await)
 }
