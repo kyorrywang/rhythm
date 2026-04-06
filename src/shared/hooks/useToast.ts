@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useToastStore, type ToastType } from '@/store/useToastStore';
+import { useToastStore, type ToastType } from '@/shared/state/useToastStore';
 
 export function useToast() {
   const addToast = useToastStore((s) => s.addToast);

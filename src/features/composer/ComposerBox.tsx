@@ -1,4 +1,4 @@
-import { useSessionStore } from '@/store/useSessionStore';
+import { useSessionStore } from '@/shared/state/useSessionStore';
 import { PHASE_TO_DOCK } from './types';
 import { useComposerActions } from './hooks/useComposerActions';
 import { AskDock } from './components/AskDock';

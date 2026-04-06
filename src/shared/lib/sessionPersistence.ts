@@ -1,4 +1,4 @@
-import type { Session } from '@/types/schema';
+import type { Session } from '@/shared/types/schema';
 
 const STORAGE_KEY = 'rhythm.sessions.v1';
 

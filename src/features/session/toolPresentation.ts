@@ -1,4 +1,4 @@
-import { ToolCall } from '@/types/schema';
+import { ToolCall } from '@/shared/types/schema';
 
 export interface ToolPresentation {
   title: string;

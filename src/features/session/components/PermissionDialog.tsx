@@ -1,6 +1,6 @@
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
-import type { PermissionRequest } from '@/store/usePermissionStore';
+import type { PermissionRequest } from '@/shared/state/usePermissionStore';
 import { useLLMStream } from '@/features/session/hooks/useLLMStream';
 import { useState, useCallback } from 'react';
 

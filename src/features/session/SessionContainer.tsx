@@ -7,11 +7,11 @@ import { ContextUsagePanel } from './components/ContextUsagePanel';
 import { PermissionDialog } from './components/PermissionDialog';
 import { ErrorBanner } from './components/ErrorBanner';
 import { MaxTurnsWarning } from './components/MaxTurnsWarning';
-import { useSessionStore, useActiveSession } from '@/store/useSessionStore';
-import { usePermissionStore } from '@/store/usePermissionStore';
-import { useAutoScroll } from '@/hooks/useAutoScroll';
+import { useSessionStore, useActiveSession } from '@/shared/state/useSessionStore';
+import { usePermissionStore } from '@/shared/state/usePermissionStore';
+import { useAutoScroll } from '@/shared/hooks/useAutoScroll';
 import { EmptyState } from './EmptyState';
-import type { Message } from '@/types/schema';
+import type { Message } from '@/shared/types/schema';
 
 export const SessionContainer = () => {
   const activeSession = useActiveSession();

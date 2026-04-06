@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useToastStore, type ToastType } from '@/store/useToastStore';
+import { useToastStore, type ToastType } from '@/shared/state/useToastStore';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle, AlertCircle, X, Info, AlertTriangle } from 'lucide-react';
 

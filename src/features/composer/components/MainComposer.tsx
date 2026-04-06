@@ -1,5 +1,5 @@
 import { Plus, ArrowUp, Shield, ChevronDown, Square } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { MainComposerProps, DockType } from '../types';
 
 const PLACEHOLDER_MAP: Record<DockType, string> = {

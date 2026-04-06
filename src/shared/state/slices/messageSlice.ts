@@ -1,5 +1,5 @@
-import type { Message, MessageSegment, ServerEventChunk, Session, QueuedMessage, Task, AskRequest } from '@/types/schema';
-import { reduceSessionChunk } from '@/store/sessionChunkReducer';
+import type { Message, MessageSegment, ServerEventChunk, Session, QueuedMessage, Task, AskRequest } from '@/shared/types/schema';
+import { reduceSessionChunk } from '@/shared/state/sessionChunkReducer';
 
 interface MessageSliceState {
   messages: Map<string, Message>;

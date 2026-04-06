@@ -1,5 +1,5 @@
-import type { Session } from '@/types/schema';
-import { savePersistedSessions } from '@/lib/sessionPersistence';
+import type { Session } from '@/shared/types/schema';
+import { savePersistedSessions } from '@/shared/lib/sessionPersistence';
 
 interface SessionSliceState {
   sessions: Map<string, Session>;

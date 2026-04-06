@@ -3,11 +3,11 @@ import { Loader2, ChevronRight, ChevronDown, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Message, MessageSegment, ToolCall } from '@/types/schema';
-import { CodeBlock } from '@/components/markdown/CodeBlock';
+import { Message, MessageSegment, ToolCall } from '@/shared/types/schema';
+import { CodeBlock } from '@/shared/ui/CodeBlock';
 import { getToolPresentation } from '@/features/session/toolPresentation';
-import { useDisplayStore } from '@/store/useDisplayStore';
-import { useSessionStore } from '@/store/useSessionStore';
+import { useDisplayStore } from '@/shared/state/useDisplayStore';
+import { useSessionStore } from '@/shared/state/useSessionStore';
 
 interface AgentMessageProps {
   message: Message;

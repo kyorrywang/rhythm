@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Session } from '@/types/schema';
-import { formatTokenCount, formatPercentage } from '@/lib/formatters';
+import { Session } from '@/shared/types/schema';
+import { formatTokenCount, formatPercentage } from '@/shared/lib/formatters';
 
 interface ContextUsagePanelProps {
   session: Session;

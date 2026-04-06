@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Session } from '@/types/schema';
+import type { Session } from '@/shared/types/schema';
 import { createSessionSlice, type SessionSlice } from './slices/sessionSlice';
 import { createMessageSlice, type MessageSlice } from './slices/messageSlice';
 import { createUiSlice, type UiSlice } from './slices/uiSlice';

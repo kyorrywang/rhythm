@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
-import { submitUserAnswer } from '@/api/commands';
-import { useSessionStore } from '@/store/useSessionStore';
+import { submitUserAnswer } from '@/shared/api/commands';
+import { useSessionStore } from '@/shared/state/useSessionStore';
 import { useLLMStream } from '@/features/session/hooks/useLLMStream';
-import { SessionPhase, SelectionType, AskQuestion, Message } from '@/types/schema';
+import { SessionPhase, SelectionType, AskQuestion, Message } from '@/shared/types/schema';
 
 interface UseComposerActionsParams {
   activeSessionId: string | null;

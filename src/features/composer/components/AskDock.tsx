@@ -1,8 +1,8 @@
 import { ArrowLeft, ArrowRight, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { AskDockProps } from '../types';
 import { useState, useCallback, useMemo } from 'react';
-import { AskQuestion } from '@/types/schema';
+import { AskQuestion } from '@/shared/types/schema';
 
 export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptionToggle, onResetOptions, onSubmit, onIgnore }: Omit<AskDockProps, 'isSubmitDisabled' | 'isMinimized' | 'onToggleMinimize'> & { onIgnore?: () => void }) => {
   const questions = useMemo((): AskQuestion[] => {

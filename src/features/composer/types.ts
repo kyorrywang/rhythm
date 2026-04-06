@@ -1,4 +1,4 @@
-import { SessionPhase, SelectionType, Task, QueuedMessage, AskQuestion } from '@/types/schema';
+import { SessionPhase, SelectionType, Task, QueuedMessage, AskQuestion } from '@/shared/types/schema';
 
 export type DockType = 'none' | 'append' | 'ask';
 

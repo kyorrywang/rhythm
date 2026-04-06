@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, CheckSquare, X, Check } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { TaskDockProps } from '../types';
 
 const TaskItem = ({ task }: { task: TaskDockProps['tasks'][number] }) => {

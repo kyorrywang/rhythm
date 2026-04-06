@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react';
-import type { Session } from '@/types/schema';
+import type { Session } from '@/shared/types/schema';
 
 interface SessionItemProps {
   session: Session;

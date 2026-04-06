@@ -1,14 +1,14 @@
 import { Channel } from '@tauri-apps/api/core';
 import { client } from './client';
-import { loadPersistedSessions } from '@/lib/sessionPersistence';
+import { loadPersistedSessions } from '@/shared/lib/sessionPersistence';
 import type {
   BackendSessionInfo,
   ChatStreamRequest,
   SubmitAnswerRequest,
   ApprovePermissionRequest,
   InterruptSessionRequest,
-} from '@/types/api';
-import type { ServerEventChunk, Session } from '@/types/schema';
+} from '@/shared/types/api';
+import type { ServerEventChunk, Session } from '@/shared/types/schema';
 
 export function chatStream(
   request: ChatStreamRequest,

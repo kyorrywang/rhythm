@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Settings, Plus, Loader2 } from 'lucide-react';
-import { useSessions, useSessionStore } from '@/store/useSessionStore';
-import { getSessions, createSession } from '@/api/commands';
-import { useToast } from '@/hooks/useToast';
+import { useSessions, useSessionStore } from '@/shared/state/useSessionStore';
+import { getSessions, createSession } from '@/shared/api/commands';
+import { useToast } from '@/shared/hooks/useToast';
 import { SessionItem } from './SessionItem';
 import { ProjectHeader } from './ProjectHeader';
 

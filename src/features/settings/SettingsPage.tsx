@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X, Monitor, Moon, Sun, Type, Shield, RotateCcw } from 'lucide-react';
-import { useSettingsStore, type AppSettings } from '@/store/useSettingsStore';
-import { useDisplayStore } from '@/store/useDisplayStore';
+import { useSettingsStore, type AppSettings } from '@/shared/state/useSettingsStore';
+import { useDisplayStore } from '@/shared/state/useDisplayStore';
 
 interface SettingsPageProps {
   onClose: () => void;
@@ -131,7 +131,7 @@ function GeneralSettings({ settings, onUpdate, onReset }: { settings: AppSetting
   );
 }
 
-import type { DisplayPreferences, SegmentDisplayConfig } from '@/store/useDisplayStore';
+import type { DisplayPreferences, SegmentDisplayConfig } from '@/shared/state/useDisplayStore';
 
 function DisplaySettings({ preferences, onUpdate, onReset }: { preferences: DisplayPreferences; onUpdate: (segment: keyof DisplayPreferences, config: SegmentDisplayConfig) => void; onReset: () => void }) {
   const segments = [

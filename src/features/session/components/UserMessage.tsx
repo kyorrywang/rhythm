@@ -1,6 +1,6 @@
 import { Copy } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { Message } from '@/types/schema';
+import { Message } from '@/shared/types/schema';
 
 interface UserMessageProps {
   message: Message;

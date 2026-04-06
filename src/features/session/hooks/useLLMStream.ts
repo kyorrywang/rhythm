@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
 import { Channel } from '@tauri-apps/api/core';
-import { useSessionStore } from '@/store/useSessionStore';
-import { usePermissionStore } from '@/store/usePermissionStore';
-import { useToast } from '@/hooks/useToast';
-import { Message, ServerEventChunk } from '@/types/schema';
-import { chatStream, submitUserAnswer, approvePermission, interruptSession } from '@/api/commands';
+import { useSessionStore } from '@/shared/state/useSessionStore';
+import { usePermissionStore } from '@/shared/state/usePermissionStore';
+import { useToast } from '@/shared/hooks/useToast';
+import { Message, ServerEventChunk } from '@/shared/types/schema';
+import { chatStream, submitUserAnswer, approvePermission, interruptSession } from '@/shared/api/commands';
 
 export const useLLMStream = () => {
   const store = useSessionStore;

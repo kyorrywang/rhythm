@@ -1,10 +1,10 @@
 import { Sidebar } from '@/features/sidebar/Sidebar';
 import { SessionContainer } from '@/features/session/SessionContainer';
 import { SettingsPage } from '@/features/settings/SettingsPage';
-import { ErrorBoundary } from '@/components/layout/ErrorBoundary';
-import { ToastContainer } from '@/components/layout/Toast';
-import { useSessionStore } from '@/store/useSessionStore';
-import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
+import { ToastContainer } from '@/shared/ui/Toast';
+import { useSessionStore } from '@/shared/state/useSessionStore';
+import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 
 export function App() {
   const isSettingsOpen = useSessionStore((s) => s.isSettingsOpen);

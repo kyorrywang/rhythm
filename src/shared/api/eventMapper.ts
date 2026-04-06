@@ -1,5 +1,5 @@
-import type { ServerEventChunk } from '@/types/schema';
-import type { InternalEvent, InternalEventType } from '@/types/events';
+import type { ServerEventChunk } from '@/shared/types/schema';
+import type { InternalEvent, InternalEventType } from '@/shared/types/events';
 
 const EVENT_TYPE_MAP: Record<ServerEventChunk['type'], InternalEventType> = {
   text_delta: 'TEXT_DELTA',

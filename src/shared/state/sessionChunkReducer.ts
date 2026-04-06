@@ -1,5 +1,5 @@
-import { Message, MessageSegment, ServerEventChunk, Session, ToolCall } from '@/types/schema';
-import { isUiOnlyTool } from '@/features/session/toolRegistry';
+import { Message, MessageSegment, ServerEventChunk, Session, ToolCall } from '@/shared/types/schema';
+import { isUiOnlyTool } from '@/shared/lib/toolRegistry';
 
 type InternalMessage = Message & {
   _liveTextIndex?: number;
@@ -43,7 +43,6 @@ const findLiveThinking = (segments: MessageSegment[]): { index: number; segment:
 const appendText = (message: InternalMessage, text: string): InternalMessage => {
   const segments = [...(message.segments || [])];
 
-  // If we have a cached live text index, append to it
   if (message._liveTextIndex !== undefined) {
     const idx = message._liveTextIndex;
     if (idx < segments.length && segments[idx].type === 'text') {
@@ -51,10 +50,8 @@ const appendText = (message: InternalMessage, text: string): InternalMessage => 
       segments[idx] = { ...seg, content: seg.content + text };
       return { ...message, segments };
     }
-    // Index is stale (e.g. a tool was inserted after it), fall through to create new
   }
 
-  // Find the last text segment at the end of the array (no tool/ask segments after it)
   const lastIdx = segments.length - 1;
   if (lastIdx >= 0 && segments[lastIdx].type === 'text') {
     const seg = segments[lastIdx];
@@ -62,7 +59,6 @@ const appendText = (message: InternalMessage, text: string): InternalMessage => 
     return { ...message, segments, _liveTextIndex: lastIdx };
   }
 
-  // No suitable text segment found — create a new one
   const newIdx = segments.length;
   segments.push({ type: 'text', content: text });
   return { ...message, segments, _liveTextIndex: newIdx };
@@ -79,7 +75,6 @@ const applyTextDelta = (
 
   const liveThinking = findLiveThinking(segments);
 
-  // Handle fake thinking tags (<think>...</think>)
   if (!liveThinking && buffer.includes('<think>')) {
     const parts = buffer.split('<think>');
     if (parts[0]) {

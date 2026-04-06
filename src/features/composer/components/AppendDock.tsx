@@ -1,5 +1,5 @@
 import { Maximize2, Trash2, CornerDownRight, ArrowRight, MoreHorizontal } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/shared/lib/utils';
 import { AppendDockProps } from '../types';
 
 export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancelAll, onInterrupt, phase, isMinimized, onToggleMinimize }: AppendDockProps) => {

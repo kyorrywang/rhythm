@@ -1,6 +1,6 @@
 import { invoke, Channel } from '@tauri-apps/api/core';
-import type { TauriCommands, TauriCommandName } from '@/types/api';
-import type { ServerEventChunk } from '@/types/schema';
+import type { TauriCommands, TauriCommandName } from '@/shared/types/api';
+import type { ServerEventChunk } from '@/shared/types/schema';
 
 export async function tauriInvoke<T extends TauriCommandName>(
   command: T,
