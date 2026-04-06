@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, CheckSquare, X, Check } from 'lucide-react';
+import { ChevronDown, ChevronUp, CheckSquare, X, Check, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { TaskDockProps } from '../types';
 
@@ -15,12 +15,12 @@ const TaskItem = ({ task }: { task: TaskDockProps['tasks'][number] }) => {
       <div className={cn(
         "w-3.5 h-3.5 flex items-center justify-center shrink-0 rounded-[4px]",
         isCompleted ? "bg-gray-100 border border-gray-200" : 
-        isRunning ? "bg-gray-100 border border-gray-200" : 
+        isRunning ? "bg-amber-50 border border-amber-200" : 
         isError ? "border border-red-200 bg-red-50" : 
         "border border-gray-200 bg-transparent"
       )}>
         {isCompleted && <Check size={10} className="text-gray-400" strokeWidth={3} />}
-        {isRunning && <div className="w-[5px] h-[5px] bg-gray-400 rounded-full" />}
+        {isRunning && <Loader2 size={10} className="animate-spin text-amber-600" />}
         {isError && <X size={10} className="text-red-500" />}
       </div>
       <span className={cn(isCompleted && "line-through")}>{task.text}</span>
@@ -36,7 +36,7 @@ export const TaskDock = ({ tasks, isMinimized, onToggleMinimize }: TaskDockProps
   if (isMinimized) {
     return (
       <div
-        className="border-b border-gray-100 bg-[#fbfbfb] px-4 py-2 rounded-t-xl transition-all cursor-pointer hover:bg-gray-100 flex items-center justify-between"
+        className="border-b border-slate-100 bg-[#fbfbfb] px-4 py-2 rounded-t-[28px] transition-all cursor-pointer hover:bg-slate-100 flex items-center justify-between"
         onClick={onToggleMinimize}
       >
         <div className="flex items-center gap-2 text-[12px] text-gray-600">
@@ -49,9 +49,18 @@ export const TaskDock = ({ tasks, isMinimized, onToggleMinimize }: TaskDockProps
   }
 
   return (
-    <div className="border-b border-gray-100 bg-[#fbfbfb] px-4 py-3 rounded-t-xl transition-all">
-      <div className="flex items-center justify-between text-[12px] text-gray-800 font-medium mb-3">
-        <span>已完成 {completed} 个任务 (共 {total} 个)</span>
+    <div className="border-b border-slate-100 bg-[#fbfbfb] px-4 py-3 rounded-t-[28px] transition-all">
+      <div className="mb-3 flex items-center justify-between text-[12px] font-medium text-slate-800">
+        <div className="flex items-center gap-2">
+          <span>任务进度 {completed}/{total}</span>
+          {!allDone && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700">运行中</span>}
+          {tasks.some((task) => task.status === 'error') && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] text-red-700">
+              <AlertTriangle size={10} />
+              错误
+            </span>
+          )}
+        </div>
         <button onClick={onToggleMinimize} className="text-gray-400 hover:text-gray-600 transition-colors" title="最小化">
           <ChevronDown size={14} />
         </button>

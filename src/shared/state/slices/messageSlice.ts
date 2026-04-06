@@ -20,6 +20,7 @@ interface MessageSliceActions {
   clearAskRequest: (sessionId: string) => void;
   recordAskAnswer: (sessionId: string, messageId: string, answer: { selected: string[]; text: string }) => void;
   clearTasks: (sessionId: string) => void;
+  resolvePermissionRequestInTimeline: (sessionId: string, toolId: string, approved: boolean) => void;
   processChunk: (sessions: Map<string, Session>, sessionId: string, messageId: string, chunk: ServerEventChunk) => { sessions: Map<string, Session>; activeSessionId?: string | null };
   migrateQueueToChild: (parentSessionId: string, childSessionId: string, sessions: Map<string, Session>) => Map<string, Session>;
   restoreQueueToParent: (childSessionId: string, parentSessionId: string, sessions: Map<string, Session>) => Map<string, Session>;
@@ -191,6 +192,32 @@ export const createMessageSlice = (
       const session = nextSessions.get(sessionId);
       if (!session) return state;
       nextSessions.set(sessionId, { ...session, currentTasks: [], updatedAt: Date.now() });
+      return { sessions: nextSessions };
+    }),
+
+  resolvePermissionRequestInTimeline: (sessionId, toolId, approved) =>
+    set((state) => {
+      const nextSessions = new Map(state.sessions);
+      const session = nextSessions.get(sessionId);
+      if (!session) return state;
+
+      nextSessions.set(sessionId, {
+        ...session,
+        messages: session.messages.map((msg) =>
+          !msg.segments
+            ? msg
+            : {
+                ...msg,
+                segments: msg.segments.map((seg) =>
+                  seg.type === 'permission' && seg.request.toolId === toolId
+                    ? { ...seg, status: approved ? 'approved' : 'denied' }
+                    : seg,
+                ),
+              },
+        ),
+        updatedAt: Date.now(),
+      });
+
       return { sessions: nextSessions };
     }),
 

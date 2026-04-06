@@ -3,6 +3,9 @@ import { client } from './client';
 import { loadPersistedSessions } from '@/shared/lib/sessionPersistence';
 import type {
   BackendSessionInfo,
+  BackendSettings,
+  BackendPluginSummary,
+  BackendCronJobConfig,
   ChatStreamRequest,
   SubmitAnswerRequest,
   ApprovePermissionRequest,
@@ -27,6 +30,30 @@ export function approvePermission(request: ApprovePermissionRequest): Promise<vo
 
 export function interruptSession(request: InterruptSessionRequest): Promise<void> {
   return client.invoke('interrupt_session', request);
+}
+
+export function getSettings(): Promise<BackendSettings> {
+  return client.invoke('get_settings', {} as never);
+}
+
+export function saveSettings(settings: BackendSettings): Promise<void> {
+  return client.invoke('save_settings', { settings } as never);
+}
+
+export function listPlugins(cwd: string): Promise<BackendPluginSummary[]> {
+  return client.invoke('list_plugins', { cwd } as never);
+}
+
+export function enablePlugin(name: string): Promise<void> {
+  return client.invoke('enable_plugin', { name } as never);
+}
+
+export function disablePlugin(name: string): Promise<void> {
+  return client.invoke('disable_plugin', { name } as never);
+}
+
+export function listCronJobs(): Promise<BackendCronJobConfig[]> {
+  return client.invoke('cron_list', {} as never);
 }
 
 function mapBackendSessionInfo(info: BackendSessionInfo): Session {

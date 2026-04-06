@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { X } from 'lucide-react';
 import { Session } from '@/shared/types/schema';
 import { formatTokenCount, formatPercentage } from '@/shared/lib/formatters';
 
@@ -45,22 +46,27 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
         />
       )}
       <div
-        className={`absolute top-0 right-0 bottom-0 w-[420px] bg-white border-l border-zinc-200 z-50 transform transition-transform duration-300 ease-in-out shadow-[-10px_0_30px_rgba(0,0,0,0.05)] overflow-y-auto ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`absolute top-0 right-0 bottom-0 w-[440px] bg-white border-l border-zinc-200 z-50 transform transition-transform duration-300 ease-in-out shadow-[-10px_0_30px_rgba(0,0,0,0.05)] overflow-y-auto ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
         <div className="p-6 text-[13px] text-zinc-800 space-y-6">
-          <div className="space-y-1">
-            <div className="text-zinc-500">会话</div>
-            <div>{session.title || 'Untitled'}</div>
+          <div className="flex items-start justify-between">
+            <div className="space-y-1">
+              <div className="text-zinc-500">会话</div>
+              <div className="text-lg font-medium text-zinc-900">{session.title || 'Untitled'}</div>
+              <div className="text-xs text-zinc-400">最近更新 {new Date(session.updatedAt).toLocaleString('zh-CN')}</div>
+            </div>
+            <button onClick={onClose} className="rounded-xl p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">
+              <X size={16} />
+            </button>
           </div>
 
-          <div className="space-y-1">
-            <div className="text-zinc-500">消息数</div>
-            <div>{messages.length}</div>
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-zinc-500">总 token</div>
-            <div>{totalTokens > 0 ? formatTokenCount(totalTokens) : '—'}</div>
+          <div className="grid grid-cols-2 gap-3">
+            <MetricCard label="消息数" value={String(messages.length)} />
+            <MetricCard label="总 token" value={totalTokens > 0 ? formatTokenCount(totalTokens) : '—'} />
+            <MetricCard label="用户消息" value={String(userMessages)} />
+            <MetricCard label="助手消息" value={String(assistantMessages)} />
+            <MetricCard label="工具调用" value={String(toolCallCount)} />
+            <MetricCard label="上下文上限" value={formatTokenCount(contextLimit)} />
           </div>
 
           {usage && (
@@ -82,21 +88,6 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
 
             </>
           )}
-
-          <div className="space-y-1">
-            <div className="text-zinc-500">用户消息</div>
-            <div>{userMessages}</div>
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-zinc-500">助手消息</div>
-            <div>{assistantMessages}</div>
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-zinc-500">创建时间</div>
-            <div>{new Date(session.updatedAt).toLocaleString('zh-CN')}</div>
-          </div>
 
           <div className="space-y-2">
             <div className="text-zinc-500">上下文拆分</div>
@@ -165,3 +156,10 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
     </>
   );
 };
+
+const MetricCard = ({ label, value }: { label: string; value: string }) => (
+  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+    <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-400">{label}</div>
+    <div className="mt-2 text-sm font-medium text-zinc-900">{value}</div>
+  </div>
+);

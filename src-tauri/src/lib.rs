@@ -48,6 +48,9 @@ pub fn run() {
             commands::memory::list_memories,
             commands::memory::add_memory,
             commands::memory::delete_memory,
+            // Settings management
+            commands::settings::get_settings,
+            commands::settings::save_settings,
             // Plugin management (Phase 10)
             commands::plugins::list_plugins,
             commands::plugins::enable_plugin,

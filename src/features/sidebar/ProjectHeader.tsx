@@ -1,24 +1,27 @@
 import { FileEdit } from 'lucide-react';
 
 interface ProjectHeaderProps {
+  workspaceName: string;
+  workspacePath: string;
   onNewSession: () => void;
 }
 
-export const ProjectHeader = ({ onNewSession }: ProjectHeaderProps) => {
+export const ProjectHeader = ({ workspaceName, workspacePath, onNewSession }: ProjectHeaderProps) => {
   return (
-    <div className="p-3">
-      <div className="flex items-center justify-between mb-[14px]">
-        <div className="flex-1 overflow-hidden ml-2">
-          <h2 className="text-[13px] font-medium text-gray-800 leading-tight">rhythm</h2>
-          <p className="text-[10px] text-gray-400 truncate mt-0.5" title="~\Documents\dev\rhythm">~\Documents\dev\rhythm</p>
+    <div className="px-4 pb-4 pt-5">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex-1 overflow-hidden">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Workspace</div>
+          <h2 className="mt-2 text-[22px] font-semibold leading-tight text-slate-900">{workspaceName}</h2>
+          <p className="mt-1 truncate text-[12px] text-slate-500" title={workspacePath}>{workspacePath}</p>
         </div>
       </div>
-      
+
       <button
         onClick={onNewSession}
-        className="w-full flex items-center justify-center gap-1.5 py-[5px] px-3 bg-white border border-[#e8e8e8] hover:border-gray-300 rounded shadow-sm text-gray-700 text-[13px] transition-colors"
+        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[13px] font-medium text-slate-700 shadow-[0_10px_25px_rgba(15,23,42,0.04)] transition-colors hover:border-slate-300 hover:bg-slate-50"
       >
-        <FileEdit size={14} opacity={0.6} />
+        <FileEdit size={14} opacity={0.7} />
         新建会话
       </button>
     </div>

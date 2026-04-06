@@ -46,4 +46,15 @@ export interface MainComposerProps {
   onSend: () => void;
   dockType: DockType;
   headerContent?: React.ReactNode;
+  controls: {
+    mode: 'Chat' | 'Plan' | 'Coordinate';
+    model: string;
+    reasoning: 'low' | 'medium' | 'high';
+    fullAuto: boolean;
+  };
+  sessionPhase?: SessionPhase;
+  onCycleMode: () => void;
+  onCycleModel: () => void;
+  onCycleReasoning: () => void;
+  onToggleFullAuto: () => void;
 }

@@ -1,4 +1,4 @@
-import { Maximize2, Trash2, CornerDownRight, ArrowRight, MoreHorizontal } from 'lucide-react';
+import { Maximize2, Trash2, CornerDownRight, ArrowRight, Loader2, ShieldAlert } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { AppendDockProps } from '../types';
 
@@ -8,7 +8,7 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
   if (isMinimized) {
     return (
       <div
-        className="border-b border-gray-100 bg-[#fbfbfb] px-4 py-2 rounded-t-xl transition-all cursor-pointer hover:bg-gray-100 flex items-center justify-between"
+        className="border-b border-slate-100 bg-[#fbfbfb] px-4 py-2 rounded-t-[28px] transition-all cursor-pointer hover:bg-slate-100 flex items-center justify-between"
         onClick={onToggleMinimize}
       >
         <div className="flex items-center gap-2 text-[12px] text-gray-600">
@@ -21,9 +21,17 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
   }
 
   return (
-    <div className="border-b border-gray-100 bg-[#fbfbfb] px-4 py-2.5 rounded-t-xl transition-all">
-      <div className="flex items-center justify-between text-[12px] text-gray-800 font-medium mb-2">
-        <span>队列中有 {queueLength} 条消息</span>
+    <div className="border-b border-slate-100 bg-[#fbfbfb] px-4 py-3 rounded-t-[28px] transition-all">
+      <div className="mb-2 flex items-center justify-between text-[12px] font-medium text-slate-800">
+        <div className="flex items-center gap-2">
+          <span>队列中有 {queueLength} 条消息</span>
+          {phase === 'waiting_for_permission' && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700">
+              <ShieldAlert size={10} />
+              等待权限
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {isInterrupting && (
             <span className="text-amber-600 text-[11px]">正在中断...</span>
@@ -37,7 +45,7 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
       {queuedMessages.length > 0 && (
         <div className="space-y-1.5 mb-2">
           {queuedMessages.map((item) => (
-            <div key={item.id} className="flex items-center gap-2 text-[12px] group">
+            <div key={item.id} className="flex items-center gap-2 text-[12px] group rounded-xl px-2 py-1.5 hover:bg-white">
               <CornerDownRight size={12} className={cn(
                 "shrink-0",
                 item.priority === 'urgent' ? "text-amber-500" : "text-gray-400"
@@ -66,8 +74,17 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
 
       <div className="flex items-center justify-between text-[12px] text-gray-500">
         <div className="flex items-center gap-2">
-          <CornerDownRight size={12} className="text-gray-400" />
-          <span>继续</span>
+          {isInterrupting ? (
+            <>
+              <Loader2 size={12} className="animate-spin text-amber-500" />
+              <span>正在请求中断</span>
+            </>
+          ) : (
+            <>
+              <CornerDownRight size={12} className="text-gray-400" />
+              <span>运行结束后会自动消费队列</span>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -81,9 +98,6 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
             )}
           >
             <ArrowRight size={11} /> 立即引导
-          </button>
-          <button className="text-gray-400 hover:text-gray-600">
-            <MoreHorizontal size={13} />
           </button>
         </div>
       </div>

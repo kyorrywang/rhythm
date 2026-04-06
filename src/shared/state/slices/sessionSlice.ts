@@ -13,6 +13,10 @@ interface SessionSliceActions {
   addSession: (session: Session) => void;
   removeSession: (id: string) => void;
   updateSession: (id: string, updates: Partial<Session>) => void;
+  togglePinnedSession: (id: string) => void;
+  archiveSession: (id: string) => void;
+  restoreSession: (id: string) => void;
+  renameSession: (id: string, title: string) => void;
   setFlowStep: (step: number) => void;
   setTaskMinimized: (sessionId: string, minimized: boolean) => void;
   toggleTaskMinimized: () => void;
@@ -30,7 +34,15 @@ export const createSessionSlice = (
   activeSessionId: null,
   flowStep: 0,
 
-  setActiveSession: (id) => set({ activeSessionId: id }),
+  setActiveSession: (id) =>
+    set((state) => {
+      const session = state.sessions.get(id);
+      if (!session) return { activeSessionId: id };
+      const next = new Map(state.sessions);
+      next.set(id, { ...session, hasUnreadCompleted: false });
+      savePersistedSessions(Array.from(next.values()));
+      return { activeSessionId: id, sessions: next };
+    }),
 
   setSessions: (sessions) => {
     savePersistedSessions(sessions);
@@ -43,6 +55,49 @@ export const createSessionSlice = (
     set((state) => {
       const next = new Map(state.sessions);
       next.set(session.id, session);
+      savePersistedSessions(Array.from(next.values()));
+      return { sessions: next };
+    }),
+
+  togglePinnedSession: (id) =>
+    set((state) => {
+      const session = state.sessions.get(id);
+      if (!session) return state;
+      const next = new Map(state.sessions);
+      next.set(id, { ...session, pinned: !(session.pinned ?? false), updatedAt: Date.now() });
+      savePersistedSessions(Array.from(next.values()));
+      return { sessions: next };
+    }),
+
+  archiveSession: (id) =>
+    set((state) => {
+      const session = state.sessions.get(id);
+      if (!session) return state;
+      const next = new Map(state.sessions);
+      next.set(id, { ...session, archived: true, hasUnreadCompleted: false, updatedAt: Date.now() });
+      savePersistedSessions(Array.from(next.values()));
+      return {
+        sessions: next,
+        activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
+      };
+    }),
+
+  restoreSession: (id) =>
+    set((state) => {
+      const session = state.sessions.get(id);
+      if (!session) return state;
+      const next = new Map(state.sessions);
+      next.set(id, { ...session, archived: false, updatedAt: Date.now() });
+      savePersistedSessions(Array.from(next.values()));
+      return { sessions: next };
+    }),
+
+  renameSession: (id, title) =>
+    set((state) => {
+      const session = state.sessions.get(id);
+      if (!session) return state;
+      const next = new Map(state.sessions);
+      next.set(id, { ...session, title, updatedAt: Date.now() });
       savePersistedSessions(Array.from(next.values()));
       return { sessions: next };
     }),

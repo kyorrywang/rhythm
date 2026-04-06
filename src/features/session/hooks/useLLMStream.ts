@@ -89,7 +89,9 @@ export const useLLMStream = () => {
             sessionId: chunk.sessionId,
             timestamp: Date.now(),
           });
-          state.updateSession(chunk.sessionId, { phase: 'waiting_for_permission', permissionPending: true });
+          const targetAiMessageId = subSessionMessageMapRef.current.get(chunk.sessionId) || aiMessageId;
+          const reduced = liveState.processChunk(liveState.sessions, chunk.sessionId, targetAiMessageId, chunk);
+          store.setState({ sessions: reduced.sessions });
           return;
         }
 
@@ -110,6 +112,10 @@ export const useLLMStream = () => {
 
         if (chunk.type === 'done') {
           const isSubSession = subSessionMessageMapRef.current.has(targetSessionId);
+          const activeSessionId = store.getState().activeSessionId;
+          if (activeSessionId !== targetSessionId) {
+            store.getState().updateSession(targetSessionId, { hasUnreadCompleted: true });
+          }
           if (!isSubSession) {
             processQueueAfterDone(targetSessionId, messageMode);
           }
@@ -168,6 +174,7 @@ export const useLLMStream = () => {
   const approvePermissionRequest = useCallback(async (sessionId: string, toolId: string, approved: boolean) => {
     await approvePermission({ toolId, approved });
     permissionStore.getState().resolvePending(toolId, approved);
+    store.getState().resolvePermissionRequestInTimeline(sessionId, toolId, approved);
     store.getState().updateSession(sessionId, {
       phase: 'streaming',
       permissionPending: false,

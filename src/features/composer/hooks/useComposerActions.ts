@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { submitUserAnswer } from '@/shared/api/commands';
+import { createSession, submitUserAnswer } from '@/shared/api/commands';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { useLLMStream } from '@/features/session/hooks/useLLMStream';
 import { SessionPhase, SelectionType, AskQuestion, Message } from '@/shared/types/schema';
@@ -12,7 +12,7 @@ interface UseComposerActionsParams {
 }
 
 export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTasksDone }: UseComposerActionsParams) => {
-  const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, setTaskMinimized, recordAskAnswer, sessions } = useSessionStore();
+  const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, setTaskMinimized, recordAskAnswer, sessions, addSession, setActiveSession } = useSessionStore();
   const { connectStream, requestInterrupt } = useLLMStream();
 
   const [text, setText] = useState('');
@@ -77,9 +77,8 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
   }, [currentAsk, text, selectedAskOptions]);
 
   const handleSend = useCallback((submission?: { answer: string; record: { selected: string[]; text: string } }) => {
-    if (!activeSessionId) return;
-
     if (phase === 'waiting_for_ask' && currentAsk) {
+      if (!activeSessionId) return;
       const built = submission || buildAskAnswer();
       const answer = built.answer;
       if (!answer) return;
@@ -97,25 +96,39 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
       return;
     }
 
-    const isSessionStreaming = phase === 'streaming' || phase === 'streaming_with_queue' || phase === 'processing_queue' || phase === 'interrupting' || phase === 'waiting_for_permission';
-    if (isSessionStreaming && activeSessionId) {
-      enqueueMessage(activeSessionId, {
-        id: Date.now().toString(),
-        role: 'user',
-        content: text,
-        createdAt: Date.now(),
-      }, 'urgent', 'append');
-      setText('');
-      if (phase === 'streaming') {
-        transitionPhase(activeSessionId, 'streaming_with_queue');
-      }
-      return;
-    }
+    const sendNormalMessage = async () => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
 
-    if (text.trim()) {
-      connectStream(text, 'normal');
+      let targetSessionId = activeSessionId;
+      if (!targetSessionId) {
+        const session = await createSession('新会话');
+        addSession(session);
+        setActiveSession(session.id);
+        targetSessionId = session.id;
+      }
+
+      const currentPhase = targetSessionId ? useSessionStore.getState().sessions.get(targetSessionId)?.phase || 'idle' : phase;
+      const isSessionStreaming = currentPhase === 'streaming' || currentPhase === 'streaming_with_queue' || currentPhase === 'processing_queue' || currentPhase === 'interrupting' || currentPhase === 'waiting_for_permission';
+      if (isSessionStreaming && targetSessionId) {
+        enqueueMessage(targetSessionId, {
+          id: Date.now().toString(),
+          role: 'user',
+          content: trimmed,
+          createdAt: Date.now(),
+        }, 'urgent', 'append');
+        setText('');
+        if (currentPhase === 'streaming') {
+          transitionPhase(targetSessionId, 'streaming_with_queue');
+        }
+        return;
+      }
+
+      connectStream(trimmed, 'normal');
       setText('');
-    }
+    };
+
+    void sendNormalMessage();
   }, [activeSessionId, phase, currentAsk, text, enqueueMessage, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer, sessions]);
 
   const handleIgnoreAsk = useCallback(() => {

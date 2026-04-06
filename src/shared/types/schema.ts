@@ -101,6 +101,9 @@ export interface Session {
   title: string;
   updatedAt: number;
   messages: Message[];
+  pinned?: boolean;
+  archived?: boolean;
+  hasUnreadCompleted?: boolean;
   taskDockMinimized?: boolean;
   appendDockMinimized?: boolean;
   parentId?: string;

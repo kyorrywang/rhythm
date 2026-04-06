@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import type { PermissionRequest } from '@/shared/state/usePermissionStore';
 import { useLLMStream } from '@/features/session/hooks/useLLMStream';
 import { useState, useCallback } from 'react';
+import { usePermissionStore } from '@/shared/state/usePermissionStore';
 
 interface PermissionDialogProps {
   request: PermissionRequest;
@@ -12,11 +13,15 @@ interface PermissionDialogProps {
 export const PermissionDialog = ({ request, onResolve }: PermissionDialogProps) => {
   const [alwaysAllow, setAlwaysAllow] = useState(false);
   const { approvePermission: approvePermissionRequest } = useLLMStream();
+  const allowToolAlways = usePermissionStore((s) => s.allowToolAlways);
 
   const handleApprove = useCallback(async () => {
+    if (alwaysAllow) {
+      allowToolAlways(request.toolName);
+    }
     await approvePermissionRequest(request.sessionId, request.toolId, true);
     onResolve(request.toolId, true);
-  }, [request, approvePermissionRequest, onResolve]);
+  }, [request, approvePermissionRequest, onResolve, alwaysAllow, allowToolAlways]);
 
   const handleDeny = useCallback(async () => {
     await approvePermissionRequest(request.sessionId, request.toolId, false);

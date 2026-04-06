@@ -7,7 +7,17 @@ import { TaskDock } from './components/TaskDock';
 import { AppendDock } from './components/AppendDock';
 
 export const ComposerBox = () => {
-  const { activeSessionId, sessions, toggleTaskMinimized, toggleAppendMinimized } = useSessionStore();
+  const {
+    activeSessionId,
+    sessions,
+    toggleTaskMinimized,
+    toggleAppendMinimized,
+    composerControls,
+    cycleComposerMode,
+    cycleComposerModel,
+    cycleComposerReasoning,
+    toggleComposerFullAuto,
+  } = useSessionStore();
   const activeSession = activeSessionId ? sessions.get(activeSessionId) : undefined;
   const currentAsk = activeSession?.currentAsk;
   const currentTasks = activeSession?.currentTasks;
@@ -37,8 +47,6 @@ export const ComposerBox = () => {
     return (
       <AskDock
         currentAsk={currentAsk}
-        text={text}
-        setText={setText}
         selectedAskOptions={selectedAskOptions}
         onOptionToggle={handleAskOptionToggle}
         onResetOptions={handleResetAskOptions}
@@ -79,6 +87,12 @@ export const ComposerBox = () => {
       onSend={handleSend}
       dockType={dockType}
       headerContent={headerContent}
+      controls={composerControls}
+      sessionPhase={phase}
+      onCycleMode={cycleComposerMode}
+      onCycleModel={cycleComposerModel}
+      onCycleReasoning={cycleComposerReasoning}
+      onToggleFullAuto={toggleComposerFullAuto}
     />
   );
 };

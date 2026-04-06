@@ -234,6 +234,28 @@ const applyChunkToMessage = (
     return { ...message, segments, status: 'waiting_for_user' };
   }
 
+  if (chunk.type === 'permission_request') {
+    const liveThinking = findLiveThinking(segments);
+    if (liveThinking) {
+      segments[liveThinking.index] = {
+        ...liveThinking.segment,
+        isLive: false,
+      };
+    }
+
+    segments.push({
+      type: 'permission',
+      request: {
+        toolId: chunk.toolId,
+        toolName: chunk.toolName,
+        reason: chunk.reason,
+      },
+      status: 'waiting',
+      startTime: Date.now(),
+    });
+    return { ...message, segments, status: 'waiting_for_permission' };
+  }
+
   if (chunk.type === 'interrupted') {
     const liveThinking = findLiveThinking(segments);
     if (liveThinking) {
@@ -333,6 +355,51 @@ export const reduceSessionChunk = (
       };
     } else if (chunk.type === 'task_update') {
       nextSession = { ...nextSession, currentTasks: chunk.tasks };
+    } else if (chunk.type === 'permission_request') {
+      nextSession = {
+        ...nextSession,
+        permissionPending: true,
+        phase: 'waiting_for_permission',
+      };
+    } else if (chunk.type === 'context_compacted') {
+      nextSession = {
+        ...nextSession,
+        messages: [
+          ...nextSession.messages,
+          {
+            id: `system-${Date.now()}-compact`,
+            role: 'system',
+            content: `上下文已执行${chunk.compactType === 'micro' ? '微压缩' : '完整压缩'}${chunk.tokensSaved ? `，预计节省 ${chunk.tokensSaved} tokens` : ''}。`,
+            createdAt: Date.now(),
+          },
+        ],
+      };
+    } else if (chunk.type === 'cron_job_triggered') {
+      nextSession = {
+        ...nextSession,
+        messages: [
+          ...nextSession.messages,
+          {
+            id: `system-${Date.now()}-cron-trigger`,
+            role: 'system',
+            content: `定时任务已触发：${chunk.name} (${chunk.jobId})。`,
+            createdAt: Date.now(),
+          },
+        ],
+      };
+    } else if (chunk.type === 'cron_job_completed') {
+      nextSession = {
+        ...nextSession,
+        messages: [
+          ...nextSession.messages,
+          {
+            id: `system-${Date.now()}-cron-complete`,
+            role: 'system',
+            content: `定时任务已完成：${chunk.name}，${chunk.success ? '执行成功' : '执行失败'}，耗时 ${Math.round(chunk.durationMs / 1000)}s。`,
+            createdAt: Date.now(),
+          },
+        ],
+      };
     } else if (chunk.type === 'done') {
       nextSession = { ...nextSession, phase: 'idle' as const };
     }
