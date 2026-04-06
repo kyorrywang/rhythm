@@ -1,4 +1,4 @@
-import { GitBranch, Undo, Edit3, Copy } from 'lucide-react';
+import { Copy } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Message } from '@/types/schema';
 
@@ -7,6 +7,15 @@ interface UserMessageProps {
 }
 
 export const UserMessage = ({ message }: UserMessageProps) => {
+  const handleCopy = async () => {
+    if (!message.content) return;
+    try {
+      await navigator.clipboard.writeText(message.content);
+    } catch {
+      // Ignore clipboard failures in the read-only presentation layer.
+    }
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -23,10 +32,13 @@ export const UserMessage = ({ message }: UserMessageProps) => {
         {/* Hover Actions */}
         <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-end gap-3 mt-2 mr-2 text-[12px] text-gray-400 h-6">
           <div className="flex items-center gap-0.5">
-            <button className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1.5 rounded-lg transition-colors" title="Fork"><GitBranch size={14}/></button>
-            <button className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1.5 rounded-lg transition-colors" title="Undo"><Undo size={14}/></button>
-            <button className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1.5 rounded-lg transition-colors" title="Edit"><Edit3 size={14}/></button>
-            <button className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1.5 rounded-lg transition-colors" title="Copy"><Copy size={14}/></button>
+            <button
+              onClick={handleCopy}
+              className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1.5 rounded-lg transition-colors"
+              title="Copy"
+            >
+              <Copy size={14}/>
+            </button>
           </div>
         </div>
       </div>

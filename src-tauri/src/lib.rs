@@ -27,16 +27,16 @@ pub fn run() {
     // Ensure settings are loaded and folder/file is created at startup
     let _ = infrastructure::config::load_settings();
 
-    // Initialize cron scheduler
     let cron_registry = Arc::new(Mutex::new(cron::CronRegistry::load()));
-    let scheduler = cron::CronScheduler::new(cron_registry.clone());
-    let _handle = scheduler.start();
-
-    // Store registry in commands module's static for command access
-    commands::cron::init_registry(cron_registry);
+    commands::cron::init_registry(cron_registry.clone());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(move |_app| {
+            let scheduler = cron::CronScheduler::new(cron_registry.clone());
+            let _handle = scheduler.start();
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             // Core chat/session commands
             commands::chat::chat_stream,

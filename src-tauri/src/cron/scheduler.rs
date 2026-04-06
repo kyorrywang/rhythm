@@ -2,7 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use tokio::task::JoinHandle;
+use tauri::async_runtime::JoinHandle;
+use tokio::time::sleep;
 
 use crate::cron::registry::SharedRegistry;
 use crate::cron::runner::CronRunner;
@@ -22,7 +23,7 @@ impl CronScheduler {
         let registry = self.registry.clone();
         let runner = self.runner.clone();
 
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             loop {
                 let now = Utc::now();
                 let due_jobs = {
@@ -32,12 +33,12 @@ impl CronScheduler {
 
                 for job in due_jobs {
                     let runner = runner.clone();
-                    tokio::spawn(async move {
+                    tauri::async_runtime::spawn(async move {
                         runner.run(&job).await;
                     });
                 }
 
-                tokio::time::sleep(Duration::from_secs(60)).await;
+                sleep(Duration::from_secs(60)).await;
             }
         })
     }

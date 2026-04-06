@@ -239,18 +239,6 @@ const applyChunkToMessage = (
     return { ...message, segments, status: 'waiting_for_user' };
   }
 
-  if (chunk.type === 'ask_answered') {
-    return {
-      ...message,
-      segments: segments.map((seg) =>
-        seg.type === 'ask' && seg.status === 'waiting'
-          ? { ...seg, status: 'answered', answer: chunk.answer, timeCostMs: Date.now() - (seg.startTime || Date.now()) }
-          : seg,
-      ),
-      status: 'running',
-    };
-  }
-
   if (chunk.type === 'interrupted') {
     const liveThinking = findLiveThinking(segments);
     if (liveThinking) {
@@ -324,27 +312,6 @@ export const reduceSessionChunk = (
         return { ...s, phase: 'idle' as const };
       }
       return s;
-    });
-
-    return {
-      sessions: updatedSessions,
-      effects,
-    };
-  }
-
-  if (chunk.type === 'ask_answered') {
-    const updatedSessions = sessions.map((session) => {
-      if (session.id !== sessionId) return session;
-      return updateMessage(session, messageId, (message) =>
-        applyChunkToMessage(message, chunk, sessionId, effects),
-      );
-    }).map(s => {
-      if (s.id !== sessionId) return s;
-      const next = { ...s, currentAsk: null };
-      if (s.phase === 'waiting_for_ask') {
-        next.phase = 'streaming';
-      }
-      return next;
     });
 
     return {

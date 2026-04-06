@@ -9,35 +9,38 @@ export interface ToolPresentation {
 type ToolPresenter = (tool: ToolCall) => ToolPresentation;
 
 const joinLogs = (tool: ToolCall) => (tool.logs && tool.logs.length > 0 ? tool.logs.join('\n') : '');
+const toolArgs = (tool: ToolCall): Record<string, unknown> =>
+  tool.arguments && typeof tool.arguments === 'object' ? (tool.arguments as Record<string, unknown>) : {};
 
 const presenters: Record<string, ToolPresenter> = {
   shell: (tool) => ({
     title: 'Shell',
-    summary: tool.arguments?.command || '命令',
+    summary: String(toolArgs(tool).command || '命令'),
     details: joinLogs(tool),
   }),
   read: (tool) => ({
     title: 'READ',
-    summary: tool.arguments?.path || '',
+    summary: String(toolArgs(tool).path || ''),
     details: joinLogs(tool),
   }),
   write: (tool) => ({
     title: 'WRITE',
-    summary: tool.arguments?.path || '',
+    summary: String(toolArgs(tool).path || ''),
     details: joinLogs(tool),
   }),
   edit: (tool) => ({
     title: 'EDIT',
-    summary: tool.arguments?.path || '',
+    summary: String(toolArgs(tool).path || ''),
     details: joinLogs(tool),
   }),
   delete: (tool) => ({
     title: 'DELETE',
-    summary: tool.arguments?.path || '',
+    summary: String(toolArgs(tool).path || ''),
     details: joinLogs(tool),
   }),
   spawn_subagent: (tool) => {
-    const title = tool.arguments?.title || tool.arguments?.message || '启动子代理';
+    const args = toolArgs(tool);
+    const title = String(args.title || args.message || '启动子代理');
     const shortTitle = title.length > 20 ? title.slice(0, 20) + '...' : title;
     return {
       title: 'Dynamic 智能体',
@@ -55,7 +58,7 @@ export const getToolPresentation = (tool: ToolCall): ToolPresentation => {
 
   return {
     title: tool.name,
-    summary: tool.arguments?.path || JSON.stringify(tool.arguments),
+    summary: String(toolArgs(tool).path || JSON.stringify(tool.arguments)),
     details: joinLogs(tool),
   };
 };

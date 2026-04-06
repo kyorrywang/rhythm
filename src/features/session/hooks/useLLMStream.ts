@@ -1,10 +1,16 @@
 import { useState, useCallback, useRef } from 'react';
-import { invoke, Channel } from '@tauri-apps/api/core';
+import { Channel } from '@tauri-apps/api/core';
 import { useSessionStore } from '@/store/useSessionStore';
+import { usePermissionStore } from '@/store/usePermissionStore';
+import { useToast } from '@/hooks/useToast';
 import { Message, ServerEventChunk } from '@/types/schema';
+import { chatStream, submitUserAnswer, approvePermission, interruptSession } from '@/api/commands';
 
 export const useLLMStream = () => {
-  const { addMessage, processChunk, dequeueMessage, getQueueLength, transitionPhase, migrateQueueToChild, restoreQueueToParent } = useSessionStore();
+  const store = useSessionStore;
+  const permissionStore = usePermissionStore;
+  const { error: showError } = useToast();
+
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef(false);
   const rootSessionIdRef = useRef<string | null>(null);
@@ -12,14 +18,14 @@ export const useLLMStream = () => {
   const subSessionMessageMapRef = useRef<Map<string, string>>(new Map());
 
   const connectStream = useCallback(async (prompt: string, messageMode: 'normal' | 'build' | 'task' | 'ask' | 'append') => {
-    const state = useSessionStore.getState();
+    const state = store.getState();
     const sessionId = state.activeSessionId;
     if (!sessionId) return;
 
     abortRef.current = false;
     rootSessionIdRef.current = sessionId;
     setIsStreaming(true);
-    transitionPhase(sessionId, 'streaming');
+    state.updateSession(sessionId, { phase: 'streaming' });
 
     const userMsg: Message = {
       id: Date.now().toString() + '-u',
@@ -27,110 +33,147 @@ export const useLLMStream = () => {
       content: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
       createdAt: Date.now(),
     };
-    addMessage(sessionId, userMsg);
+    state.addMessage(sessionId, userMsg);
 
     const aiMessageId = Date.now().toString() + '-a';
     rootAiMessageIdRef.current = aiMessageId;
-    const initAiMsg: Message = {
+    state.addMessage(sessionId, {
       id: aiMessageId,
       role: 'assistant',
       content: '',
       createdAt: Date.now(),
       segments: [],
-    };
-    addMessage(sessionId, initAiMsg);
+    });
 
     try {
       const onEvent = new Channel<ServerEventChunk>();
       onEvent.onmessage = (chunk) => {
+        const liveState = store.getState();
         const targetSessionId = chunk.sessionId;
 
         if (chunk.type === 'subagent_start') {
-          processChunk(targetSessionId, aiMessageId, chunk);
-          migrateQueueToChild(chunk.parentSessionId, chunk.subSessionId);
+          const reduced = liveState.processChunk(liveState.sessions, targetSessionId, aiMessageId, chunk);
+          let newSessions = reduced.sessions;
+          newSessions = liveState.migrateQueueToChild(chunk.parentSessionId, chunk.subSessionId, newSessions);
+          store.setState({ sessions: newSessions });
 
           const subAiMessageId = Date.now().toString() + '-a-sub';
-          addMessage(chunk.subSessionId, {
+          store.getState().addMessage(chunk.subSessionId, {
             id: subAiMessageId,
             role: 'assistant',
             content: '',
             createdAt: Date.now(),
             segments: [],
           });
-
           subSessionMessageMapRef.current.set(chunk.subSessionId, subAiMessageId);
           return;
         }
 
         if (chunk.type === 'subagent_end') {
           const subAiMessageId = subSessionMessageMapRef.current.get(chunk.subSessionId) || aiMessageId;
-          processChunk(chunk.subSessionId, subAiMessageId, chunk);
-
-          const afterState = useSessionStore.getState();
-          const parentSession = afterState.sessions.find(s => s.id === chunk.subSessionId)?.parentId;
-          if (parentSession) {
-            restoreQueueToParent(chunk.subSessionId, parentSession);
+          const reduced = liveState.processChunk(liveState.sessions, chunk.subSessionId, subAiMessageId, chunk);
+          store.setState({ sessions: reduced.sessions });
+          const parentSessionId = reduced.sessions.get(chunk.subSessionId)?.parentId;
+          if (parentSessionId) {
+            const newSessions = store.getState().restoreQueueToParent(chunk.subSessionId, parentSessionId, reduced.sessions);
+            store.setState({ sessions: newSessions });
           }
           return;
         }
 
-        const targetAiMessageId = subSessionMessageMapRef.current.get(targetSessionId) || aiMessageId;
-        processChunk(targetSessionId, targetAiMessageId, chunk);
+        if (chunk.type === 'permission_request') {
+          permissionStore.getState().addPending({
+            toolId: chunk.toolId,
+            toolName: chunk.toolName,
+            reason: chunk.reason,
+            sessionId: chunk.sessionId,
+            timestamp: Date.now(),
+          });
+          state.updateSession(chunk.sessionId, { phase: 'waiting_for_permission', permissionPending: true });
+          return;
+        }
 
-        // Only trigger queue processing for the root session.
-        // Sub-session done is handled by the subsequent subagent_end event
-        // which calls restoreQueueToParent.
-        const isSubSession = subSessionMessageMapRef.current.has(targetSessionId);
-        if (!isSubSession && (chunk.type === 'done' || chunk.type === 'interrupted')) {
-          if (chunk.type === 'interrupted') {
-            transitionPhase(targetSessionId, 'interrupting');
+        if (chunk.type === 'max_turns_exceeded') {
+          showError(`已达到最大轮次限制 (${chunk.turns} 轮)`);
+          state.updateSession(chunk.sessionId, {
+            phase: 'idle',
+            maxTurnsReached: chunk.turns,
+            error: null,
+          });
+          setIsStreaming(false);
+          return;
+        }
+
+        const targetAiMessageId = subSessionMessageMapRef.current.get(targetSessionId) || aiMessageId;
+        const reduced = liveState.processChunk(liveState.sessions, targetSessionId, targetAiMessageId, chunk);
+        store.setState({ sessions: reduced.sessions });
+
+        if (chunk.type === 'done') {
+          const isSubSession = subSessionMessageMapRef.current.has(targetSessionId);
+          if (!isSubSession) {
+            processQueueAfterDone(targetSessionId, messageMode);
           }
-          processQueueAfterDone(targetSessionId, messageMode);
+        }
+
+        if (chunk.type === 'interrupted') {
+          state.updateSession(targetSessionId, { phase: 'idle' });
+          setIsStreaming(false);
         }
       };
 
-      await invoke('chat_stream', {
-        sessionId,
-        prompt: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
-        onEvent
-      });
-
+      await chatStream({ sessionId, prompt: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务') }, onEvent);
     } catch (err) {
-      console.error("Stream failed", err);
+      console.error('Stream failed', err);
       setIsStreaming(false);
-      const currentState = useSessionStore.getState();
+      const currentState = store.getState();
       const currentSessionId = currentState.activeSessionId || sessionId;
-      transitionPhase(currentSessionId, 'idle');
+      currentState.updateSession(currentSessionId, {
+        phase: 'idle',
+        maxTurnsReached: null,
+        error: 'Stream connection failed',
+      });
     }
-  }, [addMessage, processChunk, dequeueMessage, transitionPhase, migrateQueueToChild, restoreQueueToParent]);
+  }, [store, permissionStore, showError]);
 
   const processQueueAfterDone = useCallback(async (sessionId: string, _lastMode: 'normal' | 'build' | 'task' | 'ask' | 'append') => {
-    const queuedItem = dequeueMessage(sessionId);
+    const queuedItem = store.getState().dequeueMessage(sessionId);
     if (queuedItem) {
-      transitionPhase(sessionId, 'processing_queue');
-      await microtaskDelay();
+      store.getState().updateSession(sessionId, { phase: 'processing_queue' });
+      await Promise.resolve();
       if (!abortRef.current) {
         connectStream(queuedItem.message.content || '', queuedItem.mode || 'normal');
       }
     } else {
       setIsStreaming(false);
-      transitionPhase(sessionId, 'idle');
+      store.getState().updateSession(sessionId, { phase: 'idle', maxTurnsReached: null });
     }
-  }, [dequeueMessage, transitionPhase, connectStream]);
+  }, [connectStream, store]);
 
   const requestInterrupt = useCallback(async () => {
-    const state = useSessionStore.getState();
+    const state = store.getState();
     const sessionId = state.activeSessionId;
     if (!sessionId) return;
-    const queueLen = getQueueLength(sessionId);
-    if (queueLen === 0) return;
-    await invoke('interrupt_session', { sessionId });
-    transitionPhase(sessionId, 'interrupting');
-  }, [getQueueLength, transitionPhase]);
+    const session = state.sessions.get(sessionId);
+    const isRunning = session?.phase && session.phase !== 'idle';
+    if (!isRunning) return;
+    await interruptSession({ sessionId });
+    state.updateSession(sessionId, { phase: 'interrupting' });
+  }, [store]);
 
-  return { connectStream, isStreaming, requestInterrupt };
+  const submitAnswer = useCallback(async (sessionId: string, toolId: string, answer: string) => {
+    await submitUserAnswer({ toolId, answer });
+    store.getState().clearAskRequest(sessionId);
+  }, [store]);
+
+  const approvePermissionRequest = useCallback(async (sessionId: string, toolId: string, approved: boolean) => {
+    await approvePermission({ toolId, approved });
+    permissionStore.getState().resolvePending(toolId, approved);
+    store.getState().updateSession(sessionId, {
+      phase: 'streaming',
+      permissionPending: false,
+      maxTurnsReached: null,
+    });
+  }, [permissionStore, store]);
+
+  return { connectStream, isStreaming, requestInterrupt, submitAnswer, approvePermission: approvePermissionRequest };
 };
-
-function microtaskDelay(): Promise<void> {
-  return Promise.resolve();
-}

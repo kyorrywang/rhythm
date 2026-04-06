@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { submitUserAnswer } from '@/api/commands';
 import { useSessionStore } from '@/store/useSessionStore';
 import { useLLMStream } from '@/features/session/hooks/useLLMStream';
-import { SessionPhase, SelectionType, AskQuestion } from '@/types/schema';
+import { SessionPhase, SelectionType, AskQuestion, Message } from '@/types/schema';
 
 interface UseComposerActionsParams {
   activeSessionId: string | null;
@@ -12,8 +12,8 @@ interface UseComposerActionsParams {
 }
 
 export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTasksDone }: UseComposerActionsParams) => {
-  const { enqueueMessage, clearAskRequest, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, toggleTaskMinimized, recordAskAnswer } = useSessionStore();
-  const { connectStream, isStreaming, requestInterrupt } = useLLMStream();
+  const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, setTaskMinimized, recordAskAnswer, sessions } = useSessionStore();
+  const { connectStream, requestInterrupt } = useLLMStream();
 
   const [text, setText] = useState('');
   const [selectedAskOptions, setSelectedAskOptions] = useState<string[]>([]);
@@ -27,10 +27,10 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
   }, [currentAsk?.toolId, phase, activeSessionId, transitionPhase]);
 
   useEffect(() => {
-    if (allTasksDone) {
-      toggleTaskMinimized();
+    if (allTasksDone && activeSessionId) {
+      setTaskMinimized(activeSessionId, true);
     }
-  }, [allTasksDone]);
+  }, [allTasksDone, activeSessionId, setTaskMinimized]);
 
   useEffect(() => {
     if (phase === 'idle') {
@@ -38,49 +38,67 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
     }
   }, [phase, activeSessionId, clearTasks]);
 
-  const buildAskAnswer = useCallback((): string => {
-    if (!currentAsk) return text.trim();
+  const buildAskAnswer = useCallback((): { answer: string; record: { selected: string[]; text: string } } => {
+    if (!currentAsk) {
+      const plain = text.trim();
+      return {
+        answer: plain,
+        record: {
+          selected: [],
+          text: plain,
+        },
+      };
+    }
     const selectionType = currentAsk.selectionType || 'multiple_with_input';
     const input = text.trim();
     const selected = selectedAskOptions.join(',');
+    let answer = '';
 
     switch (selectionType) {
       case 'single_with_input':
       case 'multiple_with_input':
         if (input) {
-          return selected ? `${selected}: ${input}` : input;
+          answer = selected ? `${selected}: ${input}` : input;
+        } else {
+          answer = selected;
         }
-        return selected;
+        break;
       default:
-        return selected || input;
+        answer = selected || input;
+        break;
     }
+    return {
+      answer,
+      record: {
+        selected: [...selectedAskOptions],
+        text: input,
+      },
+    };
   }, [currentAsk, text, selectedAskOptions]);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback((submission?: { answer: string; record: { selected: string[]; text: string } }) => {
     if (!activeSessionId) return;
 
     if (phase === 'waiting_for_ask' && currentAsk) {
-      const answer = buildAskAnswer();
+      const built = submission || buildAskAnswer();
+      const answer = built.answer;
       if (!answer) return;
 
-      const state = useSessionStore.getState();
-      const session = state.sessions.find(s => s.id === activeSessionId);
-      const lastAiMessage = session?.messages.filter(m => m.role === 'assistant').pop();
+      const session = sessions.get(activeSessionId);
+      const lastAiMessage = session?.messages.filter((m: Message) => m.role === 'assistant').pop();
 
       if (lastAiMessage) {
-        recordAskAnswer(activeSessionId, lastAiMessage.id, {
-          selected: selectedAskOptions,
-          text: text.trim(),
-        });
+        recordAskAnswer(activeSessionId, lastAiMessage.id, built.record);
       }
 
-      invoke('submit_user_answer', { sessionId: activeSessionId, answer }).catch(console.error);
+      submitUserAnswer({ toolId: currentAsk.toolId, answer }).catch(console.error);
       setText('');
       setSelectedAskOptions([]);
       return;
     }
 
-    if (isStreaming && activeSessionId) {
+    const isSessionStreaming = phase === 'streaming' || phase === 'streaming_with_queue' || phase === 'processing_queue' || phase === 'interrupting' || phase === 'waiting_for_permission';
+    if (isSessionStreaming && activeSessionId) {
       enqueueMessage(activeSessionId, {
         id: Date.now().toString(),
         role: 'user',
@@ -98,14 +116,13 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
       connectStream(text, 'normal');
       setText('');
     }
-  }, [activeSessionId, phase, currentAsk, text, selectedAskOptions, isStreaming, enqueueMessage, clearAskRequest, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer]);
+  }, [activeSessionId, phase, currentAsk, text, enqueueMessage, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer, sessions]);
 
   const handleIgnoreAsk = useCallback(() => {
     if (!activeSessionId || !currentAsk) return;
 
-    const state = useSessionStore.getState();
-    const session = state.sessions.find(s => s.id === activeSessionId);
-    const lastAiMessage = session?.messages.filter(m => m.role === 'assistant').pop();
+    const session = sessions.get(activeSessionId);
+    const lastAiMessage = session?.messages.filter((m: Message) => m.role === 'assistant').pop();
 
     if (lastAiMessage) {
       recordAskAnswer(activeSessionId, lastAiMessage.id, {
@@ -114,10 +131,10 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
       });
     }
 
-    invoke('submit_user_answer', { sessionId: activeSessionId, answer: '' }).catch(console.error);
+    submitUserAnswer({ toolId: currentAsk.toolId, answer: '' }).catch(console.error);
     setText('');
     setSelectedAskOptions([]);
-  }, [activeSessionId, currentAsk, recordAskAnswer]);
+  }, [activeSessionId, currentAsk, recordAskAnswer, sessions]);
 
   const handleCancelQueue = useCallback(() => {
     if (!activeSessionId) return;
@@ -154,18 +171,21 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
     }
   }, [currentAsk]);
 
+  const handleResetAskOptions = useCallback(() => {
+    setSelectedAskOptions([]);
+  }, []);
+
   return {
     text,
     setText,
     selectedAskOptions,
     setSelectedAskOptions,
-    isStreaming,
     handleSend,
     handleIgnoreAsk,
     handleCancelQueue,
     handleRemoveQueuedItem,
     handleInterrupt,
     handleAskOptionToggle,
-    buildAskAnswer,
+    handleResetAskOptions,
   };
 };

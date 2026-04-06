@@ -4,7 +4,7 @@ import { AskDockProps } from '../types';
 import { useState, useCallback, useMemo } from 'react';
 import { AskQuestion } from '@/types/schema';
 
-export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptionToggle, onSubmit, onIgnore }: Omit<AskDockProps, 'isSubmitDisabled' | 'isMinimized' | 'onToggleMinimize'> & { onIgnore?: () => void }) => {
+export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptionToggle, onResetOptions, onSubmit, onIgnore }: Omit<AskDockProps, 'isSubmitDisabled' | 'isMinimized' | 'onToggleMinimize'> & { onIgnore?: () => void }) => {
   const questions = useMemo((): AskQuestion[] => {
     if (currentAsk.questions && currentAsk.questions.length > 0) {
       return currentAsk.questions;
@@ -40,23 +40,60 @@ export const AskDock = ({ currentAsk, text, setText, selectedAskOptions, onOptio
     const saved = qAnswers[index];
     if (saved) {
       setText(saved.text);
-      onOptionToggle('__RESET__');
+      onResetOptions();
       saved.options.forEach(opt => onOptionToggle(opt));
     } else {
       setText('');
-      onOptionToggle('__RESET__');
+      onResetOptions();
     }
-  }, [qAnswers, setText, onOptionToggle]);
+  }, [qAnswers, setText, onOptionToggle, onResetOptions]);
+
+  const buildSubmission = useCallback(() => {
+    const finalAnswers: Array<{ question: string; text: string; options: string[] }> = questions.map((question, index) => {
+      if (index === currentQIndex) {
+        return {
+          question: question.question,
+          text: text.trim(),
+          options: [...selectedAskOptions],
+        };
+      }
+      const saved = qAnswers[index] || { text: '', options: [] };
+      return {
+        question: question.question,
+        text: saved.text.trim(),
+        options: [...saved.options],
+      };
+    });
+
+    const combinedSelected = Array.from(new Set(finalAnswers.flatMap((entry) => entry.options)));
+    const combinedText = finalAnswers
+      .map((entry, index) => {
+        const selected = entry.options.join(', ');
+        const detail = entry.text;
+        const body = [selected, detail].filter(Boolean).join(': ');
+        return questions.length > 1 ? `${index + 1}. ${entry.question} => ${body}` : body;
+      })
+      .filter(Boolean)
+      .join('\n');
+
+    return {
+      answer: combinedText,
+      record: {
+        selected: combinedSelected,
+        text: combinedText,
+      },
+    };
+  }, [questions, currentQIndex, text, selectedAskOptions, qAnswers]);
 
   const handleNext = useCallback(() => {
     saveCurrentState();
     if (isLastQuestion) {
-      onSubmit();
+      onSubmit(buildSubmission());
     } else {
       setCurrentQIndex(prev => prev + 1);
       setTimeout(() => loadQuestionState(currentQIndex + 1), 0);
     }
-  }, [saveCurrentState, isLastQuestion, onSubmit, currentQIndex, loadQuestionState]);
+  }, [saveCurrentState, isLastQuestion, onSubmit, currentQIndex, loadQuestionState, buildSubmission]);
 
   const handleBack = useCallback(() => {
     saveCurrentState();

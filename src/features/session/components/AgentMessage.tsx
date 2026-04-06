@@ -3,9 +3,8 @@ import { Loader2, ChevronRight, ChevronDown, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Message, MessageSegment, ToolCall } from '@/types/schema';
+import { CodeBlock } from '@/components/markdown/CodeBlock';
 import { getToolPresentation } from '@/features/session/toolPresentation';
 import { useDisplayStore } from '@/store/useDisplayStore';
 import { useSessionStore } from '@/store/useSessionStore';
@@ -329,15 +328,10 @@ export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessage
                     code({ className, children, ...props }: any) {
                       const match = /language-(\w+)/.exec(className || '');
                       return match ? (
-                        <SyntaxHighlighter
-                          {...props}
-                          style={vscDarkPlus}
+                        <CodeBlock
                           language={match[1]}
-                          PreTag="div"
-                          className="rounded-md my-2 text-sm"
-                        >
-                          {String(children).replace(/\n$/, '')}
-                        </SyntaxHighlighter>
+                          code={String(children).replace(/\n$/, '')}
+                        />
                       ) : (
                         <code {...props} className={`${className || ''} bg-gray-100 rounded-md px-1.5 py-0.5 text-sm text-pink-600 font-mono`}>
                           {children}

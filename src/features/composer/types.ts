@@ -9,6 +9,7 @@ export const PHASE_TO_DOCK: Record<SessionPhase, DockType> = {
   processing_queue: 'append',
   waiting_for_ask: 'ask',
   interrupting: 'append',
+  waiting_for_permission: 'append',
 };
 
 export interface AskDockProps {
@@ -17,7 +18,8 @@ export interface AskDockProps {
   setText: (v: string) => void;
   selectedAskOptions: string[];
   onOptionToggle: (opt: string) => void;
-  onSubmit: () => void;
+  onResetOptions: () => void;
+  onSubmit: (submission?: { answer: string; record: { selected: string[]; text: string } }) => void;
   onIgnore?: () => void;
 }
 
