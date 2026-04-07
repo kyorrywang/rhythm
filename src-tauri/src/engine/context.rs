@@ -26,8 +26,8 @@ pub struct QueryContext {
     pub model: String,
     /// Fully assembled system prompt (built by prompts::builder).
     pub system_prompt: String,
-    /// Hard cap on agent turns to prevent infinite loops.
-    pub max_turns: usize,
+    /// Optional hard cap on agent turns. None means unlimited.
+    pub agent_turn_limit: Option<usize>,
     /// Whether auto compaction is enabled for this query.
     pub auto_compact_enabled: bool,
     /// Maximum tokens per LLM response (used by AutoCompact threshold).

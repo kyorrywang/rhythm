@@ -16,19 +16,20 @@ export interface Task {
   status: 'pending' | 'running' | 'completed' | 'error';
 }
 
-export type SelectionType = 'single' | 'multiple' | 'input' | 'single_with_input' | 'multiple_with_input';
+export type SelectionType = 'single_with_input' | 'multiple_with_input';
 
 export interface AskQuestion {
   question: string;
   options: string[];
-  selectionType?: SelectionType;
+  selectionType: SelectionType;
 }
 
 export interface AskRequest {
   toolId: string;
+  title: string;
   question: string;
   options: string[];
-  selectionType?: SelectionType;
+  selectionType: SelectionType;
   questions?: AskQuestion[];
 }
 
@@ -50,14 +51,13 @@ export type ServerEventChunk =
   | { type: 'tool_start'; sessionId: string; toolId: string; toolName: string; args: unknown }
   | { type: 'tool_output'; sessionId: string; toolId: string; logLine: string }
   | { type: 'tool_end'; sessionId: string; toolId: string; exitCode: number }
-  | { type: 'ask_request'; sessionId: string; toolId: string; question: string; options: string[]; selectionType?: SelectionType; questions?: AskQuestion[] }
+  | { type: 'ask_request'; sessionId: string; toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[] }
   | { type: 'task_update'; sessionId: string; tasks: Task[] }
   | { type: 'subagent_start'; sessionId: string; parentSessionId: string; subSessionId: string; title: string; message: string }
   | { type: 'subagent_end'; sessionId: string; subSessionId: string; result: string; isError: boolean }
   | { type: 'permission_request'; sessionId: string; toolId: string; toolName: string; reason: string }
   | { type: 'done'; sessionId: string }
   | { type: 'interrupted'; sessionId: string }
-  | { type: 'max_turns_exceeded'; sessionId: string; turns: number }
   | { type: 'context_compacted'; sessionId: string; compactType: 'micro' | 'full'; tokensSaved?: number }
   | { type: 'cron_job_triggered'; sessionId: string; jobId: string; name: string }
   | { type: 'cron_job_completed'; sessionId: string; jobId: string; name: string; success: boolean; output: string; durationMs: number };
@@ -82,7 +82,7 @@ export type SessionPhase =
 export type MessageSegment =
   | { type: 'thinking'; content: string; timeCostMs?: number; isLive?: boolean; startTime?: number }
   | { type: 'tool'; tool: ToolCall }
-  | { type: 'ask'; question: string; options: string[]; selectionType?: SelectionType; questions?: AskQuestion[]; status: 'waiting' | 'answered'; answer?: { selected: string[]; text: string }; startTime?: number; timeCostMs?: number }
+  | { type: 'ask'; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[]; status: 'waiting' | 'answered'; answer?: { selected: string[]; text: string }; startTime?: number; timeCostMs?: number }
   | { type: 'text'; content: string }
   | { type: 'permission'; request: PermissionRequestEvent; status: 'waiting' | 'approved' | 'denied'; startTime?: number };
 
@@ -90,6 +90,8 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content?: string;
+  mode?: 'Chat' | 'Plan' | 'Coordinate';
+  model?: string;
   createdAt: number;
   segments?: MessageSegment[];
   status?: 'running' | 'waiting_for_user' | 'waiting_for_permission' | 'completed';
@@ -114,6 +116,5 @@ export interface Session {
   usage?: UsageSnapshot;
   tokenCount?: number;
   permissionPending?: boolean;
-  maxTurnsReached?: number | null;
   error?: string | null;
 }

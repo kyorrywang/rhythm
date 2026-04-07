@@ -80,8 +80,22 @@ async fn run_query_inner(
     let token_limit = ((context.max_tokens as f32) * threshold_ratio) as usize;
     let max_micro_compacts = context.max_micro_compacts;
 
-    for turn in 0..context.max_turns {
-        let _ = turn; // suppress unused warning
+    let mut turn = 0usize;
+    loop {
+        if let Some(limit) = context.agent_turn_limit {
+            if turn >= limit {
+                event_bus::emit(
+                    &context.agent_id,
+                    &context.session_id,
+                    EventPayload::TextDelta {
+                        content: format!("\n[Agent turn limit ({limit}) exceeded]"),
+                    },
+                );
+                event_bus::emit(&context.agent_id, &context.session_id, EventPayload::Done);
+                return Err(RhythmError::AgentTurnLimitExceeded(limit));
+            }
+        }
+        turn += 1;
         let input_chars = messages
             .iter()
             .map(|m| {
@@ -131,6 +145,7 @@ async fn run_query_inner(
         let mut thinking_started_at: Option<std::time::Instant> = None;
         let mut pending_tool_calls = Vec::new();
         let mut ended_with_done = false;
+        let mut continue_after_tools = false;
 
         let mut stream = context.api_client
             .chat_stream(messages.clone(), tool_defs.clone())
@@ -208,6 +223,7 @@ async fn run_query_inner(
                         }
 
                         // continue outer loop (next turn)
+                        continue_after_tools = true;
                         break;
                     }
 
@@ -217,6 +233,10 @@ async fn run_query_inner(
                 }
                 Err(e) => return Err(RhythmError::LlmError(e)),
             }
+        }
+
+        if continue_after_tools {
+            continue;
         }
 
         // If stream ended without Done, handle remaining tool calls
@@ -247,7 +267,7 @@ async fn run_query_inner(
 
         // Stream ended cleanly with no pending tool calls
         if ended_with_done {
-            break;
+            return Ok(assistant_text.clone());
         }
 
         event_bus::emit(
@@ -263,16 +283,7 @@ async fn run_query_inner(
         ));
     }
 
-    // If we reach here without returning via Done, we hit max_turns
-    event_bus::emit(
-        &context.agent_id,
-        &context.session_id,
-        EventPayload::TextDelta {
-            content: format!("\n[Max turns ({}) exceeded]", context.max_turns),
-        },
-    );
-    event_bus::emit(&context.agent_id, &context.session_id, EventPayload::Done);
-    Err(RhythmError::MaxTurnsExceeded(context.max_turns))
+    // The loop exits only through Done, interrupt, stream error, or an optional future turn limit.
 }
 
 // ─── Tool execution helpers ──────────────────────────────────────────────────

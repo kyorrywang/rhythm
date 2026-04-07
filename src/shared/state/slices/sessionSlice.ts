@@ -8,7 +8,7 @@ interface SessionSliceState {
 }
 
 interface SessionSliceActions {
-  setActiveSession: (id: string) => void;
+  setActiveSession: (id: string | null) => void;
   setSessions: (sessions: Session[]) => void;
   addSession: (session: Session) => void;
   removeSession: (id: string) => void;
@@ -36,6 +36,7 @@ export const createSessionSlice = (
 
   setActiveSession: (id) =>
     set((state) => {
+      if (!id) return { activeSessionId: null };
       const session = state.sessions.get(id);
       if (!session) return { activeSessionId: id };
       const next = new Map(state.sessions);

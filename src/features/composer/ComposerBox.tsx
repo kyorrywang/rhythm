@@ -13,9 +13,7 @@ export const ComposerBox = () => {
     toggleTaskMinimized,
     toggleAppendMinimized,
     composerControls,
-    cycleComposerMode,
-    cycleComposerModel,
-    cycleComposerReasoning,
+    setComposerControls,
     toggleComposerFullAuto,
   } = useSessionStore();
   const activeSession = activeSessionId ? sessions.get(activeSessionId) : undefined;
@@ -41,7 +39,13 @@ export const ComposerBox = () => {
     handleAskOptionToggle,
     handleResetAskOptions,
     handleIgnoreAsk,
-  } = useComposerActions({ activeSessionId, phase, currentAsk: currentAsk || null, allTasksDone });
+  } = useComposerActions({
+    activeSessionId,
+    phase,
+    currentAsk: currentAsk || null,
+    allTasksDone,
+    composerMode: composerControls.mode,
+  });
 
   if (dockType === 'ask' && currentAsk) {
     return (
@@ -89,9 +93,9 @@ export const ComposerBox = () => {
       headerContent={headerContent}
       controls={composerControls}
       sessionPhase={phase}
-      onCycleMode={cycleComposerMode}
-      onCycleModel={cycleComposerModel}
-      onCycleReasoning={cycleComposerReasoning}
+      onSetMode={(mode) => setComposerControls({ mode })}
+      onSetModel={(model) => setComposerControls({ model })}
+      onSetReasoning={(reasoning) => setComposerControls({ reasoning })}
       onToggleFullAuto={toggleComposerFullAuto}
     />
   );

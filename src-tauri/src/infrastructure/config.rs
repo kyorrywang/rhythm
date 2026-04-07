@@ -190,8 +190,8 @@ impl Default for AutoCompactConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RhythmSettings {
     pub llm: LlmConfig,
-    #[serde(default = "default_max_turns")]
-    pub max_turns: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_turn_limit: Option<usize>,
     pub system_prompt: Option<String>,
     #[serde(default)]
     pub permission: PermissionConfig,
@@ -209,15 +209,11 @@ pub struct RhythmSettings {
     pub enabled_plugins: HashMap<String, bool>,
 }
 
-fn default_max_turns() -> usize {
-    100
-}
-
 impl Default for RhythmSettings {
     fn default() -> Self {
         Self {
             llm: LlmConfig::default(),
-            max_turns: 100,
+            agent_turn_limit: None,
             system_prompt: None,
             permission: PermissionConfig::default(),
             memory: MemoryConfig::default(),
@@ -294,7 +290,7 @@ fn apply_env_overrides(settings: &mut RhythmSettings) {
                 settings.permission.mode = mode;
             }
             if let Some(max_turns) = agent_def.max_turns {
-                settings.max_turns = max_turns;
+                settings.agent_turn_limit = Some(max_turns);
             }
         }
     }

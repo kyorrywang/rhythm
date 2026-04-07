@@ -224,6 +224,7 @@ const applyChunkToMessage = (
     }
     segments.push({
       type: 'ask',
+      title: chunk.title,
       question: chunk.question,
       options: chunk.options,
       selectionType: chunk.selectionType,
@@ -257,6 +258,22 @@ const applyChunkToMessage = (
   }
 
   if (chunk.type === 'interrupted') {
+    const liveThinking = findLiveThinking(segments);
+    if (liveThinking) {
+      segments[liveThinking.index] = {
+        ...liveThinking.segment,
+        isLive: false,
+      };
+    }
+    return {
+      ...message,
+      segments,
+      status: 'completed',
+      totalTimeMs: Date.now() - message.createdAt,
+    };
+  }
+
+  if (chunk.type === 'done') {
     const liveThinking = findLiveThinking(segments);
     if (liveThinking) {
       segments[liveThinking.index] = {
@@ -347,6 +364,7 @@ export const reduceSessionChunk = (
         ...nextSession,
         currentAsk: {
           toolId: chunk.toolId,
+          title: chunk.title,
           question: chunk.question,
           options: chunk.options,
           selectionType: chunk.selectionType,

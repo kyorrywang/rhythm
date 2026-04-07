@@ -2,7 +2,6 @@ export const APP_NAME = 'Rhythm';
 export const APP_VERSION = '0.1.0';
 
 export const DEFAULT_MAX_TOKENS = 16384;
-export const DEFAULT_MAX_TURNS = 100;
 
 export const PERMISSION_MODES = {
   default: { label: '默认', desc: '只读允许，写操作需确认' },

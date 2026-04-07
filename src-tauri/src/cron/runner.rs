@@ -144,7 +144,7 @@ impl CronRunner {
             cwd: cwd_path,
             model: settings.llm.model.clone(),
             system_prompt,
-            max_turns: settings.max_turns,
+            agent_turn_limit: settings.agent_turn_limit,
             auto_compact_enabled: settings.auto_compact.enabled,
             max_tokens: settings.llm.max_tokens.unwrap_or(16384),
             auto_compact_threshold_ratio: settings.auto_compact.threshold_ratio,

@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-fn default_selection_type() -> String {
-    "multiple_with_input".to_string()
-}
-
 fn is_valid_selection_type(st: &str) -> bool {
     st == "single_with_input" || st == "multiple_with_input"
 }
@@ -13,7 +9,7 @@ fn is_valid_selection_type(st: &str) -> bool {
 pub struct AskQuestion {
     pub question: String,
     pub options: Vec<String>,
-    #[serde(rename = "selectionType", default = "default_selection_type")]
+    #[serde(rename = "selectionType")]
     pub selection_type: String,
 }
 
@@ -24,6 +20,9 @@ impl AskQuestion {
                 "Invalid selectionType '{}'. Only 'single_with_input' and 'multiple_with_input' are allowed.",
                 self.selection_type
             ));
+        }
+        if self.options.is_empty() {
+            return Err("Ask questions require at least one option. Use 'single_with_input' or 'multiple_with_input'.".to_string());
         }
         Ok(())
     }
@@ -88,9 +87,10 @@ pub enum EventPayload {
     AskRequest {
         #[serde(rename = "toolId")]
         tool_id: String,
+        title: String,
         question: String,
         options: Vec<String>,
-        #[serde(rename = "selectionType", default = "default_selection_type")]
+        #[serde(rename = "selectionType")]
         selection_type: String,
         #[serde(rename = "questions", default)]
         questions: Vec<AskQuestion>,
@@ -126,9 +126,6 @@ pub enum EventPayload {
         tool_name: String,
         reason: String,
     },
-
-    #[serde(rename = "max_turns_exceeded")]
-    MaxTurnsExceeded { turns: usize },
 
     #[serde(rename = "done")]
     Done,

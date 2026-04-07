@@ -12,13 +12,14 @@ pub struct AskTool;
 #[derive(Deserialize, Clone)]
 struct AskQuestionArg {
     question: String,
-    options: Option<Vec<String>>,
+    options: Vec<String>,
     #[serde(rename = "selectionType")]
-    selection_type: Option<String>,
+    selection_type: String,
 }
 
 #[derive(Deserialize)]
 struct AskArgs {
+    title: String,
     questions: Option<Vec<AskQuestionArg>>,
     question: Option<String>,
     options: Option<Vec<String>>,
@@ -26,15 +27,11 @@ struct AskArgs {
     selection_type: Option<String>,
 }
 
-fn default_selection_type() -> String {
-    "multiple_with_input".to_string()
-}
-
 fn parse_question(arg: &AskQuestionArg) -> AskQuestion {
     AskQuestion {
         question: arg.question.clone(),
-        options: arg.options.clone().unwrap_or_default(),
-        selection_type: arg.selection_type.clone().unwrap_or_else(default_selection_type),
+        options: arg.options.clone(),
+        selection_type: arg.selection_type.clone(),
     }
 }
 
@@ -52,15 +49,19 @@ impl BaseTool for AskTool {
             "type": "object",
             "properties": {
                 "question": { "type": "string", "description": "A single question to ask" },
+                "title": {
+                    "type": "string",
+                    "description": "A short title for this ask request, shown in the UI header"
+                },
                 "options": {
                     "type": "array",
                     "items": { "type": "string" },
+                    "minItems": 1,
                     "description": "Answer options (required at least one)"
                 },
                 "selectionType": {
                     "type": "string",
-                    "enum": ["single_with_input", "multiple_with_input"],
-                    "default": "multiple_with_input"
+                    "enum": ["single_with_input", "multiple_with_input"]
                 },
                 "questions": {
                     "type": "array",
@@ -68,15 +69,22 @@ impl BaseTool for AskTool {
                         "type": "object",
                         "properties": {
                             "question": { "type": "string" },
-                            "options": { "type": "array", "items": { "type": "string" } },
-                            "selectionType": { "type": "string" }
+                            "options": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                            "selectionType": {
+                                "type": "string",
+                                "enum": ["single_with_input", "multiple_with_input"]
+                            }
                         },
-                        "required": ["question"]
+                        "required": ["question", "options", "selectionType"]
                     },
                     "description": "Multiple questions. If provided, 'question'/'options'/'selectionType' are ignored."
                 }
             },
-            "required": []
+            "required": ["title"],
+            "oneOf": [
+                { "required": ["question", "options", "selectionType"] },
+                { "required": ["questions"] }
+            ]
         })
     }
 
@@ -91,14 +99,25 @@ impl BaseTool for AskTool {
         let questions: Vec<AskQuestion> = if let Some(qs) = &args.questions {
             qs.iter().map(parse_question).collect()
         } else {
-            let q = args.question.unwrap_or_default();
+            let q = match args.question.clone() {
+                Some(question) => question,
+                None => return ToolResult::error("No question provided"),
+            };
             if q.is_empty() {
                 return ToolResult::error("No question provided");
             }
+            let options = match args.options.clone() {
+                Some(options) => options,
+                None => return ToolResult::error("Ask questions require options"),
+            };
+            let selection_type = match args.selection_type.clone() {
+                Some(selection_type) => selection_type,
+                None => return ToolResult::error("Ask questions require selectionType"),
+            };
             vec![AskQuestion {
                 question: q,
-                options: args.options.clone().unwrap_or_default(),
-                selection_type: args.selection_type.clone().unwrap_or_else(default_selection_type),
+                options,
+                selection_type,
             }]
         };
 
@@ -116,8 +135,14 @@ impl BaseTool for AskTool {
         ask::set_ask_waiter(ctx.tool_call_id.clone(), tx).await;
 
         let first = &questions[0];
+        let title = args.title.trim().to_string();
+        if title.is_empty() {
+            return ToolResult::error("Ask requests require title");
+        }
+
         event_bus::emit(&ctx.agent_id, &ctx.session_id, EventPayload::AskRequest {
             tool_id: ctx.tool_call_id.clone(),
+            title,
             question: first.question.clone(),
             options: first.options.clone(),
             selection_type: first.selection_type.clone(),

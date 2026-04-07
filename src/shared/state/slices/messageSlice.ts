@@ -191,7 +191,8 @@ export const createMessageSlice = (
       const nextSessions = new Map(state.sessions);
       const session = nextSessions.get(sessionId);
       if (!session) return state;
-      nextSessions.set(sessionId, { ...session, currentTasks: [], updatedAt: Date.now() });
+      if (!session.currentTasks?.length) return state;
+      nextSessions.set(sessionId, { ...session, currentTasks: [] });
       return { sessions: nextSessions };
     }),
 

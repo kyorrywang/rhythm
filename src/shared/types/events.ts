@@ -12,7 +12,6 @@ export type InternalEventType =
   | 'DONE'
   | 'INTERRUPTED'
   | 'PERMISSION_REQUEST'
-  | 'MAX_TURNS_EXCEEDED'
   | 'CONTEXT_COMPACTED'
   | 'CRON_JOB_TRIGGERED'
   | 'CRON_JOB_COMPLETED';
@@ -58,10 +57,11 @@ export interface AskRequestEvent extends InternalEvent {
   type: 'ASK_REQUEST';
   payload: {
     toolId: string;
+    title: string;
     question: string;
     options: string[];
-    selectionType?: string;
-    questions?: Array<{ question: string; options: string[]; selectionType?: string }>;
+    selectionType: 'single_with_input' | 'multiple_with_input';
+    questions?: Array<{ question: string; options: string[]; selectionType: 'single_with_input' | 'multiple_with_input' }>;
   };
 }
 
@@ -104,11 +104,6 @@ export interface PermissionRequestEventInternal extends InternalEvent {
   };
 }
 
-export interface MaxTurnsExceededEvent extends InternalEvent {
-  type: 'MAX_TURNS_EXCEEDED';
-  payload: { turns: number };
-}
-
 export interface ContextCompactedEvent extends InternalEvent {
   type: 'CONTEXT_COMPACTED';
   payload: { compactType: 'micro' | 'full'; tokensSaved?: number };
@@ -138,7 +133,6 @@ export type InternalEventUnion =
   | DoneEvent
   | InterruptedEvent
   | PermissionRequestEventInternal
-  | MaxTurnsExceededEvent
   | ContextCompactedEvent
   | CronJobTriggeredEvent
   | CronJobCompletedEvent;

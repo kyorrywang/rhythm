@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, FolderOpen, Plus, Puzzle, Search, Settings2 } from 'lucide-react';
-import { createSession } from '@/shared/api/commands';
 import { usePluginStore } from '@/shared/state/usePluginStore';
-import { useToast } from '@/shared/hooks/useToast';
 import { useSessions, useSessionStore } from '@/shared/state/useSessionStore';
 import { SessionItem } from './SessionItem';
 import { ProjectHeader } from './ProjectHeader';
@@ -19,18 +17,17 @@ export const LeftPanel = () => {
   const sessions = useSessions();
   const {
     activeSessionId,
-    addSession,
     setActiveSession,
     leftPanelMode,
     openWorkbench,
   } = useSessionStore();
-  const { error: showError } = useToast();
   const pluginStore = usePluginStore();
   const [query, setQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const pinnedSessions = sessions.filter((session) => !session.archived && session.pinned);
-  const regularSessions = sessions.filter((session) => !session.archived && !session.pinned);
-  const archivedSessions = sessions.filter((session) => session.archived);
+  const rootSessions = sessions.filter((session) => !session.parentId);
+  const pinnedSessions = rootSessions.filter((session) => !session.archived && session.pinned);
+  const regularSessions = rootSessions.filter((session) => !session.archived && !session.pinned);
+  const archivedSessions = rootSessions.filter((session) => session.archived);
   const normalizedQuery = query.trim().toLowerCase();
 
   const filteredPinnedSessions = useMemo(
@@ -65,14 +62,8 @@ export const LeftPanel = () => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [leftPanelMode]);
 
-  const handleNewSession = async () => {
-    try {
-      const session = await createSession('新会话');
-      addSession(session);
-      setActiveSession(session.id);
-    } catch {
-      showError('创建会话失败');
-    }
+  const handleNewSession = () => {
+    setActiveSession(null);
   };
 
   if (leftPanelMode === 'plugins') {
@@ -189,7 +180,7 @@ export const LeftPanel = () => {
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white/90 px-4 py-6 text-center">
             <FolderOpen size={18} className="mx-auto text-slate-400" />
             <p className="mt-3 text-sm font-medium text-slate-700">还没有会话</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">发送第一条消息时会自动创建新会话，也可以先手动新建。</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">发送第一条消息时会自动创建新会话。</p>
             <button
               onClick={handleNewSession}
               className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-800"

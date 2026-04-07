@@ -13,7 +13,7 @@ export const PHASE_TO_DOCK: Record<SessionPhase, DockType> = {
 };
 
 export interface AskDockProps {
-  currentAsk: { toolId: string; question: string; options: string[]; selectionType?: SelectionType; questions?: AskQuestion[] };
+  currentAsk: { toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[] };
   text: string;
   setText: (v: string) => void;
   selectedAskOptions: string[];
@@ -53,8 +53,8 @@ export interface MainComposerProps {
     fullAuto: boolean;
   };
   sessionPhase?: SessionPhase;
-  onCycleMode: () => void;
-  onCycleModel: () => void;
-  onCycleReasoning: () => void;
+  onSetMode: (mode: MainComposerProps['controls']['mode']) => void;
+  onSetModel: (model: string) => void;
+  onSetReasoning: (reasoning: MainComposerProps['controls']['reasoning']) => void;
   onToggleFullAuto: () => void;
 }

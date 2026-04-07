@@ -2,14 +2,12 @@ import { useState, useCallback, useRef } from 'react';
 import { Channel } from '@tauri-apps/api/core';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
-import { useToast } from '@/shared/hooks/useToast';
 import { Message, ServerEventChunk } from '@/shared/types/schema';
 import { chatStream, submitUserAnswer, approvePermission, interruptSession } from '@/shared/api/commands';
 
 export const useLLMStream = () => {
   const store = useSessionStore;
   const permissionStore = usePermissionStore;
-  const { error: showError } = useToast();
 
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef(false);
@@ -17,10 +15,15 @@ export const useLLMStream = () => {
   const rootAiMessageIdRef = useRef<string | null>(null);
   const subSessionMessageMapRef = useRef<Map<string, string>>(new Map());
 
-  const connectStream = useCallback(async (prompt: string, messageMode: 'normal' | 'build' | 'task' | 'ask' | 'append') => {
+  const connectStream = useCallback(async (
+    prompt: string,
+    messageMode: 'normal' | 'build' | 'task' | 'ask' | 'append',
+    userMode?: Message['mode'],
+  ) => {
     const state = store.getState();
     const sessionId = state.activeSessionId;
     if (!sessionId) return;
+    const model = state.composerControls.model;
 
     abortRef.current = false;
     rootSessionIdRef.current = sessionId;
@@ -31,6 +34,7 @@ export const useLLMStream = () => {
       id: Date.now().toString() + '-u',
       role: 'user',
       content: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
+      mode: userMode || state.composerControls.mode,
       createdAt: Date.now(),
     };
     state.addMessage(sessionId, userMsg);
@@ -41,6 +45,7 @@ export const useLLMStream = () => {
       id: aiMessageId,
       role: 'assistant',
       content: '',
+      model,
       createdAt: Date.now(),
       segments: [],
     });
@@ -62,6 +67,7 @@ export const useLLMStream = () => {
             id: subAiMessageId,
             role: 'assistant',
             content: '',
+            model,
             createdAt: Date.now(),
             segments: [],
           });
@@ -95,17 +101,6 @@ export const useLLMStream = () => {
           return;
         }
 
-        if (chunk.type === 'max_turns_exceeded') {
-          showError(`已达到最大轮次限制 (${chunk.turns} 轮)`);
-          state.updateSession(chunk.sessionId, {
-            phase: 'idle',
-            maxTurnsReached: chunk.turns,
-            error: null,
-          });
-          setIsStreaming(false);
-          return;
-        }
-
         const targetAiMessageId = subSessionMessageMapRef.current.get(targetSessionId) || aiMessageId;
         const reduced = liveState.processChunk(liveState.sessions, targetSessionId, targetAiMessageId, chunk);
         store.setState({ sessions: reduced.sessions });
@@ -135,11 +130,10 @@ export const useLLMStream = () => {
       const currentSessionId = currentState.activeSessionId || sessionId;
       currentState.updateSession(currentSessionId, {
         phase: 'idle',
-        maxTurnsReached: null,
         error: 'Stream connection failed',
       });
     }
-  }, [store, permissionStore, showError]);
+  }, [store, permissionStore]);
 
   const processQueueAfterDone = useCallback(async (sessionId: string, _lastMode: 'normal' | 'build' | 'task' | 'ask' | 'append') => {
     const queuedItem = store.getState().dequeueMessage(sessionId);
@@ -147,11 +141,11 @@ export const useLLMStream = () => {
       store.getState().updateSession(sessionId, { phase: 'processing_queue' });
       await Promise.resolve();
       if (!abortRef.current) {
-        connectStream(queuedItem.message.content || '', queuedItem.mode || 'normal');
+        connectStream(queuedItem.message.content || '', queuedItem.mode || 'normal', queuedItem.message.mode);
       }
     } else {
       setIsStreaming(false);
-      store.getState().updateSession(sessionId, { phase: 'idle', maxTurnsReached: null });
+      store.getState().updateSession(sessionId, { phase: 'idle' });
     }
   }, [connectStream, store]);
 
@@ -178,7 +172,6 @@ export const useLLMStream = () => {
     store.getState().updateSession(sessionId, {
       phase: 'streaming',
       permissionPending: false,
-      maxTurnsReached: null,
     });
   }, [permissionStore, store]);
 

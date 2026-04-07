@@ -32,9 +32,9 @@ export const AskDock = ({
   const [answers, setAnswers] = useState<Record<number, AnswerState>>({});
   const currentQuestion = questions[currentIndex];
   const currentAnswer = answers[currentIndex] || { text: '', options: selectedAskOptions };
-  const selectionType = currentQuestion.selectionType || 'multiple_with_input';
-  const isSingle = selectionType === 'single_with_input';
+  const isSingle = currentQuestion.selectionType === 'single_with_input';
   const isLast = currentIndex === questions.length - 1;
+  const title = currentAsk.title.trim();
 
   useEffect(() => {
     setCurrentIndex(0);
@@ -99,19 +99,19 @@ export const AskDock = ({
   const isDisabled = currentAnswer.options.length === 0 && currentAnswer.text.trim().length === 0;
 
   return (
-    <div className="relative z-20 mx-auto w-full max-w-[760px] pb-6 pointer-events-auto">
+    <div className="relative z-20 mx-auto w-full max-w-[808px] px-6 pb-6 pointer-events-auto">
       <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
         <div className="border-b border-slate-100 bg-[linear-gradient(180deg,#fffdfa_0%,#f8f4ee_100%)] px-5 py-4">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
               <MessageSquareQuote size={15} className="text-amber-700" />
-              <span>Ask Dock</span>
+              <span>{title}</span>
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">
                 第 {currentIndex + 1} / {questions.length} 题
               </span>
             </div>
             <div className="text-[12px] text-slate-500">
-              {currentQuestion.options.length > 0 ? (isSingle ? '单选 + 补充输入' : '多选 + 补充输入') : '文本回答'}
+              {isSingle ? '单选 + 补充输入' : '多选 + 补充输入'}
             </div>
           </div>
           <div className="mt-3 flex gap-1.5">
@@ -130,32 +130,46 @@ export const AskDock = ({
         <div className="px-5 py-5">
           <h3 className="text-[16px] font-medium leading-7 text-slate-900">{currentQuestion.question}</h3>
 
-          {currentQuestion.options.length > 0 && (
-            <div className="mt-4 grid gap-2">
-              {currentQuestion.options.map((option) => {
-                const selected = currentAnswer.options.includes(option);
-                return (
-                  <button
-                    key={option}
-                    onClick={() => handleOptionClick(option)}
+          <div className="mt-4 grid gap-2">
+            {currentQuestion.options.map((option) => {
+              const selected = currentAnswer.options.includes(option);
+              return (
+                <button
+                  key={option}
+                  onClick={() => handleOptionClick(option)}
+                  className={cn(
+                    'flex items-center gap-3 rounded-2xl border px-4 py-3 text-left text-[14px] transition-colors',
+                    selected
+                      ? 'border-amber-400 bg-amber-50 text-amber-900'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
+                  )}
+                >
+                  <span
                     className={cn(
-                      'rounded-2xl border px-4 py-3 text-left text-[14px] transition-colors',
-                      selected
-                        ? 'border-amber-400 bg-amber-50 text-amber-900'
-                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
+                      'flex h-4 w-4 shrink-0 items-center justify-center border transition-colors',
+                      isSingle ? 'rounded-full' : 'rounded-[5px]',
+                      selected ? 'border-amber-500 bg-amber-500' : 'border-slate-300 bg-white',
                     )}
                   >
-                    {option}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                    {selected && (
+                      <span
+                        className={cn(
+                          'bg-white',
+                          isSingle ? 'h-1.5 w-1.5 rounded-full' : 'h-2 w-2 rounded-[2px]',
+                        )}
+                      />
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">{option}</span>
+                </button>
+              );
+            })}
+          </div>
 
           <textarea
             value={currentAnswer.text}
             onChange={(event) => setCurrentAnswer({ ...currentAnswer, text: event.target.value })}
-            placeholder={currentQuestion.options.length > 0 ? '可补充说明，也可以只选择选项。' : '请输入你的回答'}
+            placeholder="可补充说明，也可以只选择选项。"
             className="mt-4 min-h-[92px] w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[14px] leading-7 text-slate-800 outline-none transition-colors focus:border-amber-300 focus:bg-white"
           />
         </div>

@@ -6,13 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  Loader2,
-  MessageSquareQuote,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldX,
   Sparkles,
-  TerminalSquare,
 } from 'lucide-react';
 import { getToolPresentation } from '@/features/session/toolPresentation';
 import { useDisplayStore } from '@/shared/state/useDisplayStore';
@@ -42,7 +36,6 @@ const Timer = ({ isRunning, startTime, finalMs }: { isRunning: boolean; startTim
 };
 
 const SegmentCard = ({
-  icon,
   title,
   summary,
   running,
@@ -50,63 +43,49 @@ const SegmentCard = ({
   timerMs,
   defaultExpanded,
   children,
-  tone = 'neutral',
   action,
 }: {
-  icon: React.ReactNode;
   title: string;
-  summary?: string;
+  summary?: React.ReactNode;
   running?: boolean;
   timerStart?: number;
   timerMs?: number;
   defaultExpanded: boolean;
   children?: React.ReactNode;
-  tone?: 'neutral' | 'warning' | 'success';
   action?: React.ReactNode;
 }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const canExpand = Boolean(children);
 
   useEffect(() => {
     setIsExpanded(defaultExpanded);
   }, [defaultExpanded]);
 
-  const bgClass = tone === 'warning'
-    ? 'border-amber-200 bg-amber-50/70'
-    : tone === 'success'
-      ? 'border-emerald-200 bg-emerald-50/70'
-      : 'border-slate-200 bg-white';
-
   return (
-    <div className={`mb-3 overflow-hidden rounded-2xl border ${bgClass}`}>
-      <div className="flex items-start justify-between gap-3 px-4 py-3">
-        <button
-          onClick={() => setIsExpanded((v) => !v)}
-          className="flex min-w-0 flex-1 items-start gap-3 text-left"
+    <div className="border-t border-slate-100 first:border-t-0">
+      <div className="flex items-baseline justify-between gap-3 py-3">
+        <div
+          onClick={() => canExpand && setIsExpanded((v) => !v)}
+          onKeyDown={(event) => {
+            if (!canExpand || (event.key !== 'Enter' && event.key !== ' ')) return;
+            event.preventDefault();
+            setIsExpanded((v) => !v);
+          }}
+          className="flex min-w-0 flex-1 items-baseline gap-1 text-left text-[13px] leading-6"
+          role={canExpand ? 'button' : undefined}
+          tabIndex={canExpand ? 0 : undefined}
         >
-          <div className="mt-0.5 text-slate-500">{icon}</div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] font-semibold text-slate-900">{title}</span>
-              {running && <Loader2 size={12} className="animate-spin text-sky-500" />}
-              {!running && timerStart !== undefined && (
-                <span className="text-[11px] text-slate-400">
-                  <Timer isRunning={false} startTime={timerStart} finalMs={timerMs} />
-                </span>
-              )}
-              {running && timerStart !== undefined && (
-                <span className="text-[11px] text-slate-400">
-                  <Timer isRunning={true} startTime={timerStart} />
-                </span>
-              )}
-            </div>
-            {summary && (
-              <div className="mt-1 truncate text-[12px] leading-5 text-slate-500">{summary}</div>
-            )}
-          </div>
-          <div className="pt-0.5 text-slate-400">
-            {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-          </div>
-        </button>
+          <span className="shrink-0 font-semibold text-slate-900">{title}</span>
+          {summary && <span className="min-w-0 truncate text-slate-600">{summary}</span>}
+          <span className="shrink-0 text-[11px] text-slate-400">
+            {timerStart !== undefined && <Timer isRunning={Boolean(running)} startTime={timerStart} finalMs={timerMs} />}
+          </span>
+          {canExpand && (
+            <span className="-ml-0.5 shrink-0 text-slate-400">
+              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </span>
+          )}
+        </div>
         {action}
       </div>
 
@@ -116,9 +95,13 @@ const SegmentCard = ({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden border-t border-slate-100"
+            className="overflow-hidden"
           >
-            <div className="px-4 py-3">{children}</div>
+            <div className="pb-4 pr-1">
+              <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
+                {children}
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -138,34 +121,32 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
     : config.whenDone === 'expand';
 
   if (tool.name === 'spawn_subagent') {
+    const subagentSummary = tool.subSessionId ? (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveSession(tool.subSessionId!);
+        }}
+        className="cursor-pointer truncate text-sky-700 underline-offset-2 hover:underline"
+      >
+        {presentation.summary || '打开子会话'}
+      </button>
+    ) : presentation.summary;
+
     return (
       <SegmentCard
-        icon={<Sparkles size={15} />}
-        title={presentation.title}
-        summary={presentation.summary}
+        title="Dynamic智能体"
+        summary={subagentSummary}
         running={false}
         timerStart={tool.startTime || Date.now()}
         timerMs={tool.executionTime}
         defaultExpanded={defaultExpanded}
-        action={tool.subSessionId ? (
-          <button
-            onClick={() => setActiveSession(tool.subSessionId!)}
-            className="rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700 transition-colors hover:bg-sky-100"
-          >
-            进入子会话
-          </button>
-        ) : undefined}
-      >
-        <div className="text-sm leading-6 text-slate-600">
-          {presentation.details || '子代理任务已创建，完成后可从这里进入对应子会话。'}
-        </div>
-      </SegmentCard>
+      />
     );
   }
 
   return (
     <SegmentCard
-      icon={<TerminalSquare size={15} />}
       title={presentation.title}
       summary={presentation.summary}
       running={isRunning}
@@ -185,12 +166,11 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
               meta: presentation.actionTarget!.meta,
             });
           }}
-          className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 transition-colors hover:bg-slate-50"
+          className="text-[12px] font-medium text-sky-700 underline-offset-2 transition-colors hover:text-sky-900 hover:underline"
         >
-          {presentation.actionLabel || '打开'}
+          {presentation.actionLabel || '打开 Workbench'}
         </button>
       ) : undefined}
-      tone={tool.status === 'error' ? 'warning' : 'neutral'}
     >
       <div className="space-y-3">
         <div className="grid gap-3 text-[12px] text-slate-500 md:grid-cols-3">
@@ -224,6 +204,7 @@ const AskSegment = ({ segment }: { segment: MessageSegment & { type: 'ask' } }) 
   const qaList = segment.questions && segment.questions.length > 0
     ? segment.questions
     : [{ question: segment.question, options: segment.options, selectionType: segment.selectionType }];
+  const title = segment.title.trim();
 
   const defaultExpanded = isWaiting
     ? config.whileRunning === 'expand'
@@ -231,14 +212,12 @@ const AskSegment = ({ segment }: { segment: MessageSegment & { type: 'ask' } }) 
 
   return (
     <SegmentCard
-      icon={<MessageSquareQuote size={15} />}
       title="Ask"
-      summary={qaList[0]?.question || ''}
+      summary={title}
       running={isWaiting}
       timerStart={segment.startTime || Date.now()}
       timerMs={segment.timeCostMs}
       defaultExpanded={defaultExpanded}
-      tone={isWaiting ? 'warning' : 'success'}
     >
       <div className="space-y-4">
         {qaList.map((q, qi) => (
@@ -264,14 +243,6 @@ const AskSegment = ({ segment }: { segment: MessageSegment & { type: 'ask' } }) 
             )}
           </div>
         ))}
-        {!isWaiting && (
-          <div className="rounded-2xl bg-slate-50 px-4 py-3">
-            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">回答结果</div>
-            <p className="mt-2 text-sm text-slate-700">
-              {segment.answer?.text || (segment.answer?.selected.length ? segment.answer.selected.join(', ') : '已忽略')}
-            </p>
-          </div>
-        )}
       </div>
     </SegmentCard>
   );
@@ -285,9 +256,7 @@ const ThinkingSegment = ({ segment, isLive }: { segment: MessageSegment & { type
 
   return (
     <SegmentCard
-      icon={<Sparkles size={15} />}
       title="Thinking"
-      summary={segment.content ? segment.content.slice(0, 80) : '思考中...'}
       running={isLive}
       timerStart={segment.startTime || Date.now()}
       timerMs={segment.timeCostMs}
@@ -301,31 +270,17 @@ const ThinkingSegment = ({ segment, isLive }: { segment: MessageSegment & { type
 };
 
 const PermissionSegment = ({ segment }: { segment: MessageSegment & { type: 'permission' } }) => {
-  const icon = segment.status === 'approved'
-    ? <ShieldCheck size={15} />
-    : segment.status === 'denied'
-      ? <ShieldX size={15} />
-      : <ShieldAlert size={15} />;
-
-  const tone = segment.status === 'approved'
-    ? 'success'
-    : segment.status === 'denied'
-      ? 'warning'
-      : 'warning';
-
   const summary = segment.status === 'waiting'
     ? `等待权限确认: ${segment.request.toolName}`
     : `${segment.request.toolName} 已${segment.status === 'approved' ? '允许' : '拒绝'}`;
 
   return (
     <SegmentCard
-      icon={icon}
       title="Permission"
       summary={summary}
       running={segment.status === 'waiting'}
       timerStart={segment.startTime || Date.now()}
       defaultExpanded
-      tone={tone}
     >
       <div className="space-y-3 text-sm text-slate-700">
         <div>
@@ -342,9 +297,10 @@ const PermissionSegment = ({ segment }: { segment: MessageSegment & { type: 'per
 };
 
 export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessageProps) => {
-  const isMessageRunning = isSessionRunning && isLast;
+  const isMessageRunning = Boolean(isSessionRunning && isLast);
   const isMessageComplete = !isSessionRunning && isLast;
   const segments = message.segments || [];
+  const modelName = message.model || 'Rhythm AI';
 
   const handleCopy = async () => {
     const text = segments
@@ -367,83 +323,77 @@ export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessage
       transition={{ duration: 0.3 }}
       className="group relative ml-2 flex flex-col pb-8 pt-2"
     >
-      <div className="mb-4 flex items-center gap-3 text-xs text-slate-400">
-        <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-slate-900 text-white">
-          <Sparkles size={15} />
-        </div>
-        <span className="font-medium text-slate-700">Rhythm AI</span>
-        <span className="text-slate-300">•</span>
-        <span>{new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
-      </div>
-
-      <div className="relative">
-        {segments.map((segment, index) => (
-          <div key={index}>
-            {segment.type === 'thinking' && <ThinkingSegment segment={segment} isLive={segment.isLive || false} />}
-            {segment.type === 'tool' && <ToolBlock tool={segment.tool} />}
-            {segment.type === 'ask' && <AskSegment segment={segment} />}
-            {segment.type === 'permission' && <PermissionSegment segment={segment} />}
-            {segment.type === 'text' && segment.content && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.3 }}
-                className="rounded-[28px] border border-slate-200 bg-white px-6 py-5 shadow-[0_16px_40px_rgba(15,23,42,0.04)]"
-              >
-                <div className="prose prose-sm max-w-none text-slate-800">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      code({ className, children, ...props }: any) {
-                        const match = /language-(\w+)/.exec(className || '');
-                        return match ? (
-                          <CodeBlock
-                            language={match[1]}
-                            code={String(children).replace(/\n$/, '')}
-                          />
-                        ) : (
-                          <code {...props} className={`${className || ''} rounded-md bg-slate-100 px-1.5 py-0.5 text-sm text-fuchsia-700 font-mono`}>
-                            {children}
-                          </code>
-                        );
-                      },
-                    }}
-                  >
-                    {segment.content}
-                  </ReactMarkdown>
-                </div>
-              </motion.div>
-            )}
+      <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-5 shadow-[0_16px_40px_rgba(15,23,42,0.04)]">
+        <div className="mb-3 flex items-center gap-3 text-xs text-slate-400">
+          <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-slate-900 text-white">
+            <Sparkles size={15} />
           </div>
-        ))}
+          <span className="font-medium text-slate-700">Rhythm AI</span>
+          <span className="text-slate-300">•</span>
+          <span>{new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+        </div>
+
+        <div className="relative">
+          {segments.map((segment, index) => (
+            <div key={index}>
+              {segment.type === 'thinking' && <ThinkingSegment segment={segment} isLive={segment.isLive || false} />}
+              {segment.type === 'tool' && <ToolBlock tool={segment.tool} />}
+              {segment.type === 'ask' && <AskSegment segment={segment} />}
+              {segment.type === 'permission' && <PermissionSegment segment={segment} />}
+              {segment.type === 'text' && segment.content && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3 }}
+                  className="border-t border-slate-100 first:border-t-0 py-4"
+                >
+                  <div className="prose prose-sm max-w-none text-slate-800">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        code({ className, children, ...props }: any) {
+                          const match = /language-(\w+)/.exec(className || '');
+                          return match ? (
+                            <CodeBlock
+                              language={match[1]}
+                              code={String(children).replace(/\n$/, '')}
+                            />
+                          ) : (
+                            <code {...props} className={`${className || ''} rounded-md bg-slate-100 px-1.5 py-0.5 text-sm text-fuchsia-700 font-mono`}>
+                              {children}
+                            </code>
+                          );
+                        },
+                      }}
+                    >
+                      {segment.content}
+                    </ReactMarkdown>
+                  </div>
+                </motion.div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="mt-3 h-6 flex-col justify-center">
-        {isMessageRunning ? (
-          <div className="flex items-center text-[12px] text-slate-400">
-            <Loader2 size={14} className="animate-spin text-slate-400" />
-            <span className="mx-2">·</span>
-            <Timer isRunning startTime={message.createdAt} />
-          </div>
-        ) : (
-          <div className="flex items-center text-[12px] text-slate-400 opacity-0 transition-opacity group-hover:opacity-100">
-            <button
-              onClick={handleCopy}
-              className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-              title="Copy"
-            >
-              <Copy size={14} />
-            </button>
-            <span className="mx-2 text-slate-300">|</span>
-            <span>Rhythm AI</span>
-            {isMessageComplete && (
-              <>
-                <span className="mx-2 text-slate-300">·</span>
-                <Timer isRunning={false} startTime={message.createdAt} finalMs={message.totalTimeMs} />
-              </>
-            )}
-          </div>
-        )}
+        <div className="flex items-center text-[12px] text-slate-400">
+          <button
+            onClick={handleCopy}
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            title="Copy"
+          >
+            <Copy size={14} />
+          </button>
+          <span className="mx-2 text-slate-300">|</span>
+          <span>{modelName}</span>
+          <span className="mx-2 text-slate-300">·</span>
+          <Timer
+            isRunning={isMessageRunning}
+            startTime={message.createdAt}
+            finalMs={isMessageComplete ? message.totalTimeMs : undefined}
+          />
+        </div>
       </div>
     </motion.div>
   );

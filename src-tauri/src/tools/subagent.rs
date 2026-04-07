@@ -157,10 +157,10 @@ impl BaseTool for SubagentTool {
                 .and_then(|a| a.model.clone())
                 .unwrap_or_else(|| settings.llm.model.clone()),
             system_prompt,
-            max_turns: agent_def
+            agent_turn_limit: agent_def
                 .as_ref()
                 .and_then(|a| a.max_turns)
-                .unwrap_or(settings.max_turns),
+                .or(settings.agent_turn_limit),
             auto_compact_enabled: settings.auto_compact.enabled,
             max_tokens: settings.llm.max_tokens.unwrap_or(16384),
             auto_compact_threshold_ratio: settings.auto_compact.threshold_ratio,

@@ -7,6 +7,9 @@ interface UserMessageProps {
 }
 
 export const UserMessage = ({ message }: UserMessageProps) => {
+  const mode = (message.mode || 'Chat').toUpperCase();
+  const time = new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
   const handleCopy = async () => {
     if (!message.content) return;
     try {
@@ -21,25 +24,25 @@ export const UserMessage = ({ message }: UserMessageProps) => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="group flex flex-col relative w-full pt-4 pb-1"
+      className="relative flex w-full flex-col items-end pb-2 pt-4"
     >
-      <div className="flex flex-col items-end mr-4">
-        {/* Chat Bubble */}
-        <div className="bg-gray-100 text-gray-800 rounded-2xl px-4 py-2.5 text-[14px] leading-relaxed max-w-[85%] whitespace-pre-wrap select-text">
+      <div className="flex max-w-[82%] flex-col items-end">
+        <div className="rounded-[22px] rounded-tr-md bg-slate-900 px-4 py-3 text-[14px] leading-7 text-white shadow-[0_8px_22px_rgba(15,23,42,0.10)] whitespace-pre-wrap select-text">
           {message.content}
         </div>
-        
-        {/* Hover Actions */}
-        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-end gap-3 mt-2 mr-2 text-[12px] text-gray-400 h-6">
-          <div className="flex items-center gap-0.5">
-            <button
-              onClick={handleCopy}
-              className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1.5 rounded-lg transition-colors"
-              title="Copy"
-            >
-              <Copy size={14}/>
-            </button>
-          </div>
+
+        <div className="mt-1.5 flex h-6 items-center justify-end gap-2 pr-1 text-[12px] text-slate-400">
+          <span className="font-medium text-slate-500">{mode}</span>
+          <span className="text-slate-300">·</span>
+          <span>{time}</span>
+          <span className="text-slate-300">|</span>
+          <button
+            onClick={handleCopy}
+            className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            title="Copy"
+          >
+            <Copy size={14}/>
+          </button>
         </div>
       </div>
     </motion.div>

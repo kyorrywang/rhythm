@@ -109,6 +109,5 @@ export async function createSession(title = 'New Session'): Promise<Session> {
     appendDockMinimized: false,
     queuedMessages: [],
     phase: 'idle',
-    maxTurnsReached: null,
   };
 }

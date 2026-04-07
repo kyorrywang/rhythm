@@ -53,11 +53,8 @@ export const SettingsWorkbench = ({ section }: { section: SettingsSection }) => 
       </Panel>
     ),
     session: (
-      <Panel title="会话设置" icon={<Type size={16} />} description="控制默认轮次和系统提示词。">
+      <Panel title="会话设置" icon={<Type size={16} />} description="控制默认系统提示词。">
         <div className="grid gap-6">
-          <Field label="Max turns">
-            <input type="number" value={settings.maxTurns} onChange={(event) => updateSettings({ maxTurns: Number(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-amber-300" />
-          </Field>
           <Field label="System prompt">
             <textarea value={settings.systemPrompt} onChange={(event) => updateSettings({ systemPrompt: event.target.value })} className="min-h-[140px] w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-amber-300" />
           </Field>

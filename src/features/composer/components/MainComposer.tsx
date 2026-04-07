@@ -1,3 +1,4 @@
+import * as Popover from '@radix-ui/react-popover';
 import { Plus, ArrowUp, Shield, ChevronDown, Square, Sparkles, Bot, BrainCircuit } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { MainComposerProps, DockType } from '../types';
@@ -14,6 +15,24 @@ const SUBMIT_ICON_MAP: Record<DockType, React.ReactNode> = {
   ask: <ArrowUp size={16} strokeWidth={2.5} />,
 };
 
+const MODE_OPTIONS: Array<{ value: MainComposerProps['controls']['mode']; label: string; description: string }> = [
+  { value: 'Chat', label: 'Chat', description: '快速问答与轻量协作' },
+  { value: 'Plan', label: 'Plan', description: '先规划，再进入执行' },
+  { value: 'Coordinate', label: 'Coordinate', description: '协调多步骤或子任务' },
+];
+
+const MODEL_OPTIONS = [
+  { value: 'GPT-5.4', label: 'GPT-5.4', description: '默认高质量模型' },
+  { value: 'GPT-5.4 Mini', label: 'GPT-5.4 Mini', description: '更快、更轻量' },
+  { value: 'Claude Sonnet', label: 'Claude Sonnet', description: '备用推理模型' },
+];
+
+const REASONING_OPTIONS: Array<{ value: MainComposerProps['controls']['reasoning']; label: string; description: string }> = [
+  { value: 'low', label: 'Low', description: '更快响应' },
+  { value: 'medium', label: 'Medium', description: '平衡速度与思考' },
+  { value: 'high', label: 'High', description: '更深入推理' },
+];
+
 export const MainComposer = ({
   text,
   onTextChange,
@@ -22,9 +41,9 @@ export const MainComposer = ({
   headerContent,
   controls,
   sessionPhase,
-  onCycleMode,
-  onCycleModel,
-  onCycleReasoning,
+  onSetMode,
+  onSetModel,
+  onSetReasoning,
   onToggleFullAuto,
 }: MainComposerProps) => {
   const hasContent = text.trim().length > 0;
@@ -41,7 +60,7 @@ export const MainComposer = ({
             : '就绪';
 
   return (
-    <div className="w-full max-w-[760px] mx-auto pb-6 relative z-20">
+    <div className="relative z-20 mx-auto w-full max-w-[808px] px-6 pb-6">
       <div className="bg-white border text-left border-slate-200 rounded-[28px] shadow-[0_18px_45px_rgba(15,23,42,0.08)] focus-within:ring-4 focus-within:ring-amber-100/70 focus-within:border-amber-300 transition-all flex flex-col pointer-events-auto relative overflow-hidden">
         {headerContent}
 
@@ -89,9 +108,30 @@ export const MainComposer = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-[linear-gradient(180deg,#fbfaf8_0%,#f6f3ee_100%)] px-4 py-3 rounded-b-[28px] text-[12px] text-slate-500">
-          <ControlChip icon={<Sparkles size={13} />} label={controls.mode} onClick={onCycleMode} />
-          <ControlChip icon={<Bot size={13} />} label={controls.model} onClick={onCycleModel} />
-          <ControlChip icon={<BrainCircuit size={13} />} label={controls.reasoning} onClick={onCycleReasoning} />
+          <ControlPopover
+            icon={<Sparkles size={13} />}
+            label={controls.mode}
+            title="选择模式"
+            options={MODE_OPTIONS}
+            value={controls.mode}
+            onSelect={onSetMode}
+          />
+          <ControlPopover
+            icon={<Bot size={13} />}
+            label={controls.model}
+            title="选择模型"
+            options={MODEL_OPTIONS}
+            value={controls.model}
+            onSelect={onSetModel}
+          />
+          <ControlPopover
+            icon={<BrainCircuit size={13} />}
+            label={controls.reasoning}
+            title="思考强度"
+            options={REASONING_OPTIONS}
+            value={controls.reasoning}
+            onSelect={onSetReasoning}
+          />
           <div className="flex-1" />
           <button
             onClick={onToggleFullAuto}
@@ -112,21 +152,68 @@ export const MainComposer = ({
   );
 };
 
-const ControlChip = ({
+const ControlPopover = <T extends string>({
   icon,
   label,
-  onClick,
+  title,
+  options,
+  value,
+  onSelect,
 }: {
   icon: React.ReactNode;
   label: string;
-  onClick: () => void;
+  title: string;
+  options: Array<{ value: T; label: string; description: string }>;
+  value: T;
+  onSelect: (value: T) => void;
 }) => (
-  <button
-    onClick={onClick}
-    className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[12px] text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-800"
-  >
-    {icon}
-    <span>{label}</span>
-    <ChevronDown size={12} />
-  </button>
+  <Popover.Root>
+    <Popover.Trigger asChild>
+      <button
+        className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[12px] text-slate-600 shadow-[0_1px_0_rgba(15,23,42,0.04)] transition-colors hover:bg-slate-50 hover:text-slate-800 data-[state=open]:bg-slate-950 data-[state=open]:text-white"
+      >
+        {icon}
+        <span>{label}</span>
+        <ChevronDown size={12} className="transition-transform data-[state=open]:rotate-180" />
+      </button>
+    </Popover.Trigger>
+    <Popover.Portal>
+      <Popover.Content
+        align="start"
+        side="top"
+        sideOffset={10}
+        collisionPadding={16}
+        className="z-50 w-[260px] origin-[--radix-popover-content-transform-origin] rounded-3xl border border-slate-200 bg-white/95 p-2 text-slate-800 shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur-xl outline-none data-[state=closed]:animate-[composer-popover-out_120ms_ease-in_forwards] data-[state=open]:animate-[composer-popover-in_180ms_cubic-bezier(0.16,1,0.3,1)_forwards]"
+      >
+        <div className="px-3 pb-2 pt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+          {title}
+        </div>
+        <div className="space-y-1">
+          {options.map((option) => {
+            const selected = option.value === value;
+            return (
+              <Popover.Close asChild key={option.value}>
+                <button
+                  onClick={() => onSelect(option.value)}
+                  className={cn(
+                    'flex w-full items-start justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors',
+                    selected ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-slate-100',
+                  )}
+                >
+                  <span>
+                    <span className="block text-[13px] font-semibold">{option.label}</span>
+                    <span className={cn('mt-0.5 block text-[11px] leading-5', selected ? 'text-slate-300' : 'text-slate-400')}>
+                      {option.description}
+                    </span>
+                  </span>
+                  {selected && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-400" />}
+                </button>
+              </Popover.Close>
+            );
+          })}
+        </div>
+        <Popover.Arrow className="fill-white" />
+      </Popover.Content>
+    </Popover.Portal>
+  </Popover.Root>
 );

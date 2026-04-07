@@ -13,14 +13,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 }));
 
 export function useSessions(): Session[] {
-  return Array.from(useSessionStore((s) => s.sessions).values()).sort((a, b) => {
-    if ((a.archived ?? false) !== (b.archived ?? false)) {
-      return a.archived ? 1 : -1;
-    }
-    if ((a.pinned ?? false) !== (b.pinned ?? false)) {
-      return a.pinned ? -1 : 1;
-    }
-    return b.updatedAt - a.updatedAt;
+  const sessions = useSessionStore((s) => s.sessions);
+  return Array.from(sessions.values()).sort((a, b) => {
+    const updatedDiff = b.updatedAt - a.updatedAt;
+    if (updatedDiff !== 0) return updatedDiff;
+    return a.id.localeCompare(b.id);
   });
 }
 

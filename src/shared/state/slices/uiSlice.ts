@@ -40,9 +40,6 @@ interface UiSliceActions {
   setActiveWorkbenchItem: (id: string) => void;
   setWorkbenchLayoutMode: (mode: 'split' | 'focus') => void;
   setComposerControls: (updates: Partial<UiSliceState['composerControls']>) => void;
-  cycleComposerMode: () => void;
-  cycleComposerModel: () => void;
-  cycleComposerReasoning: () => void;
   toggleComposerFullAuto: () => void;
 }
 
@@ -125,39 +122,6 @@ export const createUiSlice = (
         ...updates,
       },
     })),
-  cycleComposerMode: () =>
-    set((state) => {
-      const order: UiSliceState['composerControls']['mode'][] = ['Chat', 'Plan', 'Coordinate'];
-      const index = order.indexOf(state.composerControls.mode);
-      return {
-        composerControls: {
-          ...state.composerControls,
-          mode: order[(index + 1) % order.length],
-        },
-      };
-    }),
-  cycleComposerModel: () =>
-    set((state) => {
-      const order = ['GPT-5.4', 'GPT-5.4 Mini', 'Claude Sonnet'];
-      const index = order.indexOf(state.composerControls.model);
-      return {
-        composerControls: {
-          ...state.composerControls,
-          model: order[(index + 1) % order.length],
-        },
-      };
-    }),
-  cycleComposerReasoning: () =>
-    set((state) => {
-      const order: UiSliceState['composerControls']['reasoning'][] = ['low', 'medium', 'high'];
-      const index = order.indexOf(state.composerControls.reasoning);
-      return {
-        composerControls: {
-          ...state.composerControls,
-          reasoning: order[(index + 1) % order.length],
-        },
-      };
-    }),
   toggleComposerFullAuto: () =>
     set((state) => ({
       composerControls: {

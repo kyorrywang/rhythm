@@ -9,6 +9,7 @@ export const TOOL_DISPLAY: Record<string, ToolDisplayType> = {
   spawn_subagent: 'timeline',
   plan: 'ui-only',
   ask: 'ui-only',
+  ask_user: 'ui-only',
 };
 
 export const getToolDisplayType = (toolName: string): ToolDisplayType => {

@@ -7,11 +7,12 @@ import { SessionPhase, SelectionType, AskQuestion, Message } from '@/shared/type
 interface UseComposerActionsParams {
   activeSessionId: string | null;
   phase: SessionPhase;
-  currentAsk: { toolId: string; question: string; options: string[]; selectionType?: SelectionType; questions?: AskQuestion[] } | null;
+  currentAsk: { toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[] } | null;
   allTasksDone: boolean;
+  composerMode: Message['mode'];
 }
 
-export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTasksDone }: UseComposerActionsParams) => {
+export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTasksDone, composerMode }: UseComposerActionsParams) => {
   const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, setTaskMinimized, recordAskAnswer, sessions, addSession, setActiveSession } = useSessionStore();
   const { connectStream, requestInterrupt } = useLLMStream();
 
@@ -49,24 +50,12 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
         },
       };
     }
-    const selectionType = currentAsk.selectionType || 'multiple_with_input';
     const input = text.trim();
     const selected = selectedAskOptions.join(',');
-    let answer = '';
+    const answer = input
+      ? selected ? `${selected}: ${input}` : input
+      : selected;
 
-    switch (selectionType) {
-      case 'single_with_input':
-      case 'multiple_with_input':
-        if (input) {
-          answer = selected ? `${selected}: ${input}` : input;
-        } else {
-          answer = selected;
-        }
-        break;
-      default:
-        answer = selected || input;
-        break;
-    }
     return {
       answer,
       record: {
@@ -115,6 +104,7 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
           id: Date.now().toString(),
           role: 'user',
           content: trimmed,
+          mode: composerMode,
           createdAt: Date.now(),
         }, 'urgent', 'append');
         setText('');
@@ -124,12 +114,12 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
         return;
       }
 
-      connectStream(trimmed, 'normal');
+      connectStream(trimmed, 'normal', composerMode);
       setText('');
     };
 
     void sendNormalMessage();
-  }, [activeSessionId, phase, currentAsk, text, enqueueMessage, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer, sessions]);
+  }, [activeSessionId, phase, currentAsk, text, composerMode, enqueueMessage, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer, sessions]);
 
   const handleIgnoreAsk = useCallback(() => {
     if (!activeSessionId || !currentAsk) return;
@@ -172,8 +162,7 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
 
   const handleAskOptionToggle = useCallback((opt: string) => {
     if (!currentAsk) return;
-    const selectionType = currentAsk.selectionType || 'multiple_with_input';
-    const isSingle = selectionType === 'single_with_input';
+    const isSingle = currentAsk.selectionType === 'single_with_input';
 
     if (isSingle) {
       setSelectedAskOptions([opt]);

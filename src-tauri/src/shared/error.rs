@@ -5,7 +5,7 @@ pub enum RhythmError {
     LlmError(String),
     ToolNotFound(String),
     PermissionDenied { tool: String, reason: String },
-    MaxTurnsExceeded(usize),
+    AgentTurnLimitExceeded(usize),
     IoError(std::io::Error),
     ConfigError(String),
     DatabaseError(String),
@@ -23,8 +23,8 @@ impl fmt::Display for RhythmError {
             RhythmError::PermissionDenied { tool, reason } => {
                 write!(f, "Permission denied for tool '{}': {}", tool, reason)
             }
-            RhythmError::MaxTurnsExceeded(turns) => {
-                write!(f, "Maximum turns ({}) exceeded", turns)
+            RhythmError::AgentTurnLimitExceeded(turns) => {
+                write!(f, "Agent turn limit ({}) exceeded", turns)
             }
             RhythmError::IoError(e) => write!(f, "IO error: {}", e),
             RhythmError::ConfigError(msg) => write!(f, "Config error: {}", msg),

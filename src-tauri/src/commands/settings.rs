@@ -52,8 +52,6 @@ pub struct FrontendSettings {
     #[serde(rename = "autoSaveSessions")]
     pub auto_save_sessions: bool,
     pub providers: Vec<FrontendProviderConfig>,
-    #[serde(rename = "maxTurns")]
-    pub max_turns: usize,
     #[serde(rename = "systemPrompt")]
     pub system_prompt: String,
     #[serde(rename = "permissionMode")]
@@ -117,7 +115,6 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
             is_default: true,
             models: vec![provider_model],
         }],
-        max_turns: settings.max_turns,
         system_prompt: settings.system_prompt.unwrap_or_default(),
         permission_mode: match settings.permission.mode {
             crate::permissions::modes::PermissionMode::Default => "default".to_string(),
@@ -187,7 +184,7 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
             model: model.map(|m| m.name.clone()).unwrap_or_else(|| "gpt-5.4".to_string()),
             max_tokens: None,
         },
-        max_turns: settings.max_turns,
+        agent_turn_limit: None,
         system_prompt: if settings.system_prompt.trim().is_empty() { None } else { Some(settings.system_prompt) },
         permission: config::PermissionConfig {
             mode: crate::permissions::modes::PermissionMode::from_str(&settings.permission_mode),

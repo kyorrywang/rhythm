@@ -89,7 +89,6 @@ export interface BackendSettings {
   theme?: "light" | "dark" | "system";
   autoSaveSessions?: boolean;
   providers?: BackendProviderConfig[];
-  maxTurns: number;
   systemPrompt: string;
   permissionMode: "default" | "plan" | "full_auto";
   allowedTools: string[];

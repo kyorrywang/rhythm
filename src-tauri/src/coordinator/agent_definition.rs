@@ -18,7 +18,7 @@ pub struct AgentDefinition {
     pub model: Option<String>,
     /// Permission mode override.
     pub permission_mode: Option<PermissionMode>,
-    /// Maximum loop turns for this agent.
+    /// Optional loop turn limit for this agent. None means unlimited.
     pub max_turns: Option<usize>,
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             ]),
             model: None, // caller may override to a cheaper model
             permission_mode: Some(PermissionMode::Plan),
-            max_turns: Some(30),
+            max_turns: None,
             background: false,
             color: Some("#60a5fa".to_string()), // blue
             subagent_type: "explorer".to_string(),
@@ -97,7 +97,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             disallowed_tools: None,
             model: None,
             permission_mode: Some(PermissionMode::FullAuto),
-            max_turns: Some(80),
+            max_turns: None,
             background: false,
             color: Some("#34d399".to_string()), // green
             subagent_type: "worker".to_string(),
@@ -114,7 +114,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             ]),
             model: None,
             permission_mode: Some(PermissionMode::Plan),
-            max_turns: Some(20),
+            max_turns: None,
             background: false,
             color: Some("#f472b6".to_string()), // pink
             subagent_type: "verifier".to_string(),

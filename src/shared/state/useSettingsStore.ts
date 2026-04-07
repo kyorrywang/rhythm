@@ -50,7 +50,6 @@ export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   autoSaveSessions: boolean;
   providers: ProviderConfig[];
-  maxTurns: number;
   systemPrompt: string;
   permissionMode: 'default' | 'plan' | 'full_auto';
   allowedTools: string[];
@@ -94,7 +93,6 @@ const DEFAULT_SETTINGS: AppSettings = {
       ],
     },
   ],
-  maxTurns: 24,
   systemPrompt: 'You are Rhythm, a focused coding assistant.',
   permissionMode: 'default',
   allowedTools: ['read', 'shell'],
@@ -137,7 +135,6 @@ function mapBackendSettings(input: BackendSettings, cronJobs: BackendCronJobConf
     theme: input.theme || 'system',
     autoSaveSessions: input.autoSaveSessions ?? true,
     providers: input.providers || [],
-    maxTurns: input.maxTurns,
     systemPrompt: input.systemPrompt,
     permissionMode: input.permissionMode,
     allowedTools: input.allowedTools,
@@ -169,7 +166,6 @@ function toBackendSettings(settings: AppSettings): BackendSettings {
     theme: settings.theme,
     autoSaveSessions: settings.autoSaveSessions,
     providers: settings.providers,
-    maxTurns: settings.maxTurns,
     systemPrompt: settings.systemPrompt,
     permissionMode: settings.permissionMode,
     allowedTools: settings.allowedTools,
