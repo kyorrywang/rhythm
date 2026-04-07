@@ -33,7 +33,7 @@ export const UserMessage = ({ message }: UserMessageProps) => {
       className="relative flex w-full flex-col items-end pb-2 pt-4"
     >
       <div className="flex max-w-[82%] flex-col items-end">
-        <div className="rounded-[22px] rounded-tr-md bg-slate-900 px-4 py-3 text-[14px] leading-7 text-white shadow-[0_8px_22px_rgba(15,23,42,0.10)] whitespace-pre-wrap select-text">
+        <div className="rounded-[22px] rounded-tr-sm bg-slate-900 px-4 py-3 text-[14px] leading-7 text-white shadow-[0_8px_22px_rgba(15,23,42,0.10)] whitespace-pre-wrap select-text">
           {attachments.length > 0 && (
             <div className="mb-3 flex flex-wrap gap-2">
               {attachments.map((attachment) => (

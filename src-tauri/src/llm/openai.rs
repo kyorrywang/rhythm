@@ -357,6 +357,7 @@ impl LlmClient for OpenAiClient {
             .send()
             .await
             .map_err(|e| e.to_string())?;
+        let response = response.error_for_status().map_err(|e| e.to_string())?;
 
         let tool_calls_accum: Arc<Mutex<HashMap<usize, ToolCallAccumulator>>> =
             Arc::new(Mutex::new(HashMap::new()));

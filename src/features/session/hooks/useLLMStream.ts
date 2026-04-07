@@ -264,20 +264,17 @@ async function generateTitleFromFirstTurn(
     const title = await llmComplete({
       providerId,
       model,
-      timeoutSecs: 10,
+      timeoutSecs: 30,
       messages: [
         {
-          role: 'system',
-          content: TITLE_SYSTEM_PROMPT,
-        },
-        {
           role: 'user',
-          content: `Generate a title for this first user message:\n\n${prompt}`,
+          content: `${TITLE_SYSTEM_PROMPT}\n\nGenerate a title for this first user message:\n\n${prompt}`,
         },
       ],
     });
     useSessionStore.getState().setSessionTitle(sessionId, cleanGeneratedTitle(title) || fallbackTitle);
-  } catch {
+  } catch (error) {
+    console.error('Title generation failed', error);
     useSessionStore.getState().setSessionTitle(sessionId, fallbackTitle);
   }
 }

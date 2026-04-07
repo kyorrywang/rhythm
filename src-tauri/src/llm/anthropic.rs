@@ -344,6 +344,7 @@ impl LlmClient for AnthropicClient {
             .send()
             .await
             .map_err(|e| e.to_string())?;
+        let response = response.error_for_status().map_err(|e| e.to_string())?;
 
         let thinking_indices: Arc<Mutex<HashSet<u32>>> = Arc::new(Mutex::new(HashSet::new()));
         let tool_use_accum: Arc<Mutex<HashMap<u32, ToolUseAccumulator>>> =
