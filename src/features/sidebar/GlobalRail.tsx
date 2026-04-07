@@ -5,20 +5,37 @@ import { Button } from '@/shared/ui/Button';
 interface GlobalRailProps {
   activeMode: 'sessions' | 'plugins' | 'settings';
   isCollapsed: boolean;
+  workspacePath: string;
   onWorkspaceClick: () => void;
   onAddWorkspace: () => void;
   onOpenPlugins: () => void;
   onOpenSettings: () => void;
 }
 
+const WORKSPACE_BACKGROUND_COLORS = [
+  '#fef3c7',
+  '#dbeafe',
+  '#dcfce7',
+  '#ede9fe',
+  '#ffe4e6',
+  '#cffafe',
+  '#fae8ff',
+  '#ffedd5',
+  '#e0e7ff',
+  '#ccfbf1',
+];
+
 export const GlobalRail = ({
   activeMode,
   isCollapsed,
+  workspacePath,
   onWorkspaceClick,
   onAddWorkspace,
   onOpenPlugins,
   onOpenSettings,
 }: GlobalRailProps) => {
+  const workspaceBackgroundColor = getStableWorkspaceBackgroundColor(workspacePath);
+
   return (
     <div className="w-[64px] border-r border-slate-200 bg-[linear-gradient(180deg,#f7f4ed_0%,#f3efe6_100%)] flex flex-col items-center py-4">
       <div className="flex flex-col gap-3">
@@ -27,6 +44,7 @@ export const GlobalRail = ({
           size="none"
           onClick={onWorkspaceClick}
           title={isCollapsed ? '展开工作区' : '收起工作区'}
+          style={{ backgroundColor: workspaceBackgroundColor }}
           className={cn(
             'relative flex h-10 w-10 items-center justify-center rounded-2xl border text-sm font-semibold transition-all',
             activeMode === 'sessions'
@@ -42,7 +60,7 @@ export const GlobalRail = ({
           size="none"
           onClick={onAddWorkspace}
           title="添加工作区"
-          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-transparent bg-white/60 text-slate-500 transition-colors hover:border-slate-200 hover:text-slate-800"
+          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-transparent bg-transparent text-slate-500 transition-colors hover:text-slate-800"
         >
           <Plus size={18} />
         </Button>
@@ -81,3 +99,11 @@ export const GlobalRail = ({
     </div>
   );
 };
+
+function getStableWorkspaceBackgroundColor(workspacePath: string) {
+  let hash = 0;
+  for (let index = 0; index < workspacePath.length; index += 1) {
+    hash = (hash * 31 + workspacePath.charCodeAt(index)) >>> 0;
+  }
+  return WORKSPACE_BACKGROUND_COLORS[hash % WORKSPACE_BACKGROUND_COLORS.length];
+}

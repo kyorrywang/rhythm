@@ -1,6 +1,7 @@
 pub mod chat;
 pub mod cron;
 pub mod interrupt;
+pub mod llm;
 pub mod memory;
 pub mod plugins;
 pub mod session;

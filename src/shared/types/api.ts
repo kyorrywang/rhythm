@@ -30,6 +30,18 @@ export interface InterruptSessionRequest {
   sessionId: string;
 }
 
+export interface LlmCompleteMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface LlmCompleteRequest {
+  messages: LlmCompleteMessage[];
+  providerId?: string;
+  model?: string;
+  timeoutSecs?: number;
+}
+
 export interface BackendSessionInfo {
   session_id: string;
   status: string;
@@ -131,6 +143,10 @@ export interface TauriCommands {
   interrupt_session: {
     request: InterruptSessionRequest;
     response: void;
+  };
+  llm_complete: {
+    request: LlmCompleteRequest;
+    response: string;
   };
   get_sessions: {
     request: void;

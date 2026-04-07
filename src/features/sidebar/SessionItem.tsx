@@ -45,27 +45,40 @@ export const SessionItem = ({ session, isActive, onClick }: SessionItemProps) =>
       return <div className="h-2 w-2 rounded-full bg-sky-500" />;
     }
     if (session.pinned) {
-      return <Pin size={12} className="text-amber-600" fill="currentColor" />;
+      return <Pin size={12} className="text-amber-500" fill="currentColor" />;
     }
     return <div className="h-[6px] w-[6px] rounded-full bg-slate-300" />;
   }, [running, hasUnreadCompleted, session.pinned]);
 
   return (
     <div
-      className={`group relative flex items-center justify-between rounded-2xl px-3 py-2.5 transition-colors ${
-        isActive ? 'bg-white shadow-[0_12px_28px_rgba(15,23,42,0.06)] ring-1 ring-slate-200' : 'hover:bg-white/80'
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      className={`group relative flex w-full cursor-pointer items-start justify-between rounded-xl px-2.5 py-2.5 outline-none transition-all ${
+        isActive 
+          ? 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.04)] ring-1 ring-slate-200/60' 
+          : 'hover:bg-white/60'
       }`}
     >
-      <Button variant="unstyled" size="none" onClick={onClick} className="mr-2 flex min-w-0 flex-1 items-center text-left">
-        <div className="mr-2 flex w-5 shrink-0 items-center justify-center">{statusNode}</div>
-        <div className="min-w-0">
-          <div className="truncate text-[13px] font-medium text-slate-800">{session.title}</div>
-          <div className="mt-0.5 truncate text-[11px] text-slate-400">{session.archived ? '已归档' : session.id}</div>
+      <div className="flex min-w-0 flex-1 items-start gap-2.5">
+        <div className="flex h-5 w-3 shrink-0 items-center justify-center">{statusNode}</div>
+        <div className="min-w-0 flex-1">
+          <div className={`truncate text-[13px] font-medium leading-5 transition-colors ${isActive ? 'text-slate-900' : 'text-slate-700 group-hover:text-slate-900'}`}>
+            {session.title}
+          </div>
+          {session.archived && (
+            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
+              <span className="rounded bg-slate-100 px-1 py-[1px] text-[10px] font-medium text-slate-500">
+                已归档
+              </span>
+            </div>
+          )}
         </div>
-      </Button>
+      </div>
 
-      <div className="relative flex w-14 shrink-0 items-center justify-end text-right">
-        <span className={menuOpen ? 'hidden' : 'line-clamp-1 text-[10px] text-slate-400 group-hover:hidden'}>
+      <div className="relative ml-2 flex h-5 w-14 shrink-0 items-center justify-end">
+        <span className={`absolute right-1 text-[10px] text-slate-400 transition-opacity duration-200 ${menuOpen ? 'opacity-0' : 'opacity-100 group-hover:opacity-0'}`}>
           {formatTime(session.updatedAt)}
         </span>
         <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
@@ -75,7 +88,9 @@ export const SessionItem = ({ session, isActive, onClick }: SessionItemProps) =>
               size="none"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
-              className={`${menuOpen ? 'block' : 'hidden group-hover:block'} rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 data-[state=open]:bg-slate-100 data-[state=open]:text-slate-700`}
+              className={`absolute right-0 rounded-md p-1 text-slate-400 transition-all duration-200 ${
+                menuOpen ? 'bg-slate-100 text-slate-700 opacity-100' : 'pointer-events-none opacity-0 hover:bg-slate-100 hover:text-slate-700 group-hover:pointer-events-auto group-hover:opacity-100'
+              }`}
             >
               <MoreHorizontal size={14} />
             </Button>

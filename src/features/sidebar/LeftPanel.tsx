@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, FolderOpen, Plus, Puzzle, Search, Settings2 } from 'lucide-react';
+import { openPath } from '@tauri-apps/plugin-opener';
+import { ChevronRight, Puzzle, Search, Settings2 } from 'lucide-react';
 import { usePluginStore } from '@/shared/state/usePluginStore';
 import { useSessions, useSessionStore } from '@/shared/state/useSessionStore';
 import { SessionItem } from './SessionItem';
 import { ProjectHeader } from './ProjectHeader';
 import { Button } from '@/shared/ui/Button';
+import { useToast } from '@/shared/hooks/useToast';
 
 const settingItems = [
   { id: 'model', name: '模型', description: '管理 provider、模型和默认选择。' },
@@ -13,7 +15,7 @@ const settingItems = [
   { id: 'frontend', name: '前端显示', description: '管理主题、消息显示和本地偏好。' },
 ];
 
-export const LeftPanel = () => {
+export const LeftPanel = ({ width }: { width: number }) => {
   const workspacePath = 'C:\\Users\\Administrator\\Documents\\dev\\rhythm';
   const sessions = useSessions();
   const {
@@ -23,6 +25,7 @@ export const LeftPanel = () => {
     openWorkbench,
   } = useSessionStore();
   const pluginStore = usePluginStore();
+  const toast = useToast();
   const [query, setQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const rootSessions = sessions.filter((session) => !session.parentId);
@@ -67,9 +70,21 @@ export const LeftPanel = () => {
     setActiveSession(null);
   };
 
+  const handleCopyWorkspacePath = async () => {
+    await navigator.clipboard.writeText(workspacePath);
+  };
+
+  const handleOpenWorkspace = () => {
+    void openPath(workspacePath);
+  };
+
+  const handleRemoveWorkspace = () => {
+    toast.info('多工作区列表接入后会支持移除当前工作区');
+  };
+
   if (leftPanelMode === 'plugins') {
     return (
-      <div className="flex h-full w-[320px] shrink-0 flex-col border-r border-slate-200 bg-[#f8f7f3]">
+      <div className="flex h-full shrink-0 flex-col bg-[#f8f7f3]" style={{ width }}>
         <PanelModeHeader
           icon={<Puzzle size={16} />}
           title="插件"
@@ -120,7 +135,7 @@ export const LeftPanel = () => {
 
   if (leftPanelMode === 'settings') {
     return (
-      <div className="flex h-full w-[320px] shrink-0 flex-col border-r border-slate-200 bg-[#f8f7f3]">
+      <div className="flex h-full shrink-0 flex-col bg-[#f8f7f3]" style={{ width }}>
         <PanelModeHeader
           icon={<Settings2 size={16} />}
           title="设置"
@@ -158,11 +173,14 @@ export const LeftPanel = () => {
   }
 
   return (
-    <div className="flex h-full w-[320px] shrink-0 flex-col border-r border-slate-200 bg-[#f8f7f3]">
+    <div className="flex h-full shrink-0 flex-col bg-[#f8f7f3]" style={{ width }}>
       <ProjectHeader
         workspaceName="rhythm"
         workspacePath={workspacePath}
         onNewSession={handleNewSession}
+        onCopyWorkspacePath={handleCopyWorkspacePath}
+        onOpenWorkspace={handleOpenWorkspace}
+        onRemoveWorkspace={handleRemoveWorkspace}
       />
 
       <div className="px-4 pb-3">
@@ -174,27 +192,15 @@ export const LeftPanel = () => {
         />
       </div>
 
-      <div className="mb-2 px-4">
-        <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/70 px-3 py-3 text-xs leading-5 text-amber-900">
-          当前先按单工作区推进 M1 + M2。多工作区按钮已就位，后续阶段再接真实数据源。
-        </div>
-      </div>
-
       <div className="flex-1 overflow-y-auto px-3 pb-4">
-        {sessions.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white/90 px-4 py-6 text-center">
-            <FolderOpen size={18} className="mx-auto text-slate-400" />
-            <p className="mt-3 text-sm font-medium text-slate-700">还没有会话</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">发送第一条消息时会自动创建新会话。</p>
-            <Button
-              variant="unstyled"
-              size="none"
-              onClick={handleNewSession}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-800"
-            >
-              <Plus size={14} />
-              新建会话
-            </Button>
+        {rootSessions.length === 0 ? (
+          <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-transparent px-4 py-8 text-center">
+            <div className="text-[13px] font-medium text-slate-600">
+              暂无历史会话
+            </div>
+            <div className="mt-2 text-[12px] leading-5 text-slate-400">
+              在右侧输入任意内容<br />新会话将自动出现于此
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
@@ -210,16 +216,18 @@ export const LeftPanel = () => {
                 ))}
               </SessionGroup>
             )}
-            <SessionGroup title="最近会话" count={filteredRegularSessions.length}>
-              {filteredRegularSessions.map((session) => (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  isActive={session.id === activeSessionId}
-                  onClick={() => setActiveSession(session.id)}
-                />
-              ))}
-            </SessionGroup>
+            {filteredRegularSessions.length > 0 && (
+              <SessionGroup title="最近会话" count={filteredRegularSessions.length}>
+                {filteredRegularSessions.map((session) => (
+                  <SessionItem
+                    key={session.id}
+                    session={session}
+                    isActive={session.id === activeSessionId}
+                    onClick={() => setActiveSession(session.id)}
+                  />
+                ))}
+              </SessionGroup>
+            )}
             {filteredArchivedSessions.length > 0 && (
               <SessionGroup title="已归档" count={filteredArchivedSessions.length}>
                 {filteredArchivedSessions.map((session) => (

@@ -32,6 +32,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |_app| {
             let scheduler = cron::CronScheduler::new(cron_registry.clone());
             let _handle = scheduler.start();
@@ -42,6 +43,7 @@ pub fn run() {
             commands::chat::chat_stream,
             commands::chat::submit_user_answer,
             commands::chat::approve_permission,
+            commands::llm::llm_complete,
             commands::session::get_sessions,
             commands::interrupt::interrupt_session,
             // Memory management

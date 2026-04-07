@@ -3,8 +3,15 @@ import { Channel } from '@tauri-apps/api/core';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useToastStore } from '@/shared/state/useToastStore';
-import { Attachment, Message, ServerEventChunk } from '@/shared/types/schema';
-import { chatStream, submitUserAnswer, approvePermission, interruptSession } from '@/shared/api/commands';
+import { Attachment, Message, ServerEventChunk, Session } from '@/shared/types/schema';
+import { chatStream, submitUserAnswer, approvePermission, interruptSession, llmComplete } from '@/shared/api/commands';
+
+const TITLE_SYSTEM_PROMPT = [
+  'You generate concise chat titles.',
+  'Return only one short title, without quotes, punctuation wrappers, markdown, or explanation.',
+  "Use the same language as the user's message when possible.",
+  'Keep it within 4 to 12 Chinese characters, or 2 to 6 English words.',
+].join('\n');
 
 export const useLLMStream = () => {
   const store = useSessionStore;
@@ -31,6 +38,7 @@ export const useLLMStream = () => {
     const reasoning = state.composerControls.reasoning;
     const mode = state.composerControls.mode === 'Coordinate' ? 'coordinate' : 'chat';
     const permissionMode = state.composerControls.fullAuto ? 'full_auto' : 'default';
+    const isFirstTurn = isFirstSessionTurn(state.sessions.get(sessionId), prompt);
 
     abortRef.current = false;
     rootSessionIdRef.current = sessionId;
@@ -46,6 +54,9 @@ export const useLLMStream = () => {
       createdAt: Date.now(),
     };
     state.addMessage(sessionId, userMsg);
+    if (isFirstTurn) {
+      void generateTitleFromFirstTurn(sessionId, prompt, providerId, model);
+    }
 
     const aiMessageId = Date.now().toString() + '-a';
     rootAiMessageIdRef.current = aiMessageId;
@@ -237,3 +248,45 @@ export const useLLMStream = () => {
 
   return { connectStream, isStreaming, requestInterrupt, submitAnswer, approvePermission: approvePermissionRequest };
 };
+
+function isFirstSessionTurn(session: Session | undefined, prompt: string) {
+  return !!session && session.messages.length === 0 && prompt.trim().length > 0;
+}
+
+async function generateTitleFromFirstTurn(
+  sessionId: string,
+  prompt: string,
+  providerId: string,
+  model: string,
+) {
+  const fallbackTitle = `session - ${sessionId.replace(/^session-/, '').slice(-6)}`;
+  try {
+    const title = await llmComplete({
+      providerId,
+      model,
+      timeoutSecs: 10,
+      messages: [
+        {
+          role: 'system',
+          content: TITLE_SYSTEM_PROMPT,
+        },
+        {
+          role: 'user',
+          content: `Generate a title for this first user message:\n\n${prompt}`,
+        },
+      ],
+    });
+    useSessionStore.getState().setSessionTitle(sessionId, cleanGeneratedTitle(title) || fallbackTitle);
+  } catch {
+    useSessionStore.getState().setSessionTitle(sessionId, fallbackTitle);
+  }
+}
+
+function cleanGeneratedTitle(raw: string) {
+  return raw
+    .split(/\r?\n/)[0]
+    .trim()
+    .replace(/^["'`“”‘’「」《》]+|["'`“”‘’「」《》]+$/g, '')
+    .trim()
+    .slice(0, 32);
+}

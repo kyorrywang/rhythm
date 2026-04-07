@@ -10,6 +10,7 @@ import type {
   SubmitAnswerRequest,
   ApprovePermissionRequest,
   InterruptSessionRequest,
+  LlmCompleteRequest,
 } from '@/shared/types/api';
 import type { ServerEventChunk, Session } from '@/shared/types/schema';
 
@@ -41,6 +42,15 @@ export function approvePermission(request: ApprovePermissionRequest): Promise<vo
 
 export function interruptSession(request: InterruptSessionRequest): Promise<void> {
   return client.invoke('interrupt_session', request);
+}
+
+export function llmComplete(request: LlmCompleteRequest): Promise<string> {
+  return client.invoke('llm_complete', {
+    messages: request.messages,
+    providerId: request.providerId,
+    model: request.model,
+    timeoutSecs: request.timeoutSecs,
+  } as never);
 }
 
 export function getSettings(): Promise<BackendSettings> {

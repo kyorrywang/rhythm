@@ -34,4 +34,51 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+
+          if (id.includes("/react/") || id.includes("/react-dom/") || id.includes("/scheduler/")) {
+            return "vendor-react";
+          }
+          if (id.includes("@radix-ui")) {
+            return "vendor-radix";
+          }
+          if (
+            id.includes("react-markdown") ||
+            id.includes("remark-") ||
+            id.includes("micromark") ||
+            id.includes("mdast") ||
+            id.includes("hast") ||
+            id.includes("unified") ||
+            id.includes("unist") ||
+            id.includes("vfile") ||
+            id.includes("property-information") ||
+            id.includes("space-separated-tokens") ||
+            id.includes("comma-separated-tokens")
+          ) {
+            return "vendor-markdown";
+          }
+          if (id.includes("react-syntax-highlighter") || id.includes("refractor")) {
+            return "vendor-code";
+          }
+          if (id.includes("framer-motion") || id.includes("motion-dom") || id.includes("motion-utils")) {
+            return "vendor-motion";
+          }
+          if (id.includes("@tauri-apps")) {
+            return "vendor-tauri";
+          }
+          if (id.includes("lucide-react")) {
+            return "vendor-icons";
+          }
+          if (id.includes("zustand")) {
+            return "vendor-state";
+          }
+          return undefined;
+        },
+      },
+    },
+  },
 }));

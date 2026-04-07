@@ -17,6 +17,7 @@ interface SessionSliceActions {
   archiveSession: (id: string) => void;
   restoreSession: (id: string) => void;
   renameSession: (id: string, title: string) => void;
+  setSessionTitle: (id: string, title: string) => void;
   grantSessionPermission: (id: string, toolName: string) => void;
   setFlowStep: (step: number) => void;
   setTaskMinimized: (sessionId: string, minimized: boolean) => void;
@@ -100,6 +101,16 @@ export const createSessionSlice = (
       if (!session) return state;
       const next = new Map(state.sessions);
       next.set(id, { ...session, title, updatedAt: Date.now() });
+      savePersistedSessions(Array.from(next.values()));
+      return { sessions: next };
+    }),
+
+  setSessionTitle: (id, title) =>
+    set((state) => {
+      const session = state.sessions.get(id);
+      if (!session) return state;
+      const next = new Map(state.sessions);
+      next.set(id, { ...session, title });
       savePersistedSessions(Array.from(next.values()));
       return { sessions: next };
     }),
