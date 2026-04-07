@@ -7,6 +7,8 @@ import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent
 import { GlobalRail } from './GlobalRail';
 import { LeftPanel } from './LeftPanel';
 import { DEFAULT_WORKSPACE_PATH, useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
+import { usePluginHostStore } from '@/plugin-host/usePluginHostStore';
+import type { ActivityBarContribution } from '@/plugin-host/types';
 
 const DEFAULT_LEFT_PANEL_WIDTH = 320;
 const MIN_LEFT_PANEL_WIDTH = 240;
@@ -30,6 +32,7 @@ export const Sidebar = () => {
     addWorkspace,
     setActiveWorkspace,
   } = useWorkspaceStore();
+  const pluginActivityItems = usePluginHostStore((state) => state.activityBarItems);
   const { info: showInfo, error: showError } = useToast();
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_PANEL_WIDTH);
 
@@ -94,6 +97,11 @@ export const Sidebar = () => {
     }
   };
 
+  const handleOpenPluginActivity = (item: ActivityBarContribution) => {
+    setLeftSidebarCollapsed(false);
+    setLeftPanelMode(`plugin:${item.opens}`);
+  };
+
   const updateLeftPanelWidth = useCallback((nextWidth: number) => {
     const clampedWidth = clampPanelWidth(nextWidth);
     setLeftPanelWidth(clampedWidth);
@@ -145,11 +153,11 @@ export const Sidebar = () => {
         activeMode={leftPanelMode}
         isCollapsed={leftSidebarCollapsed}
         workspaces={workspaces}
+        pluginActivityItems={pluginActivityItems}
         activeWorkspaceId={activeWorkspaceId}
         onWorkspaceClick={handleWorkspaceClick}
         onAddWorkspace={() => void handleAddWorkspace()}
-        onOpenPlugins={() => setLeftPanelMode('plugins')}
-        onOpenSettings={() => setLeftPanelMode('settings')}
+        onOpenPluginActivity={handleOpenPluginActivity}
       />
       <AnimatePresence initial={false}>
         {!leftSidebarCollapsed && (

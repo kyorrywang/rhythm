@@ -1,0 +1,18 @@
+{
+  "name": "folder",
+  "version": "0.1.0",
+  "description": "Workspace folder tree and file preview.",
+  "entry": "src/main.tsx",
+  "enabledByDefault": true,
+  "requires": {
+    "capabilities": [
+      "workspace.files.read"
+    ]
+  },
+  "provides": {
+    "capabilities": [
+      "workspace.tree",
+      "folder.file.preview"
+    ]
+  }
+}

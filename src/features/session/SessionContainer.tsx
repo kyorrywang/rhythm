@@ -43,7 +43,7 @@ export const SessionContainer = () => {
         <div className="flex flex-1 items-center justify-center px-6">
           <div className="max-w-[520px] rounded-[32px] border border-slate-200 bg-white p-8 text-center shadow-[0_30px_80px_rgba(15,23,42,0.06)]">
             <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Main View</div>
-            <h2 className="mt-3 text-2xl font-semibold text-slate-900">当前处于 {leftPanelMode === 'plugins' ? '插件模式' : '设置模式'}</h2>
+            <h2 className="mt-3 text-2xl font-semibold text-slate-900">当前处于 {mainViewModeLabel(leftPanelMode)}</h2>
             <p className="mt-3 text-sm leading-7 text-slate-500">
               左侧列表负责导航，Workbench 负责展示详情。后续阶段我们会把完整插件页和设置页接进来。
             </p>
@@ -203,6 +203,11 @@ const SessionHeader = ({
     </div>
   </div>
 );
+
+function mainViewModeLabel(mode: string) {
+  if (mode.startsWith('plugin:')) return '插件视图模式';
+  return '工作区模式';
+}
 
 const HeaderMenuAction = ({
   icon,

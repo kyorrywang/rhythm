@@ -188,6 +188,7 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
 }
 
 fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
+    let existing = config::load_settings();
     let provider = settings.providers.first();
     let model = provider.and_then(|p| p.models.first());
 
@@ -272,6 +273,7 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
             .into_iter()
             .map(|name| (name, true))
             .collect(),
+        plugin_permissions: existing.plugin_permissions,
     }
 }
 

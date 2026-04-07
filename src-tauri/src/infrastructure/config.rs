@@ -219,6 +219,9 @@ pub struct RhythmSettings {
     /// Plugin enable/disable map keyed by plugin name (Phase 10).
     #[serde(default)]
     pub enabled_plugins: HashMap<String, bool>,
+    /// Granted plugin permissions keyed by plugin name.
+    #[serde(default)]
+    pub plugin_permissions: HashMap<String, Vec<String>>,
 }
 
 impl Default for RhythmSettings {
@@ -233,6 +236,7 @@ impl Default for RhythmSettings {
             mcp_servers: HashMap::new(),
             auto_compact: AutoCompactConfig::default(),
             enabled_plugins: HashMap::new(),
+            plugin_permissions: HashMap::new(),
         }
     }
 }

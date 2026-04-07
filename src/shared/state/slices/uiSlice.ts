@@ -3,21 +3,19 @@ import type { MessageMode } from '@/shared/types/schema';
 interface WorkbenchItem {
   id: string;
   isOpen: boolean;
-  mode: 'plugin' | 'settings' | 'file' | 'diff' | 'web' | 'task';
+  pluginId: string;
+  viewType: string;
+  renderer: string;
   title: string;
   description?: string;
-  content?: string;
-  meta?: {
-    path?: string;
-    url?: string;
-    summary?: string;
-  };
+  payload?: unknown;
+  lifecycle?: 'snapshot' | 'live';
 }
 
 interface UiSliceState {
   isContextPanelOpen: boolean;
   leftSidebarCollapsed: boolean;
-  leftPanelMode: 'sessions' | 'plugins' | 'settings';
+  leftPanelMode: 'sessions' | `plugin:${string}`;
   workbench: {
     items: WorkbenchItem[];
     activeItemId: string | null;
@@ -49,7 +47,7 @@ interface UiSliceActions {
 export type UiSlice = UiSliceState & UiSliceActions;
 
 const buildWorkbenchId = (workbench: Omit<WorkbenchItem, 'id'> & { id?: string }) =>
-  workbench.id || `${workbench.mode}:${workbench.meta?.path || workbench.meta?.url || workbench.meta?.summary || workbench.title}`;
+  workbench.id || `${workbench.pluginId}:${workbench.viewType}:${workbench.title}`;
 
 export const createUiSlice = (
   set: (partial: Partial<UiSliceState> | ((state: UiSliceState) => Partial<UiSliceState>)) => void,

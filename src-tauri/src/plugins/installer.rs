@@ -1,4 +1,4 @@
-use super::types::PluginSummary;
+use super::types::{PluginStatus, PluginSummary};
 use crate::infrastructure::paths;
 use crate::shared::error::RhythmError;
 use std::path::Path;
@@ -37,8 +37,27 @@ pub fn install_plugin(source: &Path) -> Result<PluginSummary, RhythmError> {
         version: manifest.version,
         description: manifest.description,
         enabled: manifest.enabled_by_default,
+        configured_enabled: manifest.enabled_by_default,
+        status: if manifest.enabled_by_default {
+            PluginStatus::Enabled
+        } else {
+            PluginStatus::Disabled
+        },
+        blocked_reason: None,
         skills_count: 0, // computed lazily on full load
+        hooks_count: 0,
+        mcp_servers_count: 0,
         path: dest.to_string_lossy().to_string(),
+        entry: manifest.entry,
+        permissions: manifest.permissions.clone(),
+        granted_permissions: if manifest.enabled_by_default {
+            manifest.permissions
+        } else {
+            vec![]
+        },
+        requires: manifest.requires,
+        provides: manifest.provides,
+        contributes: manifest.contributes,
     })
 }
 

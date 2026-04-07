@@ -11,6 +11,7 @@ import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useEffect } from 'react';
 import { getSessions } from '@/shared/api/commands';
+import { PluginHostRuntime } from '@/plugin-host/PluginHostRuntime';
 
 export function App() {
   const workbench = useSessionStore((s) => s.workbench);
@@ -67,7 +68,7 @@ export function App() {
   }, [settings, setComposerControls, setPermissionConfig]);
 
   useKeyboardShortcuts({
-    'ctrl+,': () => setLeftPanelMode('settings'),
+    'ctrl+,': () => setLeftPanelMode('plugin:core.settings.panel'),
     escape: () => {
       if (workbench) {
         closeWorkbench();
@@ -78,6 +79,7 @@ export function App() {
   return (
     <ErrorBoundary>
       <div className="flex h-screen w-full font-sans antialiased bg-[#f3efe7] text-gray-800">
+        <PluginHostRuntime />
         <Sidebar />
         {workbench && <WorkbenchPanel />}
         <SessionContainer />

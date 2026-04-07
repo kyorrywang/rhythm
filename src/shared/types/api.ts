@@ -53,8 +53,88 @@ export interface BackendPluginSummary {
   version: string;
   description: string;
   enabled: boolean;
+  configured_enabled: boolean;
+  status: "enabled" | "disabled" | "blocked" | "error";
+  blocked_reason?: string | null;
   skills_count: number;
+  hooks_count: number;
+  mcp_servers_count: number;
   path: string;
+  entry?: string | null;
+  permissions: string[];
+  granted_permissions: string[];
+  requires: {
+    plugins: Record<string, string>;
+    capabilities: string[];
+  };
+  provides: {
+    capabilities: string[];
+  };
+  contributes: {
+    activity_bar: BackendPluginContribution[];
+    left_panel_views: BackendPluginContribution[];
+    workbench_views: BackendPluginContribution[];
+    commands: BackendPluginContribution[];
+    agent_tools: BackendPluginContribution[];
+    settings_sections: BackendPluginContribution[];
+    message_actions: BackendPluginContribution[];
+    tool_result_actions: BackendPluginContribution[];
+    tree_item_actions: BackendPluginContribution[];
+    workflow_nodes: BackendPluginContribution[];
+  };
+}
+
+export interface BackendPluginRuntimeInfo {
+  plugin_name: string;
+  status: BackendPluginSummary['status'];
+  enabled: boolean;
+  storage_path: string;
+  capabilities: string[];
+  commands: BackendPluginContribution[];
+}
+
+export interface PluginCommandRequest {
+  cwd: string;
+  plugin_name: string;
+  command_id: string;
+  input?: unknown;
+}
+
+export interface PluginCommandResponse {
+  plugin_name: string;
+  command_id: string;
+  handled: boolean;
+  result: unknown;
+}
+
+export interface PluginStorageGetRequest {
+  cwd: string;
+  plugin_name: string;
+  key: string;
+}
+
+export interface PluginStorageSetRequest extends PluginStorageGetRequest {
+  value: unknown;
+}
+
+export interface PluginStorageFileRequest {
+  cwd: string;
+  plugin_name: string;
+  path: string;
+}
+
+export interface PluginStorageTextFileSetRequest extends PluginStorageFileRequest {
+  content: string;
+}
+
+export interface BackendPluginContribution {
+  id?: string;
+  title?: string;
+  icon?: string;
+  opens?: string;
+  renderer?: string;
+  description?: string;
+  [key: string]: unknown;
 }
 
 export interface BackendProviderModel {
@@ -110,6 +190,46 @@ export interface BackendWorkspaceInfo {
   name: string;
   path: string;
   is_git_repo: boolean;
+}
+
+export interface BackendWorkspaceDirEntry {
+  name: string;
+  path: string;
+  kind: 'directory' | 'file';
+  size?: number | null;
+}
+
+export interface BackendWorkspaceDirList {
+  path: string;
+  entries: BackendWorkspaceDirEntry[];
+}
+
+export interface BackendWorkspaceTextFile {
+  path: string;
+  content?: string | null;
+  size: number;
+  truncated: boolean;
+  is_binary: boolean;
+  encoding_error?: string | null;
+  limit_bytes: number;
+}
+
+export interface BackendWorkspaceShellResult {
+  command: string;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  success: boolean;
+  timed_out: boolean;
+  truncated: boolean;
+  duration_ms: number;
+}
+
+export interface WorkspaceShellRunRequest {
+  cwd: string;
+  command: string;
+  timeout_ms?: number;
+  max_output_bytes?: number;
 }
 
 export interface BackendSettings {
@@ -194,6 +314,34 @@ export interface TauriCommands {
     request: { name: string };
     response: void;
   };
+  grant_plugin_permission: {
+    request: { name: string; permission: string; cwd?: string };
+    response: void;
+  };
+  revoke_plugin_permission: {
+    request: { name: string; permission: string; cwd?: string };
+    response: void;
+  };
+  plugin_runtime_info: {
+    request: { cwd: string; pluginName: string };
+    response: BackendPluginRuntimeInfo;
+  };
+  plugin_invoke_command: {
+    request: { request: PluginCommandRequest };
+    response: PluginCommandResponse;
+  };
+  plugin_storage_get: {
+    request: { request: PluginStorageGetRequest };
+    response: unknown | null;
+  };
+  plugin_storage_set: {
+    request: { request: PluginStorageSetRequest };
+    response: void;
+  };
+  plugin_storage_delete: {
+    request: { request: PluginStorageGetRequest };
+    response: void;
+  };
   cron_list: {
     request: void;
     response: BackendCronJobConfig[];
@@ -201,6 +349,34 @@ export interface TauriCommands {
   workspace_info: {
     request: { path: string };
     response: BackendWorkspaceInfo;
+  };
+  workspace_list_dir: {
+    request: { cwd: string; path: string };
+    response: BackendWorkspaceDirList;
+  };
+  workspace_read_text_file: {
+    request: { cwd: string; path: string };
+    response: BackendWorkspaceTextFile;
+  };
+  workspace_shell_run: {
+    request: { request: WorkspaceShellRunRequest };
+    response: BackendWorkspaceShellResult;
+  };
+  plugin_storage_read_text_file: {
+    request: { request: PluginStorageFileRequest };
+    response: string | null;
+  };
+  plugin_storage_write_text_file: {
+    request: { request: PluginStorageTextFileSetRequest };
+    response: void;
+  };
+  plugin_storage_delete_file: {
+    request: { request: PluginStorageFileRequest };
+    response: void;
+  };
+  plugin_storage_list_files: {
+    request: { request: PluginStorageFileRequest };
+    response: string[];
   };
 }
 

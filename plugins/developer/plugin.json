@@ -1,0 +1,28 @@
+{
+  "name": "developer",
+  "version": "0.1.0",
+  "description": "Developer workflow views for command logs, validation and diffs.",
+  "entry": "src/main.tsx",
+  "enabledByDefault": true,
+  "permissions": [
+    "workspace.files.read",
+    "terminal.run"
+  ],
+  "requires": {
+    "plugins": {
+      "folder": "^0.1.0"
+    },
+    "capabilities": [
+      "workspace.files.read",
+      "terminal.run",
+      "workspace.tree"
+    ]
+  },
+  "provides": {
+    "capabilities": [
+      "developer.diff",
+      "developer.log",
+      "developer.validation"
+    ]
+  }
+}

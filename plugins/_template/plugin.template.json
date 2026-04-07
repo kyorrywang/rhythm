@@ -1,0 +1,14 @@
+{
+  "name": "my-plugin",
+  "version": "0.1.0",
+  "description": "A Rhythm JS plugin template.",
+  "entry": "src/main.tsx",
+  "enabledByDefault": false,
+  "permissions": [],
+  "requires": {
+    "capabilities": []
+  },
+  "provides": {
+    "capabilities": []
+  }
+}

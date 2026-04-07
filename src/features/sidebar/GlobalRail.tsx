@@ -1,17 +1,18 @@
-import { Plus, Puzzle, Settings2 } from 'lucide-react';
+import { Code2, FolderTree, Globe, Plus, Puzzle, Settings2, Workflow } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import type { Workspace } from '@/shared/state/useWorkspaceStore';
+import type { ActivityBarContribution } from '@/plugin-host/types';
 
 interface GlobalRailProps {
-  activeMode: 'sessions' | 'plugins' | 'settings';
+  activeMode: string;
   isCollapsed: boolean;
   workspaces: Workspace[];
+  pluginActivityItems: ActivityBarContribution[];
   activeWorkspaceId: string;
   onWorkspaceClick: (workspaceId: string) => void;
   onAddWorkspace: () => void;
-  onOpenPlugins: () => void;
-  onOpenSettings: () => void;
+  onOpenPluginActivity: (item: ActivityBarContribution) => void;
 }
 
 const WORKSPACE_BACKGROUND_COLORS = [
@@ -31,11 +32,11 @@ export const GlobalRail = ({
   activeMode,
   isCollapsed,
   workspaces,
+  pluginActivityItems,
   activeWorkspaceId,
   onWorkspaceClick,
   onAddWorkspace,
-  onOpenPlugins,
-  onOpenSettings,
+  onOpenPluginActivity,
 }: GlobalRailProps) => {
   return (
     <div className="w-[64px] border-r border-slate-200 bg-[linear-gradient(180deg,#f7f4ed_0%,#f3efe6_100%)] flex flex-col items-center py-4">
@@ -75,36 +76,27 @@ export const GlobalRail = ({
         </Button>
       </div>
 
-      <div className="mt-auto flex flex-col gap-3">
-        <Button
-          variant="unstyled"
-          size="none"
-          onClick={onOpenPlugins}
-          title="插件"
-          className={cn(
-            'flex h-10 w-10 items-center justify-center rounded-2xl transition-colors',
-            activeMode === 'plugins'
-              ? 'bg-slate-900 text-white shadow-[0_8px_20px_rgba(15,23,42,0.2)]'
-              : 'bg-white/60 text-slate-500 hover:bg-white hover:text-slate-800',
-          )}
-        >
-          <Puzzle size={18} />
-        </Button>
-        <Button
-          variant="unstyled"
-          size="none"
-          onClick={onOpenSettings}
-          title="设置"
-          className={cn(
-            'flex h-10 w-10 items-center justify-center rounded-2xl transition-colors',
-            activeMode === 'settings'
-              ? 'bg-slate-900 text-white shadow-[0_8px_20px_rgba(15,23,42,0.2)]'
-              : 'bg-white/60 text-slate-500 hover:bg-white hover:text-slate-800',
-          )}
-        >
-          <Settings2 size={18} />
-        </Button>
+      <div className="mt-6 flex flex-col gap-3">
+        {pluginActivityItems.map((item) => (
+          <Button
+            variant="unstyled"
+            size="none"
+            key={`${item.pluginId || 'plugin'}:${item.id}`}
+            onClick={() => onOpenPluginActivity(item)}
+            title={`${item.title}\n${item.pluginId || 'plugin'}`}
+            className={cn(
+              'flex h-10 w-10 items-center justify-center rounded-2xl transition-colors',
+              activeMode === `plugin:${item.opens}`
+                ? 'bg-slate-900 text-white shadow-[0_8px_20px_rgba(15,23,42,0.2)]'
+                : 'bg-white/60 text-slate-500 hover:bg-white hover:text-slate-800',
+            )}
+          >
+            {iconForPluginActivity(item.icon, item.title)}
+          </Button>
+        ))}
       </div>
+
+      <div className="mt-auto" />
     </div>
   );
 };
@@ -119,4 +111,14 @@ function getStableWorkspaceBackgroundColor(workspacePath: string) {
 
 function getWorkspaceInitial(name: string) {
   return name.trim().slice(0, 1) || '?';
+}
+
+function iconForPluginActivity(icon: string | undefined, title: string) {
+  const normalized = (icon || title).toLowerCase();
+  if (normalized.includes('folder') || normalized.includes('file')) return <FolderTree size={18} />;
+  if (normalized.includes('workflow') || normalized.includes('flow')) return <Workflow size={18} />;
+  if (normalized.includes('web') || normalized.includes('browser')) return <Globe size={18} />;
+  if (normalized.includes('code') || normalized.includes('dev')) return <Code2 size={18} />;
+  if (normalized.includes('settings')) return <Settings2 size={18} />;
+  return <Puzzle size={18} />;
 }

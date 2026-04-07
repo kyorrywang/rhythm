@@ -59,6 +59,16 @@ pub fn get_workspace_sessions_db_path(cwd: &Path) -> PathBuf {
     get_workspace_data_dir(cwd).join("sessions.db")
 }
 
+/// Returns the workspace-scoped plugin data directory.
+pub fn get_workspace_plugins_data_dir(cwd: &Path) -> PathBuf {
+    get_workspace_data_dir(cwd).join("plugins")
+}
+
+/// Returns a workspace-scoped data directory for a single plugin.
+pub fn get_workspace_plugin_data_dir(cwd: &Path, plugin_name: &str) -> PathBuf {
+    get_workspace_plugins_data_dir(cwd).join(sanitize_path_segment(plugin_name))
+}
+
 /// Returns the tasks directory: ~/.rhythm/data/tasks/
 pub fn get_tasks_dir() -> PathBuf {
     get_data_dir().join("tasks")
@@ -90,6 +100,22 @@ pub fn ensure_dir(path: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(path)?;
     }
     Ok(())
+}
+
+fn sanitize_path_segment(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|ch| match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            _ => ch,
+        })
+        .collect::<String>();
+
+    if sanitized.trim().is_empty() {
+        "plugin".to_string()
+    } else {
+        sanitized
+    }
 }
 
 /// Create all required Rhythm directories in one call.

@@ -10,6 +10,9 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { getToolPresentation } from '@/features/session/toolPresentation';
+import { createPluginContext } from '@/plugin-host/createPluginContext';
+import type { MessageActionContribution, ToolResultActionContribution } from '@/plugin-host/types';
+import { usePluginHostStore } from '@/plugin-host/usePluginHostStore';
 import { useDisplayStore } from '@/shared/state/useDisplayStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
@@ -114,12 +117,12 @@ const SegmentCard = ({
   );
 };
 
-const ToolBlock = ({ tool }: { tool: ToolCall }) => {
+const ToolBlock = ({ tool, sessionId }: { tool: ToolCall; sessionId: string }) => {
   const isRunning = tool.status === 'running';
   const presentation = getToolPresentation(tool);
   const config = useDisplayStore((s) => s.preferences.toolCall);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
-  const openWorkbench = useSessionStore((s) => s.openWorkbench);
+  const toolResultActions = usePluginHostStore((s) => s.toolResultActions);
 
   const defaultExpanded = isRunning
     ? config.whileRunning === 'expand'
@@ -160,26 +163,7 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
       timerStart={tool.startTime || Date.now()}
       timerMs={tool.executionTime}
       defaultExpanded={defaultExpanded}
-      action={presentation.actionTarget ? (
-        <Button
-          variant="link"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            openWorkbench({
-              isOpen: true,
-              mode: presentation.actionTarget!.mode,
-              title: presentation.actionTarget!.title,
-              description: presentation.actionTarget!.description,
-              content: presentation.actionTarget!.content,
-              meta: presentation.actionTarget!.meta,
-            });
-          }}
-          className="text-[12px]"
-        >
-          {presentation.actionLabel || '打开 Workbench'}
-        </Button>
-      ) : undefined}
+      action={<ToolActionButtons actions={toolResultActions} tool={tool} sessionId={sessionId} />}
     >
       <div className="space-y-3">
         <div className="grid gap-3 text-[12px] text-slate-500 md:grid-cols-3">
@@ -360,12 +344,50 @@ const PermissionSegment = ({
   );
 };
 
+const ToolActionButtons = ({
+  actions,
+  tool,
+  sessionId,
+}: {
+  actions: ToolResultActionContribution[];
+  tool: ToolCall;
+  sessionId: string;
+}) => {
+  const visibleActions = actions
+    .filter((action) => {
+      try {
+        const ctx = createPluginContext(action.pluginId || 'unknown');
+        return action.when ? action.when({ ctx, tool, sessionId }) : true;
+      } catch {
+        return false;
+      }
+    })
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  if (visibleActions.length === 0) return null;
+
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      {visibleActions.map((action) => (
+        <PluginActionButton
+          key={action.id}
+          title={action.title}
+          danger={action.danger}
+          onRun={() => action.run({ ctx: createPluginContext(action.pluginId || 'unknown'), tool, sessionId })}
+          pluginId={action.pluginId || 'unknown'}
+        />
+      ))}
+    </div>
+  );
+};
+
 export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: AgentMessageProps) => {
   const [copied, setCopied] = useState(false);
   const isMessageRunning = Boolean(isSessionRunning && isLast);
   const isMessageComplete = !isSessionRunning && isLast;
   const segments = message.segments || [];
   const modelName = message.model || 'Rhythm AI';
+  const messageActions = usePluginHostStore((s) => s.messageActions);
 
   const handleCopy = async () => {
     const text = segments
@@ -404,7 +426,7 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
           {segments.map((segment, index) => (
             <div key={index}>
               {segment.type === 'thinking' && <ThinkingSegment segment={segment} isLive={segment.isLive || false} />}
-              {segment.type === 'tool' && <ToolBlock tool={segment.tool} />}
+              {segment.type === 'tool' && <ToolBlock tool={segment.tool} sessionId={sessionId} />}
               {segment.type === 'ask' && <AskSegment segment={segment} />}
               {segment.type === 'permission' && <PermissionSegment segment={segment} sessionId={sessionId} />}
               {segment.type === 'text' && segment.content && (
@@ -468,8 +490,81 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
             startTime={message.createdAt}
             finalMs={isMessageComplete ? message.totalTimeMs : undefined}
           />
+          <MessageActionButtons actions={messageActions} message={message} sessionId={sessionId} />
         </div>
       </div>
     </motion.div>
+  );
+};
+
+const MessageActionButtons = ({
+  actions,
+  message,
+  sessionId,
+}: {
+  actions: MessageActionContribution[];
+  message: Message;
+  sessionId: string;
+}) => {
+  const visibleActions = actions
+    .filter((action) => {
+      try {
+        const ctx = createPluginContext(action.pluginId || 'unknown');
+        return action.when ? action.when({ ctx, message, sessionId }) : true;
+      } catch {
+        return false;
+      }
+    })
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  if (visibleActions.length === 0) return null;
+
+  return (
+    <>
+      <span className="mx-2 text-slate-300">|</span>
+      {visibleActions.map((action) => (
+        <PluginActionButton
+          key={action.id}
+          title={action.title}
+          danger={action.danger}
+          onRun={() => action.run({ ctx: createPluginContext(action.pluginId || 'unknown'), message, sessionId })}
+          pluginId={action.pluginId || 'unknown'}
+        />
+      ))}
+    </>
+  );
+};
+
+const PluginActionButton = ({
+  title,
+  danger,
+  pluginId,
+  onRun,
+}: {
+  title: string;
+  danger?: boolean;
+  pluginId: string;
+  onRun: () => void | Promise<void>;
+}) => {
+  const [isRunning, setIsRunning] = useState(false);
+
+  return (
+    <Button
+      variant="link"
+      size="sm"
+      disabled={isRunning}
+      onClick={(event) => {
+        event.stopPropagation();
+        setIsRunning(true);
+        void Promise.resolve(onRun())
+          .catch((error) => {
+            usePluginHostStore.getState().reportPluginError(pluginId, error);
+          })
+          .finally(() => setIsRunning(false));
+      }}
+      className={`h-7 px-2 text-[12px] ${danger ? 'text-rose-600' : 'text-slate-500'}`}
+    >
+      {isRunning ? 'Running...' : title}
+    </Button>
   );
 };

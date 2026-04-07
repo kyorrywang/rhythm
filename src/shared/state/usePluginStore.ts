@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import { disablePlugin, enablePlugin, listPlugins } from '@/shared/api/commands';
+import {
+  disablePlugin,
+  enablePlugin,
+  grantPluginPermission,
+  listPlugins,
+  revokePluginPermission,
+} from '@/shared/api/commands';
 import type { BackendPluginSummary } from '@/shared/types/api';
 
 interface PluginState {
@@ -8,6 +14,7 @@ interface PluginState {
   error: string | null;
   fetchPlugins: (cwd: string) => Promise<void>;
   togglePlugin: (cwd: string, name: string, enabled: boolean) => Promise<void>;
+  setPluginPermission: (cwd: string, name: string, permission: string, granted: boolean) => Promise<void>;
 }
 
 export const usePluginStore = create<PluginState>((set) => ({
@@ -30,6 +37,16 @@ export const usePluginStore = create<PluginState>((set) => ({
       await enablePlugin(name);
     } else {
       await disablePlugin(name);
+    }
+    const plugins = await listPlugins(cwd);
+    set({ plugins });
+  },
+
+  setPluginPermission: async (cwd, name, permission, granted) => {
+    if (granted) {
+      await grantPluginPermission(name, permission, cwd);
+    } else {
+      await revokePluginPermission(name, permission, cwd);
     }
     const plugins = await listPlugins(cwd);
     set({ plugins });

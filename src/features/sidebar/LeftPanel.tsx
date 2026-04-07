@@ -1,36 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { openPath } from '@tauri-apps/plugin-opener';
-import { ChevronRight, Puzzle, Search, Settings2 } from 'lucide-react';
-import { usePluginStore } from '@/shared/state/usePluginStore';
-import { useSessions, useSessionStore } from '@/shared/state/useSessionStore';
-import { SessionItem } from './SessionItem';
-import { ProjectHeader } from './ProjectHeader';
-import { Button } from '@/shared/ui/Button';
-import { useToast } from '@/shared/hooks/useToast';
+import { Search } from 'lucide-react';
+import { createPluginContext } from '@/plugin-host/createPluginContext';
+import { PluginErrorBoundary } from '@/plugin-host/PluginErrorBoundary';
+import { usePluginHostStore } from '@/plugin-host/usePluginHostStore';
 import { DEFAULT_WORKSPACE_PATH, useActiveWorkspace, useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
-
-const settingItems = [
-  { id: 'model', name: '模型', description: '管理 provider、模型和默认选择。' },
-  { id: 'session', name: '会话', description: '调整 max turns、system prompt 等。' },
-  { id: 'permission', name: '权限', description: '配置工具权限与路径规则。' },
-  { id: 'frontend', name: '前端显示', description: '管理主题、消息显示和本地偏好。' },
-];
+import { useSessions, useSessionStore } from '@/shared/state/useSessionStore';
+import { useToast } from '@/shared/hooks/useToast';
+import { ProjectHeader } from './ProjectHeader';
+import { SessionItem } from './SessionItem';
 
 export const LeftPanel = ({ width }: { width: number }) => {
   const workspace = useActiveWorkspace();
   const workspacePath = workspace.path;
   const sessions = useSessions();
   const removeWorkspace = useWorkspaceStore((state) => state.removeWorkspace);
-  const {
-    activeSessionId,
-    setActiveSession,
-    leftPanelMode,
-    openWorkbench,
-  } = useSessionStore();
-  const pluginStore = usePluginStore();
+  const activeSessionId = useSessionStore((state) => state.activeSessionId);
+  const setActiveSession = useSessionStore((state) => state.setActiveSession);
+  const leftPanelMode = useSessionStore((state) => state.leftPanelMode);
+  const leftPanels = usePluginHostStore((state) => state.leftPanels);
   const toast = useToast();
   const [query, setQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const pluginViewId = leftPanelMode.startsWith('plugin:') ? leftPanelMode.slice('plugin:'.length) : null;
+  const pluginView = pluginViewId ? leftPanels[pluginViewId] : null;
+
   const workspaceSessions = sessions.filter((session) =>
     session.workspacePath === workspacePath ||
     (!session.workspacePath && workspacePath === DEFAULT_WORKSPACE_PATH)
@@ -55,12 +50,6 @@ export const LeftPanel = ({ width }: { width: number }) => {
   );
 
   useEffect(() => {
-    if (leftPanelMode === 'plugins' && pluginStore.plugins.length === 0 && !pluginStore.isLoading) {
-      void pluginStore.fetchPlugins(workspacePath);
-    }
-  }, [leftPanelMode, pluginStore, workspacePath]);
-
-  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
       if ((event.ctrlKey || event.metaKey) && key === 'k' && leftPanelMode === 'sessions') {
@@ -72,6 +61,16 @@ export const LeftPanel = ({ width }: { width: number }) => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [leftPanelMode]);
+
+  if (pluginView) {
+    const View = pluginView.component;
+    const pluginId = pluginView.pluginId || 'unknown';
+    return (
+      <PluginErrorBoundary pluginId={pluginId} surface={pluginView.id}>
+        <View ctx={createPluginContext(pluginId)} width={width} />
+      </PluginErrorBoundary>
+    );
+  }
 
   const handleNewSession = () => {
     setActiveSession(null);
@@ -90,96 +89,6 @@ export const LeftPanel = ({ width }: { width: number }) => {
     setActiveSession(null);
     toast.info(`已从列表移除工作区：${workspace.name}`);
   };
-
-  if (leftPanelMode === 'plugins') {
-    return (
-      <div className="flex h-full shrink-0 flex-col bg-[#f8f7f3]" style={{ width }}>
-        <PanelModeHeader
-          icon={<Puzzle size={16} />}
-          title="插件"
-          subtitle="查看已安装插件与运行能力"
-        />
-        <div className="px-4 pb-3">
-          <PanelSearch placeholder="搜索插件或过滤状态" />
-        </div>
-        <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-4">
-          {pluginStore.plugins.map((plugin) => (
-            <Button
-              variant="unstyled"
-              size="none"
-              key={plugin.name}
-              onClick={() =>
-                openWorkbench({
-                  isOpen: true,
-                  mode: 'plugin',
-                  title: plugin.name,
-                  description: `${plugin.version} · ${plugin.enabled ? '已启用' : '已禁用'} · ${plugin.skills_count} 个技能`,
-                  meta: {
-                    summary: plugin.name,
-                  },
-                })
-              }
-              className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-slate-800">{plugin.name}</span>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{plugin.version}</span>
-              </div>
-              <p className="mt-2 text-xs leading-5 text-slate-500">{plugin.description}</p>
-              <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500">
-                <span>{plugin.enabled ? '已启用' : '已禁用'}</span>
-                <span>{plugin.skills_count} skills</span>
-              </div>
-            </Button>
-          ))}
-          {!pluginStore.isLoading && pluginStore.plugins.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
-              当前工作区没有发现插件
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (leftPanelMode === 'settings') {
-    return (
-      <div className="flex h-full shrink-0 flex-col bg-[#f8f7f3]" style={{ width }}>
-        <PanelModeHeader
-          icon={<Settings2 size={16} />}
-          title="设置"
-          subtitle="选择一个设置项，在工作台中查看详情"
-        />
-        <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-4">
-          {settingItems.map((item) => (
-            <Button
-              variant="unstyled"
-              size="none"
-              key={item.id}
-              onClick={() =>
-                openWorkbench({
-                  isOpen: true,
-                  mode: 'settings',
-                  title: item.name,
-                  description: item.description,
-                  meta: {
-                    summary: item.id,
-                  },
-                })
-              }
-              className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50"
-            >
-              <div>
-                <div className="text-sm font-medium text-slate-800">{item.name}</div>
-                <div className="mt-1 text-xs text-slate-500">{item.description}</div>
-              </div>
-              <ChevronRight size={16} className="text-slate-400" />
-            </Button>
-          ))}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-full shrink-0 flex-col bg-[#f8f7f3]" style={{ width }}>
@@ -260,25 +169,6 @@ export const LeftPanel = ({ width }: { width: number }) => {
     </div>
   );
 };
-
-const PanelModeHeader = ({
-  icon,
-  title,
-  subtitle,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  subtitle: string;
-}) => (
-  <div className="px-4 pb-4 pt-5">
-    <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-slate-400">
-      {icon}
-      <span>{title}</span>
-    </div>
-    <h2 className="mt-3 text-[20px] font-semibold text-slate-900">{title}</h2>
-    <p className="mt-1 text-sm leading-6 text-slate-500">{subtitle}</p>
-  </div>
-);
 
 const PanelSearch = ({
   value,
