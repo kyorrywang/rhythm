@@ -1,26 +1,36 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useToast } from '@/shared/hooks/useToast';
+import { getWorkspaceInfo } from '@/shared/api/commands';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { GlobalRail } from './GlobalRail';
 import { LeftPanel } from './LeftPanel';
+import { DEFAULT_WORKSPACE_PATH, useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
 
 const DEFAULT_LEFT_PANEL_WIDTH = 320;
 const MIN_LEFT_PANEL_WIDTH = 240;
 const MAX_LEFT_PANEL_WIDTH = 520;
 const LEFT_PANEL_WIDTH_STORAGE_KEY = 'rhythm:left-panel-width';
-const WORKSPACE_PATH = 'C:\\Users\\Administrator\\Documents\\dev\\rhythm';
 
 export const Sidebar = () => {
   const {
     leftPanelMode,
     leftSidebarCollapsed,
+    sessions,
+    setActiveSession,
+    setLeftSidebarCollapsed,
     setLeftPanelMode,
     toggleLeftSidebarCollapsed,
     closeWorkbench,
   } = useSessionStore();
-  const { info: showInfo } = useToast();
+  const {
+    workspaces,
+    activeWorkspaceId,
+    addWorkspace,
+    setActiveWorkspace,
+  } = useWorkspaceStore();
+  const { info: showInfo, error: showError } = useToast();
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_PANEL_WIDTH);
 
   useEffect(() => {
@@ -30,7 +40,30 @@ export const Sidebar = () => {
     }
   }, []);
 
-  const handleWorkspaceClick = () => {
+  const setActiveSessionForWorkspace = useCallback((workspaceId: string) => {
+    const workspace = workspaces.find((item) => item.id === workspaceId);
+    const workspaceSession = Array.from(sessions.values())
+      .filter((session) =>
+        !session.parentId &&
+        (
+          session.workspacePath === workspace?.path ||
+          (!session.workspacePath && workspace?.path === DEFAULT_WORKSPACE_PATH)
+        )
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    setActiveSession(workspaceSession?.id || null);
+  }, [sessions, setActiveSession, workspaces]);
+
+  const handleWorkspaceClick = (workspaceId: string) => {
+    const isCurrentWorkspace = workspaceId === activeWorkspaceId;
+    if (!isCurrentWorkspace) {
+      setActiveWorkspace(workspaceId);
+      setActiveSessionForWorkspace(workspaceId);
+      setLeftSidebarCollapsed(false);
+      setLeftPanelMode('sessions');
+      closeWorkbench();
+      return;
+    }
     if (leftPanelMode !== 'sessions') {
       setLeftPanelMode('sessions');
       closeWorkbench();
@@ -47,7 +80,17 @@ export const Sidebar = () => {
     });
 
     if (typeof selectedPath === 'string') {
-      showInfo(`已选择工作区：${selectedPath}`);
+      try {
+        const info = await getWorkspaceInfo(selectedPath);
+        const workspace = addWorkspace(info.path);
+        setActiveSessionForWorkspace(workspace.id);
+        setLeftSidebarCollapsed(false);
+        setLeftPanelMode('sessions');
+        closeWorkbench();
+        showInfo(`已添加工作区：${workspace.path}`);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : String(error || '无法添加该工作区'));
+      }
     }
   };
 
@@ -101,7 +144,8 @@ export const Sidebar = () => {
       <GlobalRail
         activeMode={leftPanelMode}
         isCollapsed={leftSidebarCollapsed}
-        workspacePath={WORKSPACE_PATH}
+        workspaces={workspaces}
+        activeWorkspaceId={activeWorkspaceId}
         onWorkspaceClick={handleWorkspaceClick}
         onAddWorkspace={() => void handleAddWorkspace()}
         onOpenPlugins={() => setLeftPanelMode('plugins')}

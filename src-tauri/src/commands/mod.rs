@@ -7,3 +7,4 @@ pub mod plugins;
 pub mod session;
 pub mod settings;
 pub mod swarm;
+pub mod workspace;

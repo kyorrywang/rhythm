@@ -117,6 +117,7 @@ export interface Session {
   id: string;
   title: string;
   updatedAt: number;
+  workspacePath?: string;
   messages: Message[];
   pinned?: boolean;
   archived?: boolean;

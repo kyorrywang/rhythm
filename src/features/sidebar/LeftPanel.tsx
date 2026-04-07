@@ -7,6 +7,7 @@ import { SessionItem } from './SessionItem';
 import { ProjectHeader } from './ProjectHeader';
 import { Button } from '@/shared/ui/Button';
 import { useToast } from '@/shared/hooks/useToast';
+import { DEFAULT_WORKSPACE_PATH, useActiveWorkspace, useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
 
 const settingItems = [
   { id: 'model', name: '模型', description: '管理 provider、模型和默认选择。' },
@@ -16,8 +17,10 @@ const settingItems = [
 ];
 
 export const LeftPanel = ({ width }: { width: number }) => {
-  const workspacePath = 'C:\\Users\\Administrator\\Documents\\dev\\rhythm';
+  const workspace = useActiveWorkspace();
+  const workspacePath = workspace.path;
   const sessions = useSessions();
+  const removeWorkspace = useWorkspaceStore((state) => state.removeWorkspace);
   const {
     activeSessionId,
     setActiveSession,
@@ -28,7 +31,11 @@ export const LeftPanel = ({ width }: { width: number }) => {
   const toast = useToast();
   const [query, setQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const rootSessions = sessions.filter((session) => !session.parentId);
+  const workspaceSessions = sessions.filter((session) =>
+    session.workspacePath === workspacePath ||
+    (!session.workspacePath && workspacePath === DEFAULT_WORKSPACE_PATH)
+  );
+  const rootSessions = workspaceSessions.filter((session) => !session.parentId);
   const pinnedSessions = rootSessions.filter((session) => !session.archived && session.pinned);
   const regularSessions = rootSessions.filter((session) => !session.archived && !session.pinned);
   const archivedSessions = rootSessions.filter((session) => session.archived);
@@ -79,7 +86,9 @@ export const LeftPanel = ({ width }: { width: number }) => {
   };
 
   const handleRemoveWorkspace = () => {
-    toast.info('多工作区列表接入后会支持移除当前工作区');
+    removeWorkspace(workspace.id);
+    setActiveSession(null);
+    toast.info(`已从列表移除工作区：${workspace.name}`);
   };
 
   if (leftPanelMode === 'plugins') {
@@ -175,7 +184,7 @@ export const LeftPanel = ({ width }: { width: number }) => {
   return (
     <div className="flex h-full shrink-0 flex-col bg-[#f8f7f3]" style={{ width }}>
       <ProjectHeader
-        workspaceName="rhythm"
+        workspaceName={workspace.name}
         workspacePath={workspacePath}
         onNewSession={handleNewSession}
         onCopyWorkspacePath={handleCopyWorkspacePath}

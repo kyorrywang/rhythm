@@ -3,6 +3,7 @@ import { Channel } from '@tauri-apps/api/core';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useToastStore } from '@/shared/state/useToastStore';
+import { useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
 import { Attachment, Message, ServerEventChunk, Session } from '@/shared/types/schema';
 import { chatStream, submitUserAnswer, approvePermission, interruptSession, llmComplete } from '@/shared/api/commands';
 
@@ -39,11 +40,12 @@ export const useLLMStream = () => {
     const mode = state.composerControls.mode === 'Coordinate' ? 'coordinate' : 'chat';
     const permissionMode = state.composerControls.fullAuto ? 'full_auto' : 'default';
     const isFirstTurn = isFirstSessionTurn(state.sessions.get(sessionId), prompt);
+    const workspacePath = getActiveWorkspacePath();
 
     abortRef.current = false;
     rootSessionIdRef.current = sessionId;
     setIsStreaming(true);
-    state.updateSession(sessionId, { phase: 'streaming' });
+    state.updateSession(sessionId, { phase: 'streaming', workspacePath });
 
     const userMsg: Message = {
       id: Date.now().toString() + '-u',
@@ -181,6 +183,7 @@ export const useLLMStream = () => {
         model,
         reasoning,
         mode,
+        cwd: workspacePath,
       }, onEvent);
     } catch (err) {
       console.error('Stream failed', err);
@@ -251,6 +254,14 @@ export const useLLMStream = () => {
 
 function isFirstSessionTurn(session: Session | undefined, prompt: string) {
   return !!session && session.messages.length === 0 && prompt.trim().length > 0;
+}
+
+function getActiveWorkspacePath() {
+  const workspaceState = useWorkspaceStore.getState();
+  const workspace =
+    workspaceState.workspaces.find((item) => item.id === workspaceState.activeWorkspaceId) ||
+    workspaceState.workspaces[0];
+  return workspace?.path;
 }
 
 async function generateTitleFromFirstTurn(

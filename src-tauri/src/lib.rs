@@ -46,6 +46,7 @@ pub fn run() {
             commands::llm::llm_complete,
             commands::session::get_sessions,
             commands::interrupt::interrupt_session,
+            commands::workspace::workspace_info,
             // Memory management
             commands::memory::list_memories,
             commands::memory::add_memory,

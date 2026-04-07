@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { createSession, submitUserAnswer } from '@/shared/api/commands';
 import { useSessionStore } from '@/shared/state/useSessionStore';
+import { useActiveWorkspace } from '@/shared/state/useWorkspaceStore';
 import { useLLMStream } from '@/features/session/hooks/useLLMStream';
 import { SessionPhase, SelectionType, AskQuestion, Message, Attachment } from '@/shared/types/schema';
 
@@ -13,6 +14,7 @@ interface UseComposerActionsParams {
 }
 
 export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTasksDone, composerMode }: UseComposerActionsParams) => {
+  const activeWorkspace = useActiveWorkspace();
   const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, setTaskMinimized, recordAskAnswer, sessions, addSession, setActiveSession } = useSessionStore();
   const { connectStream, requestInterrupt } = useLLMStream();
 
@@ -93,7 +95,7 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
 
       let targetSessionId = activeSessionId;
       if (!targetSessionId) {
-        const session = await createSession('新会话');
+        const session = await createSession('新会话', activeWorkspace.path);
         addSession(session);
         setActiveSession(session.id);
         targetSessionId = session.id;
@@ -124,7 +126,7 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
     };
 
     void sendNormalMessage();
-  }, [activeSessionId, phase, currentAsk, text, attachments, composerMode, enqueueMessage, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer, sessions]);
+  }, [activeSessionId, phase, currentAsk, text, attachments, composerMode, activeWorkspace.path, enqueueMessage, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer, sessions]);
 
   const handleIgnoreAsk = useCallback(() => {
     if (!activeSessionId || !currentAsk) return;

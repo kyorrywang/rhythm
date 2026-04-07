@@ -310,6 +310,7 @@ export const reduceSessionChunk = (
   const effects: ChunkEffect[] = [];
 
   if (chunk.type === 'subagent_start') {
+    const parentSession = sessions.find((session) => session.id === chunk.parentSessionId);
     const newUserMessage: Message = {
       id: Date.now().toString() + '-u-sub',
       role: 'user',
@@ -321,6 +322,7 @@ export const reduceSessionChunk = (
       id: chunk.subSessionId,
       title: chunk.title,
       updatedAt: Date.now(),
+      workspacePath: parentSession?.workspacePath,
       phase: 'streaming',
       messages: [newUserMessage],
       parentId: chunk.parentSessionId,

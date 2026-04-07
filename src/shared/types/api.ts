@@ -106,6 +106,12 @@ export interface BackendCronJobConfig {
   last_status?: unknown;
 }
 
+export interface BackendWorkspaceInfo {
+  name: string;
+  path: string;
+  is_git_repo: boolean;
+}
+
 export interface BackendSettings {
   theme?: "light" | "dark" | "system";
   autoSaveSessions?: boolean;
@@ -175,6 +181,10 @@ export interface TauriCommands {
   cron_list: {
     request: void;
     response: BackendCronJobConfig[];
+  };
+  workspace_info: {
+    request: { path: string };
+    response: BackendWorkspaceInfo;
   };
 }
 

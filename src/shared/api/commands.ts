@@ -4,6 +4,7 @@ import { loadPersistedSessions } from '@/shared/lib/sessionPersistence';
 import type {
   BackendSessionInfo,
   BackendSettings,
+  BackendWorkspaceInfo,
   BackendPluginSummary,
   BackendCronJobConfig,
   ChatStreamRequest,
@@ -77,6 +78,10 @@ export function listCronJobs(): Promise<BackendCronJobConfig[]> {
   return client.invoke('cron_list', {} as never);
 }
 
+export function getWorkspaceInfo(path: string): Promise<BackendWorkspaceInfo> {
+  return client.invoke('workspace_info', { path } as never);
+}
+
 function mapBackendSessionInfo(info: BackendSessionInfo): Session {
   const createdAt = Number(info.created_at || 0) * 1000 || Date.now();
   return {
@@ -119,12 +124,13 @@ export async function getSessions(): Promise<Session[]> {
   return Array.from(merged.values());
 }
 
-export async function createSession(title = 'New Session'): Promise<Session> {
+export async function createSession(title = 'New Session', workspacePath?: string): Promise<Session> {
   const now = Date.now();
   return {
     id: `session-${now}`,
     title,
     updatedAt: now,
+    workspacePath,
     messages: [],
     taskDockMinimized: false,
     appendDockMinimized: false,

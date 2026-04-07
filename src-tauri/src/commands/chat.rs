@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::ipc::Channel;
 
@@ -56,13 +55,10 @@ pub async fn chat_stream(
     let agent_id = agent_registry::register_agent(session_id.clone(), None, 0);
     event_bus::register_ipc_channel(&agent_id, on_event.clone());
     sessions::register_session(session_id.clone());
+    let cwd_path = crate::commands::workspace::resolve_workspace_path(cwd.as_deref())?;
 
     tokio::spawn(async move {
         let client = Arc::from(llm::create_client(&settings.llm));
-
-        let cwd_path = cwd
-            .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
         // Build multi-layer system prompt
         let coordinate_mode = mode
