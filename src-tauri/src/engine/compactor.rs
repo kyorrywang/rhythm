@@ -184,8 +184,8 @@ async fn call_llm_for_summary(
     model: &str,
     messages: Vec<ChatMessage>,
 ) -> String {
-    use futures::StreamExt;
     use crate::llm::LlmResponse;
+    use futures::StreamExt;
 
     let _ = model; // model is baked into the client; exposed for future override support
 
@@ -216,10 +216,7 @@ async fn call_llm_for_summary(
 /// Rough heuristic: ~3 chars per token on average for mixed EN/ZH content.
 /// Back-of-envelope only; replace with tiktoken-rs for precision if needed.
 pub fn estimate_token_count(messages: &[ChatMessage]) -> usize {
-    messages
-        .iter()
-        .map(|m| content_text(m).len() / 3)
-        .sum()
+    messages.iter().map(|m| content_text(m).len() / 3).sum()
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { createSession, submitUserAnswer } from '@/shared/api/commands';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { useLLMStream } from '@/features/session/hooks/useLLMStream';
-import { SessionPhase, SelectionType, AskQuestion, Message } from '@/shared/types/schema';
+import { SessionPhase, SelectionType, AskQuestion, Message, Attachment } from '@/shared/types/schema';
 
 interface UseComposerActionsParams {
   activeSessionId: string | null;
@@ -17,6 +17,7 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
   const { connectStream, requestInterrupt } = useLLMStream();
 
   const [text, setText] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [selectedAskOptions, setSelectedAskOptions] = useState<string[]>([]);
 
   useEffect(() => {
@@ -87,7 +88,8 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
 
     const sendNormalMessage = async () => {
       const trimmed = text.trim();
-      if (!trimmed) return;
+      const outgoingAttachments = attachments;
+      if (!trimmed && outgoingAttachments.length === 0) return;
 
       let targetSessionId = activeSessionId;
       if (!targetSessionId) {
@@ -104,22 +106,25 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
           id: Date.now().toString(),
           role: 'user',
           content: trimmed,
+          attachments: outgoingAttachments,
           mode: composerMode,
           createdAt: Date.now(),
         }, 'urgent', 'append');
         setText('');
+        setAttachments([]);
         if (currentPhase === 'streaming') {
           transitionPhase(targetSessionId, 'streaming_with_queue');
         }
         return;
       }
 
-      connectStream(trimmed, 'normal', composerMode);
+      connectStream(trimmed, 'normal', composerMode, outgoingAttachments);
       setText('');
+      setAttachments([]);
     };
 
     void sendNormalMessage();
-  }, [activeSessionId, phase, currentAsk, text, composerMode, enqueueMessage, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer, sessions]);
+  }, [activeSessionId, phase, currentAsk, text, attachments, composerMode, enqueueMessage, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer, sessions]);
 
   const handleIgnoreAsk = useCallback(() => {
     if (!activeSessionId || !currentAsk) return;
@@ -177,9 +182,20 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
     setSelectedAskOptions([]);
   }, []);
 
+  const handleAddAttachments = useCallback((nextAttachments: Attachment[]) => {
+    setAttachments((prev) => [...prev, ...nextAttachments]);
+  }, []);
+
+  const handleRemoveAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
+  }, []);
+
   return {
     text,
     setText,
+    attachments,
+    handleAddAttachments,
+    handleRemoveAttachment,
     selectedAskOptions,
     setSelectedAskOptions,
     handleSend,

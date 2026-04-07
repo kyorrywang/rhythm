@@ -14,7 +14,6 @@ interface PermissionState {
   addPending: (request: PermissionRequest) => void;
   resolvePending: (toolId: string, approved: boolean) => void;
   setConfig: (config: Partial<PermissionConfig>) => void;
-  allowToolAlways: (toolName: string) => void;
   clearPending: () => void;
 }
 
@@ -52,19 +51,6 @@ export const usePermissionStore = create<PermissionState>((set) => ({
     set((state) => ({
       config: { ...state.config, ...config },
     })),
-
-  allowToolAlways: (toolName) =>
-    set((state) => {
-      if (state.config.allowedTools.includes(toolName)) {
-        return state;
-      }
-      return {
-        config: {
-          ...state.config,
-          allowedTools: [...state.config.allowedTools, toolName],
-        },
-      };
-    }),
 
   clearPending: () => set({ pendingPermissions: new Map() }),
 }));

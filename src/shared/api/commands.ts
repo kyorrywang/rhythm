@@ -17,7 +17,18 @@ export function chatStream(
   request: ChatStreamRequest,
   onEvent: Channel<ServerEventChunk>,
 ): Promise<void> {
-  return client.invoke('chat_stream', { sessionId: request.sessionId, prompt: request.prompt, cwd: request.cwd, onEvent } as never);
+  return client.invoke('chat_stream', {
+    sessionId: request.sessionId,
+    prompt: request.prompt,
+    attachments: request.attachments,
+    cwd: request.cwd,
+    permissionMode: request.permissionMode,
+    providerId: request.providerId,
+    model: request.model,
+    reasoning: request.reasoning,
+    mode: request.mode,
+    onEvent,
+  } as never);
 }
 
 export function submitUserAnswer(request: SubmitAnswerRequest): Promise<void> {

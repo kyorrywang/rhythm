@@ -44,6 +44,17 @@ export interface UsageSnapshot {
   outputTokens: number;
 }
 
+export interface Attachment {
+  id: string;
+  kind: 'image' | 'file';
+  name: string;
+  mimeType: string;
+  size: number;
+  dataUrl?: string;
+  previewUrl?: string;
+  text?: string;
+}
+
 export type ServerEventChunk =
   | { type: 'text_delta'; sessionId: string; content: string }
   | { type: 'thinking_delta'; sessionId: string; content: string }
@@ -70,6 +81,8 @@ export interface QueuedMessage {
   createdAt: number;
 }
 
+export type MessageMode = 'Chat' | 'Coordinate';
+
 export type SessionPhase =
   | 'idle'
   | 'streaming'
@@ -90,7 +103,8 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content?: string;
-  mode?: 'Chat' | 'Plan' | 'Coordinate';
+  attachments?: Attachment[];
+  mode?: MessageMode;
   model?: string;
   createdAt: number;
   segments?: MessageSegment[];
@@ -116,5 +130,6 @@ export interface Session {
   usage?: UsageSnapshot;
   tokenCount?: number;
   permissionPending?: boolean;
+  permissionGrants?: string[];
   error?: string | null;
 }

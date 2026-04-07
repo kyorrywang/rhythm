@@ -1,6 +1,7 @@
 import { CheckCircle2, Package, Power, Wrench } from 'lucide-react';
 import { useToast } from '@/shared/hooks/useToast';
 import { usePluginStore } from '@/shared/state/usePluginStore';
+import { Button } from '@/shared/ui/Button';
 import type { BackendPluginSummary } from '@/shared/types/api';
 
 const DEFAULT_CWD = 'C:\\Users\\Administrator\\Documents\\dev\\rhythm';
@@ -52,9 +53,9 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
               <div className="text-sm font-medium text-slate-800">{plugin.enabled ? '插件已启用' : '插件当前已停用'}</div>
               <div className="mt-1 text-xs text-slate-500">这里已经连接后端启用/禁用命令，切换后会立即刷新插件列表。</div>
             </div>
-            <button onClick={handleToggle} className={`rounded-full px-4 py-2 text-sm font-medium ${plugin.enabled ? 'bg-slate-900 text-white' : 'bg-emerald-600 text-white'}`}>
+            <Button variant="unstyled" size="none" onClick={handleToggle} className={`rounded-full px-4 py-2 text-sm font-medium ${plugin.enabled ? 'bg-slate-900 text-white' : 'bg-emerald-600 text-white'}`}>
               {plugin.enabled ? 'Disable' : 'Enable'}
-            </button>
+            </Button>
           </div>
         </section>
 

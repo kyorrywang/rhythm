@@ -1,24 +1,24 @@
-pub mod shared;
-pub mod infrastructure;
 pub mod commands;
+pub mod infrastructure;
 pub mod llm;
 pub mod runtime;
+pub mod shared;
 
 // ── New top-level modules (refactored architecture) ──────────────────────────
-pub mod tools;
-pub mod permissions;
 pub mod engine;
-pub mod prompts;
-pub mod skills;
-pub mod memory;
 pub mod hooks;
 pub mod mcp;
+pub mod memory;
+pub mod permissions;
+pub mod prompts;
+pub mod skills;
+pub mod tools;
 
 // ── Advanced modules (Phase 9-12) ────────────────────────────────────────────
-pub mod plugins;
 pub mod coordinator;
-pub mod swarm;
 pub mod cron;
+pub mod plugins;
+pub mod swarm;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

@@ -1,6 +1,8 @@
 use super::environment::{format_environment_section, get_environment_info};
 use super::rhythm_md::load_rhythm_md;
-use crate::coordinator::{build_coordinator_system_prompt_addition, builtin_agents, is_coordinator_mode};
+use crate::coordinator::{
+    build_coordinator_system_prompt_addition, builtin_agents, is_coordinator_mode,
+};
 use crate::infrastructure::config::RhythmSettings;
 use crate::permissions::modes::PermissionMode;
 use std::path::Path;
@@ -27,8 +29,9 @@ pub fn build_runtime_prompt(
     settings: &RhythmSettings,
     cwd: &Path,
     latest_user_prompt: Option<&str>,
+    coordinate_mode: bool,
 ) -> String {
-    build_runtime_prompt_with_addition(settings, cwd, latest_user_prompt, None)
+    build_runtime_prompt_with_addition(settings, cwd, latest_user_prompt, None, coordinate_mode)
 }
 
 pub fn build_runtime_prompt_with_addition(
@@ -36,6 +39,7 @@ pub fn build_runtime_prompt_with_addition(
     cwd: &Path,
     latest_user_prompt: Option<&str>,
     extra_prompt: Option<&str>,
+    coordinate_mode: bool,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -116,7 +120,7 @@ pub fn build_runtime_prompt_with_addition(
         sections.push(format!("# User Custom Instructions\n\n{}", custom));
     }
 
-    if is_coordinator_mode() {
+    if coordinate_mode || is_coordinator_mode() {
         sections.push(build_coordinator_system_prompt_addition(&builtin_agents()));
     }
 

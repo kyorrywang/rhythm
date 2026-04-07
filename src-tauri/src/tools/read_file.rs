@@ -1,10 +1,10 @@
+use super::{context::resolve_and_validate_path, BaseTool, ToolExecutionContext, ToolResult};
+use crate::infrastructure::event_bus;
+use crate::shared::schema::EventPayload;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 use std::fs;
-use crate::shared::schema::EventPayload;
-use crate::infrastructure::event_bus;
-use super::{BaseTool, ToolExecutionContext, ToolResult, context::resolve_and_validate_path};
 
 pub struct ReadFileTool;
 
@@ -15,7 +15,9 @@ struct ReadFileArgs {
 
 #[async_trait]
 impl BaseTool for ReadFileTool {
-    fn name(&self) -> String { "read".to_string() }
+    fn name(&self) -> String {
+        "read".to_string()
+    }
 
     fn description(&self) -> String {
         "Read the contents of a file. Accepts absolute or cwd-relative paths.".to_string()
@@ -34,7 +36,9 @@ impl BaseTool for ReadFileTool {
         })
     }
 
-    fn is_read_only(&self) -> bool { true }
+    fn is_read_only(&self) -> bool {
+        true
+    }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> ToolResult {
         let args: ReadFileArgs = match serde_json::from_value(args) {
@@ -49,10 +53,14 @@ impl BaseTool for ReadFileTool {
             Ok(c) => c,
             Err(e) => return ToolResult::error(e.to_string()),
         };
-        event_bus::emit(&ctx.agent_id, &ctx.session_id, EventPayload::ToolOutput {
-            tool_id: ctx.tool_call_id.clone(),
-            log_line: format!("Read {} bytes from {}", content.len(), path.display()),
-        });
+        event_bus::emit(
+            &ctx.agent_id,
+            &ctx.session_id,
+            EventPayload::ToolOutput {
+                tool_id: ctx.tool_call_id.clone(),
+                log_line: format!("Read {} bytes from {}", content.len(), path.display()),
+            },
+        );
         ToolResult::ok(content)
     }
 }

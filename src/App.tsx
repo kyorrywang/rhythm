@@ -4,6 +4,7 @@ import { WorkbenchPanel } from '@/features/workbench/WorkbenchPanel';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import { ToastContainer } from '@/shared/ui/Toast';
 import { useSettingsStore } from '@/shared/state/useSettingsStore';
+import type { AppSettings } from '@/shared/state/useSettingsStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
@@ -26,10 +27,11 @@ export function App() {
   }, [hydrateFromBackend, isHydratedFromBackend]);
 
   useEffect(() => {
-    const provider = settings.providers.find((item) => item.isDefault) || settings.providers[0];
-    const model = provider?.models.find((item) => item.isDefault) || provider?.models[0];
+    const defaultModel = selectDefaultModel(settings, useSessionStore.getState().composerControls);
     setComposerControls({
-      model: model?.name || 'GPT-5.4',
+      providerId: defaultModel.providerId,
+      modelId: defaultModel.modelId,
+      modelName: defaultModel.modelName,
       fullAuto: settings.permissionMode === 'full_auto',
     });
     setPermissionConfig({
@@ -58,4 +60,34 @@ export function App() {
       <ToastContainer />
     </ErrorBoundary>
   );
+}
+
+function selectDefaultModel(
+  settings: AppSettings,
+  current: ReturnType<typeof useSessionStore.getState>['composerControls'],
+) {
+  const enabledProviders = settings.providers
+    .map((provider) => ({
+      ...provider,
+      models: provider.models.filter((model) => model.enabled),
+    }))
+    .filter((provider) => provider.models.length > 0);
+
+  const currentProvider = enabledProviders.find((provider) => provider.id === current.providerId);
+  const currentModel = currentProvider?.models.find((model) => model.id === current.modelId || model.name === current.modelName);
+  if (currentProvider && currentModel) {
+    return {
+      providerId: currentProvider.id,
+      modelId: currentModel.id,
+      modelName: currentModel.name,
+    };
+  }
+
+  const defaultProvider = enabledProviders.find((provider) => provider.isDefault) || enabledProviders[0];
+  const defaultModel = defaultProvider?.models.find((model) => model.isDefault) || defaultProvider?.models[0];
+  return {
+    providerId: defaultProvider?.id || '',
+    modelId: defaultModel?.id || '',
+    modelName: defaultModel?.name || '',
+  };
 }

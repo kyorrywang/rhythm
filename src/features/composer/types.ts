@@ -1,4 +1,4 @@
-import { SessionPhase, SelectionType, Task, QueuedMessage, AskQuestion } from '@/shared/types/schema';
+import { SessionPhase, SelectionType, Task, QueuedMessage, AskQuestion, MessageMode, Attachment } from '@/shared/types/schema';
 
 export type DockType = 'none' | 'append' | 'ask';
 
@@ -8,7 +8,7 @@ export const PHASE_TO_DOCK: Record<SessionPhase, DockType> = {
   streaming_with_queue: 'append',
   processing_queue: 'append',
   waiting_for_ask: 'ask',
-  interrupting: 'append',
+  interrupting: 'none',
   waiting_for_permission: 'append',
 };
 
@@ -43,18 +43,42 @@ export interface AppendDockProps {
 export interface MainComposerProps {
   text: string;
   onTextChange: (v: string) => void;
+  attachments: Attachment[];
+  onAddAttachments: (attachments: Attachment[]) => void;
+  onRemoveAttachment: (id: string) => void;
   onSend: () => void;
   dockType: DockType;
   headerContent?: React.ReactNode;
   controls: {
-    mode: 'Chat' | 'Plan' | 'Coordinate';
-    model: string;
+    mode: MessageMode;
+    providerId: string;
+    modelId: string;
+    modelName: string;
     reasoning: 'low' | 'medium' | 'high';
     fullAuto: boolean;
   };
+  modelGroups: ComposerModelGroup[];
   sessionPhase?: SessionPhase;
   onSetMode: (mode: MainComposerProps['controls']['mode']) => void;
-  onSetModel: (model: string) => void;
+  onSetModel: (model: ComposerModelSelection) => void;
   onSetReasoning: (reasoning: MainComposerProps['controls']['reasoning']) => void;
   onToggleFullAuto: () => void;
+  onInterrupt: () => void;
+}
+
+export interface ComposerModelSelection {
+  providerId: string;
+  modelId: string;
+  modelName: string;
+}
+
+export interface ComposerModelGroup {
+  providerId: string;
+  providerName: string;
+  models: Array<{
+    id: string;
+    name: string;
+    note?: string;
+    isDefault?: boolean;
+  }>;
 }

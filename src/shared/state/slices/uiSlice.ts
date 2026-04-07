@@ -1,3 +1,5 @@
+import type { MessageMode } from '@/shared/types/schema';
+
 interface WorkbenchItem {
   id: string;
   isOpen: boolean;
@@ -22,8 +24,10 @@ interface UiSliceState {
     layoutMode: 'split' | 'focus';
   } | null;
   composerControls: {
-    mode: 'Chat' | 'Plan' | 'Coordinate';
-    model: string;
+    mode: MessageMode;
+    providerId: string;
+    modelId: string;
+    modelName: string;
     reasoning: 'low' | 'medium' | 'high';
     fullAuto: boolean;
   };
@@ -40,7 +44,6 @@ interface UiSliceActions {
   setActiveWorkbenchItem: (id: string) => void;
   setWorkbenchLayoutMode: (mode: 'split' | 'focus') => void;
   setComposerControls: (updates: Partial<UiSliceState['composerControls']>) => void;
-  toggleComposerFullAuto: () => void;
 }
 
 export type UiSlice = UiSliceState & UiSliceActions;
@@ -57,7 +60,9 @@ export const createUiSlice = (
   workbench: null,
   composerControls: {
     mode: 'Chat',
-    model: 'GPT-5.4',
+    providerId: 'openai',
+    modelId: 'gpt-5.4',
+    modelName: 'gpt-5.4',
     reasoning: 'medium',
     fullAuto: false,
   },
@@ -120,13 +125,6 @@ export const createUiSlice = (
       composerControls: {
         ...state.composerControls,
         ...updates,
-      },
-    })),
-  toggleComposerFullAuto: () =>
-    set((state) => ({
-      composerControls: {
-        ...state.composerControls,
-        fullAuto: !state.composerControls.fullAuto,
       },
     })),
 });

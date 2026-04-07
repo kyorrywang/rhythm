@@ -25,7 +25,13 @@ impl AggregatedHookResult {
         self.results
             .iter()
             .find(|r| r.blocked)
-            .map(|r| if r.reason.is_empty() { r.output.clone() } else { r.reason.clone() })
+            .map(|r| {
+                if r.reason.is_empty() {
+                    r.output.clone()
+                } else {
+                    r.reason.clone()
+                }
+            })
             .unwrap_or_default()
     }
 }

@@ -14,6 +14,7 @@ export interface ProviderModel {
 export interface ProviderConfig {
   id: string;
   name: string;
+  provider: string;
   baseUrl: string;
   apiKey: string;
   isDefault?: boolean;
@@ -75,6 +76,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     {
       id: 'openai',
       name: 'OpenAI',
+      provider: 'openai',
       baseUrl: 'https://api.openai.com/v1',
       apiKey: 'sk-••••••••',
       isDefault: true,
@@ -86,6 +88,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     {
       id: 'anthropic',
       name: 'Anthropic',
+      provider: 'anthropic',
       baseUrl: 'https://api.anthropic.com',
       apiKey: 'sk-ant-••••••••',
       models: [

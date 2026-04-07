@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use super::types::{LoadedPlugin, PluginManifest};
 use crate::infrastructure::config::{HookConfig, RhythmSettings};
 use crate::infrastructure::paths;
 use crate::mcp::types::McpServerConfig;
 use crate::skills::types::{SkillDefinition, SkillSource};
-use super::types::{LoadedPlugin, PluginManifest};
 
 // ─── Plugin directory resolution ─────────────────────────────────────────────
 
@@ -122,7 +122,9 @@ fn load_plugin_skills(plugin_root: &Path, skills_subdir: &str) -> Vec<SkillDefin
                 name,
                 description,
                 content,
-                source: SkillSource::Plugin { plugin_name: plugin_name.clone() },
+                source: SkillSource::Plugin {
+                    plugin_name: plugin_name.clone(),
+                },
             })
         })
         .collect();
@@ -137,8 +139,7 @@ fn parse_skill_markdown(stem: &str, content: &str) -> (String, String) {
     if let Some(rest) = content.strip_prefix("---") {
         if let Some(end) = rest.find("\n---") {
             let frontmatter = &rest[..end];
-            let name = extract_yaml_field(frontmatter, "name")
-                .unwrap_or_else(|| stem.to_string());
+            let name = extract_yaml_field(frontmatter, "name").unwrap_or_else(|| stem.to_string());
             let description = extract_yaml_field(frontmatter, "description")
                 .unwrap_or_else(|| first_line_after_frontmatter(content));
             return (name, description);
@@ -156,21 +157,19 @@ fn parse_skill_markdown(stem: &str, content: &str) -> (String, String) {
 }
 
 fn extract_yaml_field(frontmatter: &str, key: &str) -> Option<String> {
-    frontmatter
-        .lines()
-        .find_map(|line| {
-            let trimmed = line.trim();
-            if trimmed.starts_with(&format!("{}:", key)) {
-                let value = trimmed[key.len() + 1..].trim().to_string();
-                if !value.is_empty() {
-                    Some(value)
-                } else {
-                    None
-                }
+    frontmatter.lines().find_map(|line| {
+        let trimmed = line.trim();
+        if trimmed.starts_with(&format!("{}:", key)) {
+            let value = trimmed[key.len() + 1..].trim().to_string();
+            if !value.is_empty() {
+                Some(value)
             } else {
                 None
             }
-        })
+        } else {
+            None
+        }
+    })
 }
 
 fn first_line_after_frontmatter(content: &str) -> String {

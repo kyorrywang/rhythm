@@ -1,9 +1,13 @@
-use std::path::Path;
-use super::paths::get_project_memory_dir;
 use super::paths::get_memory_entrypoint;
+use super::paths::get_project_memory_dir;
+use std::path::Path;
 
 /// Add a new memory entry (creates the file and updates MEMORY.md index).
-pub fn add_memory_entry(cwd: &Path, title: &str, content: &str) -> std::io::Result<std::path::PathBuf> {
+pub fn add_memory_entry(
+    cwd: &Path,
+    title: &str,
+    content: &str,
+) -> std::io::Result<std::path::PathBuf> {
     let dir = get_project_memory_dir(cwd);
     let slug = slugify(title);
     let file_path = dir.join(format!("{}.md", slug));
@@ -58,6 +62,12 @@ pub fn remove_memory_entry(cwd: &Path, name: &str) -> bool {
 fn slugify(title: &str) -> String {
     title
         .chars()
-        .map(|c| if c.is_alphanumeric() { c.to_lowercase().next().unwrap() } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_lowercase().next().unwrap()
+            } else {
+                '_'
+            }
+        })
         .collect()
 }

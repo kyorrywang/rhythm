@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::permissions::PermissionMode;
+use serde::{Deserialize, Serialize};
 
 // ─── Spawn config ─────────────────────────────────────────────────────────────
 

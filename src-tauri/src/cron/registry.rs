@@ -94,7 +94,10 @@ impl CronRegistry {
                 job.enabled
                     && job.next_run.is_some()
                     && job.next_run.unwrap() <= now_ts
-                    && !matches!(job.last_status, Some(crate::cron::types::CronRunStatus::Running))
+                    && !matches!(
+                        job.last_status,
+                        Some(crate::cron::types::CronRunStatus::Running)
+                    )
             })
             .cloned()
             .collect()
@@ -120,7 +123,10 @@ impl CronRegistry {
     pub fn claim_job(&mut self, id: &str) -> Option<CronJob> {
         let job = self.jobs.get(id).cloned()?;
 
-        if matches!(job.last_status, Some(crate::cron::types::CronRunStatus::Running)) {
+        if matches!(
+            job.last_status,
+            Some(crate::cron::types::CronRunStatus::Running)
+        ) {
             return None;
         }
 

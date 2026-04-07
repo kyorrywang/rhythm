@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, CheckSquare, X, Check, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
+import { Button } from '@/shared/ui/Button';
 import { TaskDockProps } from '../types';
 
 const TaskItem = ({ task }: { task: TaskDockProps['tasks'][number] }) => {
@@ -61,9 +62,9 @@ export const TaskDock = ({ tasks, isMinimized, onToggleMinimize }: TaskDockProps
             </span>
           )}
         </div>
-        <button onClick={onToggleMinimize} className="text-gray-400 hover:text-gray-600 transition-colors" title="最小化">
+        <Button variant="unstyled" size="none" onClick={onToggleMinimize} className="text-gray-400 hover:text-gray-600 transition-colors" title="最小化">
           <ChevronDown size={14} />
-        </button>
+        </Button>
       </div>
       <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
         {tasks.map((task) => (

@@ -1,5 +1,5 @@
-pub mod modes;
 pub mod checker;
+pub mod modes;
 
-pub use modes::PermissionMode;
 pub use checker::{PermissionChecker, PermissionDecision};
+pub use modes::PermissionMode;

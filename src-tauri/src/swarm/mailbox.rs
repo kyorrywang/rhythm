@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 // ─── Message types ────────────────────────────────────────────────────────────
 
@@ -46,7 +46,10 @@ impl TeammateMailbox {
     }
 
     /// Write a message atomically (tmp → rename).
-    pub async fn write(&self, msg: MailboxMessage) -> Result<(), crate::shared::error::RhythmError> {
+    pub async fn write(
+        &self,
+        msg: MailboxMessage,
+    ) -> Result<(), crate::shared::error::RhythmError> {
         std::fs::create_dir_all(&self.inbox_dir)
             .map_err(crate::shared::error::RhythmError::IoError)?;
 
@@ -68,7 +71,9 @@ impl TeammateMailbox {
 
     /// Read messages from the inbox, optionally filtering to unread only.
     pub async fn read_all(&self, unread_only: bool) -> Vec<MailboxMessage> {
-        let Ok(dir) = std::fs::read_dir(&self.inbox_dir) else { return vec![] };
+        let Ok(dir) = std::fs::read_dir(&self.inbox_dir) else {
+            return vec![];
+        };
 
         let mut messages: Vec<MailboxMessage> = dir
             .flatten()
@@ -87,13 +92,22 @@ impl TeammateMailbox {
             .collect();
 
         // Sort by timestamp ascending
-        messages.sort_by(|a, b| a.timestamp.partial_cmp(&b.timestamp).unwrap_or(std::cmp::Ordering::Equal));
+        messages.sort_by(|a, b| {
+            a.timestamp
+                .partial_cmp(&b.timestamp)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         messages
     }
 
     /// Mark a message as read by rewriting its JSON file.
-    pub async fn mark_read(&self, message_id: &str) -> Result<(), crate::shared::error::RhythmError> {
-        let Ok(dir) = std::fs::read_dir(&self.inbox_dir) else { return Ok(()) };
+    pub async fn mark_read(
+        &self,
+        message_id: &str,
+    ) -> Result<(), crate::shared::error::RhythmError> {
+        let Ok(dir) = std::fs::read_dir(&self.inbox_dir) else {
+            return Ok(());
+        };
 
         for entry in dir.flatten() {
             let p = entry.path();

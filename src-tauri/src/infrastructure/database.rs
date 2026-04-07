@@ -1,5 +1,5 @@
-use sqlx::sqlite::SqlitePool;
 use crate::infrastructure::paths;
+use sqlx::sqlite::SqlitePool;
 
 pub struct Database {
     pub pool: Option<SqlitePool>,

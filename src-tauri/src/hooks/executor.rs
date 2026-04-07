@@ -1,11 +1,11 @@
-use std::process::{Command, Stdio};
-use std::time::Duration;
-use serde_json::Value;
-use fnmatch_regex::glob_to_regex;
-use crate::infrastructure::config::{HookConfig, CommandHookConfig, HttpHookConfig};
 use super::events::HookEvent;
 use super::loader::HookRegistry;
-use super::types::{HookResult, AggregatedHookResult};
+use super::types::{AggregatedHookResult, HookResult};
+use crate::infrastructure::config::{CommandHookConfig, HookConfig, HttpHookConfig};
+use fnmatch_regex::glob_to_regex;
+use serde_json::Value;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 pub struct HookExecutor {
     registry: HookRegistry,
@@ -48,7 +48,8 @@ fn matches_hook(hook: &HookConfig, payload: &Value) -> bool {
         Some(m) => m,
         None => return true,
     };
-    let subject = payload.get("tool_name")
+    let subject = payload
+        .get("tool_name")
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if let Ok(re) = glob_to_regex(matcher) {
@@ -60,11 +61,7 @@ fn matches_hook(hook: &HookConfig, payload: &Value) -> bool {
 
 // ─── Command hook ─────────────────────────────────────────────────────────────
 
-async fn run_command_hook(
-    hook: &CommandHookConfig,
-    event: &str,
-    payload: &Value,
-) -> HookResult {
+async fn run_command_hook(hook: &CommandHookConfig, event: &str, payload: &Value) -> HookResult {
     let payload_str = serde_json::to_string(payload).unwrap_or_default();
     let command = hook.command.replace("$ARGUMENTS", &payload_str);
     let timeout_secs = hook.timeout_secs;
@@ -74,20 +71,25 @@ async fn run_command_hook(
         Duration::from_secs(timeout_secs),
         tokio::task::spawn_blocking(move || {
             if cfg!(target_os = "windows") {
-                Command::new("cmd").args(&["/C", &command])
+                Command::new("cmd")
+                    .args(&["/C", &command])
                     .env("RHYTHM_HOOK_EVENT", &event)
                     .env("RHYTHM_HOOK_PAYLOAD", &payload_str)
-                    .stdout(Stdio::piped()).stderr(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
                     .output()
             } else {
-                Command::new("sh").args(&["-c", &command])
+                Command::new("sh")
+                    .args(&["-c", &command])
                     .env("RHYTHM_HOOK_EVENT", &event)
                     .env("RHYTHM_HOOK_PAYLOAD", &payload_str)
-                    .stdout(Stdio::piped()).stderr(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
                     .output()
             }
         }),
-    ).await;
+    )
+    .await;
 
     match output_result {
         Ok(Ok(Ok(output))) => {
@@ -111,7 +113,11 @@ async fn run_command_hook(
                 success: false,
                 output: "Hook execution failed or timed out".to_string(),
                 blocked,
-                reason: if blocked { "Hook execution failed or timed out".to_string() } else { String::new() },
+                reason: if blocked {
+                    "Hook execution failed or timed out".to_string()
+                } else {
+                    String::new()
+                },
             }
         }
     }
@@ -119,11 +125,7 @@ async fn run_command_hook(
 
 // ─── HTTP hook ────────────────────────────────────────────────────────────────
 
-async fn run_http_hook(
-    hook: &HttpHookConfig,
-    event: &str,
-    payload: &Value,
-) -> HookResult {
+async fn run_http_hook(hook: &HttpHookConfig, event: &str, payload: &Value) -> HookResult {
     let body = serde_json::json!({
         "event": event,
         "payload": payload,
@@ -133,17 +135,15 @@ async fn run_http_hook(
     let headers = hook.headers.clone();
     let block_on_failure = hook.block_on_failure;
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(timeout_secs),
-        async move {
-            let client = reqwest::Client::new();
-            let mut req = client.post(&url).json(&body);
-            for (k, v) in &headers {
-                req = req.header(k, v);
-            }
-            req.send().await
-        },
-    ).await;
+    let result = tokio::time::timeout(Duration::from_secs(timeout_secs), async move {
+        let client = reqwest::Client::new();
+        let mut req = client.post(&url).json(&body);
+        for (k, v) in &headers {
+            req = req.header(k, v);
+        }
+        req.send().await
+    })
+    .await;
 
     match result {
         Ok(Ok(resp)) => {
@@ -160,14 +160,16 @@ async fn run_http_hook(
                 },
             }
         }
-        _ => {
-            HookResult {
-                hook_type: "http".to_string(),
-                success: false,
-                output: "HTTP hook failed or timed out".to_string(),
-                blocked: block_on_failure,
-                reason: if block_on_failure { "HTTP hook failed or timed out".to_string() } else { String::new() },
-            }
-        }
+        _ => HookResult {
+            hook_type: "http".to_string(),
+            success: false,
+            output: "HTTP hook failed or timed out".to_string(),
+            blocked: block_on_failure,
+            reason: if block_on_failure {
+                "HTTP hook failed or timed out".to_string()
+            } else {
+                String::new()
+            },
+        },
     }
 }

@@ -9,16 +9,28 @@ use std::fs;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LlmConfig {
-    pub provider: String, // "openai" or "anthropic"
+    #[serde(default = "default_llm_name")]
+    pub name: String,
+    #[serde(default = "default_llm_provider")]
+    pub provider: String, // API format: "openai" or "anthropic"
     pub base_url: String,
     pub api_key: String,
     pub model: String,
     pub max_tokens: Option<u32>,
 }
 
+fn default_llm_name() -> String {
+    "Anthropic".to_string()
+}
+
+fn default_llm_provider() -> String {
+    "anthropic".to_string()
+}
+
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
+            name: default_llm_name(),
             provider: "anthropic".to_string(),
             base_url: "https://api.anthropic.com".to_string(),
             api_key: "".to_string(),

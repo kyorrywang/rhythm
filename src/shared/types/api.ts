@@ -1,7 +1,15 @@
+import type { Attachment } from './schema';
+
 export interface ChatStreamRequest {
   sessionId: string;
   prompt: string;
+  attachments?: Attachment[];
   cwd?: string;
+  permissionMode?: "default" | "plan" | "full_auto";
+  providerId?: string;
+  model?: string;
+  reasoning?: "low" | "medium" | "high";
+  mode?: "chat" | "coordinate";
 }
 
 export interface ChatStreamResponse {
@@ -48,6 +56,7 @@ export interface BackendProviderModel {
 export interface BackendProviderConfig {
   id: string;
   name: string;
+  provider: string;
   baseUrl: string;
   apiKey: string;
   isDefault?: boolean;

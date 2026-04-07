@@ -1,5 +1,5 @@
+use super::paths::{get_memory_entrypoint, get_project_memory_dir};
 use std::path::Path;
-use super::paths::{get_project_memory_dir, get_memory_entrypoint};
 
 /// Build the # Memory section for injecting into the system prompt.
 pub fn load_memory_prompt(cwd: &Path, max_entrypoint_lines: usize) -> Option<String> {

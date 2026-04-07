@@ -1,5 +1,5 @@
-use super::types::{SkillDefinition, SkillSource};
 use super::registry::SkillRegistry;
+use super::types::{SkillDefinition, SkillSource};
 use crate::infrastructure::config::RhythmSettings;
 use crate::infrastructure::paths::get_user_skills_dir;
 use std::path::Path;
@@ -61,7 +61,12 @@ fn parse_skill(default_name: &str, content: &str, source: SkillSource) -> SkillD
         }
     }
 
-    SkillDefinition { name, description, content: content.to_string(), source }
+    SkillDefinition {
+        name,
+        description,
+        content: content.to_string(),
+        source,
+    }
 }
 
 // ─── User skills (loaded from ~/.rhythm/skills/*.md) ─────────────────────────
@@ -82,7 +87,8 @@ fn load_user_skills() -> Vec<SkillDefinition> {
 
         for entry in paths {
             let path = entry.path();
-            let default_name = path.file_stem()
+            let default_name = path
+                .file_stem()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();

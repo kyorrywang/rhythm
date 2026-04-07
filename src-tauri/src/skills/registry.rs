@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use super::types::SkillDefinition;
+use std::collections::HashMap;
 
 pub struct SkillRegistry {
     skills: HashMap<String, SkillDefinition>,
@@ -7,7 +7,9 @@ pub struct SkillRegistry {
 
 impl SkillRegistry {
     pub fn new() -> Self {
-        Self { skills: HashMap::new() }
+        Self {
+            skills: HashMap::new(),
+        }
     }
 
     /// Register a skill. Later registrations with the same name win.
@@ -28,5 +30,7 @@ impl SkillRegistry {
 }
 
 impl Default for SkillRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{oneshot, Mutex};
 
-static ASK_WAITERS: OnceLock<Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>> = OnceLock::new();
+static ASK_WAITERS: OnceLock<Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>> =
+    OnceLock::new();
 
 fn get_ask_waiters() -> Arc<Mutex<HashMap<String, oneshot::Sender<String>>>> {
     ASK_WAITERS

@@ -2,7 +2,8 @@ import { useState, useCallback, useRef } from 'react';
 import { Channel } from '@tauri-apps/api/core';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
-import { Message, ServerEventChunk } from '@/shared/types/schema';
+import { useToastStore } from '@/shared/state/useToastStore';
+import { Attachment, Message, ServerEventChunk } from '@/shared/types/schema';
 import { chatStream, submitUserAnswer, approvePermission, interruptSession } from '@/shared/api/commands';
 
 export const useLLMStream = () => {
@@ -11,6 +12,7 @@ export const useLLMStream = () => {
 
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef(false);
+  const interruptedSessionIdsRef = useRef<Set<string>>(new Set());
   const rootSessionIdRef = useRef<string | null>(null);
   const rootAiMessageIdRef = useRef<string | null>(null);
   const subSessionMessageMapRef = useRef<Map<string, string>>(new Map());
@@ -19,11 +21,16 @@ export const useLLMStream = () => {
     prompt: string,
     messageMode: 'normal' | 'build' | 'task' | 'ask' | 'append',
     userMode?: Message['mode'],
+    attachments: Attachment[] = [],
   ) => {
     const state = store.getState();
     const sessionId = state.activeSessionId;
     if (!sessionId) return;
-    const model = state.composerControls.model;
+    const providerId = state.composerControls.providerId;
+    const model = state.composerControls.modelName;
+    const reasoning = state.composerControls.reasoning;
+    const mode = state.composerControls.mode === 'Coordinate' ? 'coordinate' : 'chat';
+    const permissionMode = state.composerControls.fullAuto ? 'full_auto' : 'default';
 
     abortRef.current = false;
     rootSessionIdRef.current = sessionId;
@@ -34,6 +41,7 @@ export const useLLMStream = () => {
       id: Date.now().toString() + '-u',
       role: 'user',
       content: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
+      attachments,
       mode: userMode || state.composerControls.mode,
       createdAt: Date.now(),
     };
@@ -55,6 +63,10 @@ export const useLLMStream = () => {
       onEvent.onmessage = (chunk) => {
         const liveState = store.getState();
         const targetSessionId = chunk.sessionId;
+
+        if (interruptedSessionIdsRef.current.has(targetSessionId) && chunk.type !== 'interrupted') {
+          return;
+        }
 
         if (chunk.type === 'subagent_start') {
           const reduced = liveState.processChunk(liveState.sessions, targetSessionId, aiMessageId, chunk);
@@ -88,6 +100,17 @@ export const useLLMStream = () => {
         }
 
         if (chunk.type === 'permission_request') {
+          if (permissionStore.getState().config.mode === 'full_auto' || store.getState().composerControls.fullAuto) {
+            void approvePermission({ toolId: chunk.toolId, approved: true });
+            return;
+          }
+
+          const sessionGrants = liveState.sessions.get(chunk.sessionId)?.permissionGrants ?? [];
+          if (sessionGrants.includes(chunk.toolName)) {
+            void approvePermission({ toolId: chunk.toolId, approved: true });
+            return;
+          }
+
           permissionStore.getState().addPending({
             toolId: chunk.toolId,
             toolName: chunk.toolName,
@@ -98,6 +121,21 @@ export const useLLMStream = () => {
           const targetAiMessageId = subSessionMessageMapRef.current.get(chunk.sessionId) || aiMessageId;
           const reduced = liveState.processChunk(liveState.sessions, chunk.sessionId, targetAiMessageId, chunk);
           store.setState({ sessions: reduced.sessions });
+
+          if (liveState.activeSessionId !== chunk.sessionId) {
+            const sessionTitle = liveState.sessions.get(chunk.sessionId)?.title || '子会话';
+            useToastStore.getState().addToast({
+              type: 'warning',
+              category: 'permission',
+              message: `${sessionTitle} 需要权限确认`,
+              actionLabel: '进入处理',
+              autoClose: false,
+              position: 'top-right',
+              onAction: () => {
+                store.getState().setActiveSession(chunk.sessionId);
+              },
+            });
+          }
           return;
         }
 
@@ -117,12 +155,22 @@ export const useLLMStream = () => {
         }
 
         if (chunk.type === 'interrupted') {
-          state.updateSession(targetSessionId, { phase: 'idle' });
+          interruptedSessionIdsRef.current.delete(targetSessionId);
+          store.getState().updateSession(targetSessionId, { phase: 'idle' });
           setIsStreaming(false);
         }
       };
 
-      await chatStream({ sessionId, prompt: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务') }, onEvent);
+      await chatStream({
+        sessionId,
+        prompt: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
+        attachments,
+        permissionMode,
+        providerId,
+        model,
+        reasoning,
+        mode,
+      }, onEvent);
     } catch (err) {
       console.error('Stream failed', err);
       setIsStreaming(false);
@@ -141,7 +189,7 @@ export const useLLMStream = () => {
       store.getState().updateSession(sessionId, { phase: 'processing_queue' });
       await Promise.resolve();
       if (!abortRef.current) {
-        connectStream(queuedItem.message.content || '', queuedItem.mode || 'normal', queuedItem.message.mode);
+        connectStream(queuedItem.message.content || '', queuedItem.mode || 'normal', queuedItem.message.mode, queuedItem.message.attachments || []);
       }
     } else {
       setIsStreaming(false);
@@ -156,8 +204,20 @@ export const useLLMStream = () => {
     const session = state.sessions.get(sessionId);
     const isRunning = session?.phase && session.phase !== 'idle';
     if (!isRunning) return;
-    await interruptSession({ sessionId });
+
+    abortRef.current = true;
+    interruptedSessionIdsRef.current.add(sessionId);
+    for (const childSessionId of subSessionMessageMapRef.current.keys()) {
+      interruptedSessionIdsRef.current.add(childSessionId);
+    }
     state.updateSession(sessionId, { phase: 'interrupting' });
+    void interruptSession({ sessionId }).catch((error) => {
+      console.error('Interrupt failed', error);
+      interruptedSessionIdsRef.current.delete(sessionId);
+      for (const childSessionId of subSessionMessageMapRef.current.keys()) {
+        interruptedSessionIdsRef.current.delete(childSessionId);
+      }
+    });
   }, [store]);
 
   const submitAnswer = useCallback(async (sessionId: string, toolId: string, answer: string) => {

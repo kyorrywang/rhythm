@@ -1,5 +1,6 @@
 import { Maximize2, Trash2, CornerDownRight, ArrowRight, Loader2, ShieldAlert } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
+import { Button } from '@/shared/ui/Button';
 import { AppendDockProps } from '../types';
 
 export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancelAll, onInterrupt, phase, isMinimized, onToggleMinimize }: AppendDockProps) => {
@@ -36,9 +37,9 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
           {isInterrupting && (
             <span className="text-amber-600 text-[11px]">正在中断...</span>
           )}
-          <button onClick={onCancelAll} className="text-gray-400 hover:text-red-500 transition-colors">
+          <Button variant="unstyled" size="none" onClick={onCancelAll} className="text-gray-400 hover:text-red-500 transition-colors">
             <Trash2 size={12} />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -61,12 +62,14 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
                   引导
                 </span>
               )}
-              <button
+              <Button
+                variant="unstyled"
+                size="none"
                 onClick={() => onRemoveItem(item.id)}
                 className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shrink-0"
               >
                 <Trash2 size={11} />
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -87,7 +90,9 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            variant="unstyled"
+            size="none"
             onClick={onInterrupt}
             disabled={isInterrupting}
             className={cn(
@@ -98,7 +103,7 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
             )}
           >
             <ArrowRight size={11} /> 立即引导
-          </button>
+          </Button>
         </div>
       </div>
     </div>

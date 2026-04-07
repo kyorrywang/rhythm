@@ -1,4 +1,5 @@
 import { FileEdit } from 'lucide-react';
+import { Button } from '@/shared/ui/Button';
 
 interface ProjectHeaderProps {
   workspaceName: string;
@@ -17,13 +18,15 @@ export const ProjectHeader = ({ workspaceName, workspacePath, onNewSession }: Pr
         </div>
       </div>
 
-      <button
+      <Button
+        variant="unstyled"
+        size="none"
         onClick={onNewSession}
         className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[13px] font-medium text-slate-700 shadow-[0_10px_25px_rgba(15,23,42,0.04)] transition-colors hover:border-slate-300 hover:bg-slate-50"
       >
         <FileEdit size={14} opacity={0.7} />
         新建会话
-      </button>
+      </Button>
     </div>
   );
 };

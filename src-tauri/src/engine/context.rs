@@ -24,6 +24,8 @@ pub struct QueryContext {
     pub cwd: PathBuf,
     /// LLM model name.
     pub model: String,
+    /// Optional reasoning effort requested by the UI. Individual providers may map or ignore it.
+    pub reasoning: Option<String>,
     /// Fully assembled system prompt (built by prompts::builder).
     pub system_prompt: String,
     /// Optional hard cap on agent turns. None means unlimited.

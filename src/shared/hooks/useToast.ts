@@ -1,12 +1,12 @@
 import { useCallback } from 'react';
-import { useToastStore, type ToastType } from '@/shared/state/useToastStore';
+import { useToastStore, type Toast, type ToastType } from '@/shared/state/useToastStore';
 
 export function useToast() {
   const addToast = useToastStore((s) => s.addToast);
 
   const toast = useCallback(
-    (message: string, type: ToastType = 'info', duration?: number) => {
-      addToast({ message, type, duration });
+    (message: string, type: ToastType = 'info', duration?: number, options?: Pick<Toast, 'actionLabel' | 'onAction' | 'autoClose' | 'position' | 'category'>) => {
+      addToast({ message, type, duration, ...options });
     },
     [addToast],
   );

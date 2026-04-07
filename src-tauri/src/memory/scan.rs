@@ -1,6 +1,6 @@
-use std::path::Path;
 use super::paths::get_project_memory_dir;
 use super::types::MemoryHeader;
+use std::path::Path;
 
 /// Scan all `.md` files in the memory directory (excluding MEMORY.md).
 /// Returns headers sorted by modification time descending.
@@ -46,14 +46,19 @@ pub fn scan_memory_files(cwd: &Path, max_files: usize) -> Vec<MemoryHeader> {
         });
     }
 
-    headers.sort_by(|a, b| b.modified_at.partial_cmp(&a.modified_at).unwrap_or(std::cmp::Ordering::Equal));
+    headers.sort_by(|a, b| {
+        b.modified_at
+            .partial_cmp(&a.modified_at)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     headers.truncate(max_files);
     headers
 }
 
 /// Parse title, description, and body preview from a memory file.
 fn parse_memory_file(path: &std::path::Path, content: &str) -> (String, String, String) {
-    let stem = path.file_stem()
+    let stem = path
+        .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_default();
 

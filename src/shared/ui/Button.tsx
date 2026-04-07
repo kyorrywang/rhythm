@@ -1,8 +1,8 @@
 import { cn } from '@/shared/lib/utils';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
-type ButtonSize = 'sm' | 'md' | 'lg';
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'link' | 'unstyled';
+type ButtonSize = 'sm' | 'md' | 'lg' | 'icon' | 'none';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -16,29 +16,44 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   secondary: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 disabled:bg-gray-100',
   ghost: 'text-gray-600 hover:bg-gray-100 hover:text-gray-800 disabled:text-gray-300',
   danger: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300',
+  link: 'px-0 py-0 text-sky-700 underline-offset-2 hover:text-sky-900 hover:underline disabled:text-gray-300',
+  unstyled: '',
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
   sm: 'px-2.5 py-1.5 text-xs',
   md: 'px-4 py-2 text-sm',
   lg: 'px-6 py-3 text-base',
+  icon: 'h-7 w-7 p-0',
+  none: '',
+};
+
+const LINK_SIZE_CLASSES: Record<Exclude<ButtonSize, 'icon'>, string> = {
+  sm: 'text-xs',
+  md: 'text-sm',
+  lg: 'text-base',
+  none: '',
 };
 
 export const Button = ({
   variant = 'primary',
   size = 'md',
+  type = 'button',
   className,
   children,
   isLoading,
   disabled,
   ...props
 }: ButtonProps) => {
+  const sizeClass = variant === 'link' && size !== 'icon' ? LINK_SIZE_CLASSES[size] : SIZE_CLASSES[size];
+
   return (
     <button
+      type={type}
       className={cn(
-        'inline-flex items-center justify-center rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed',
+        'inline-flex cursor-pointer items-center justify-center rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed',
         VARIANT_CLASSES[variant],
-        SIZE_CLASSES[size],
+        sizeClass,
         className,
       )}
       disabled={disabled || isLoading}

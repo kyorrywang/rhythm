@@ -1,6 +1,6 @@
 use crate::swarm::{
-    TeamLifecycleManager, TeamSummary, AgentSummary,
-    SwarmPermissionResponse, list_pending_requests, SwarmPermissionRequest,
+    list_pending_requests, AgentSummary, SwarmPermissionRequest, SwarmPermissionResponse,
+    TeamLifecycleManager, TeamSummary,
 };
 
 /// List all teams that have persistent state on disk.

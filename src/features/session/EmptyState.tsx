@@ -1,7 +1,7 @@
 import { Sparkles } from 'lucide-react';
 
 export const EmptyState = () => (
-  <div className="flex flex-1 flex-col items-center justify-center px-6">
+  <div className="flex min-h-full flex-col items-center justify-center px-6 py-12">
     <div className="relative mb-8 flex justify-center pointer-events-none">
       <div className="absolute inset-0 rounded-[32px] bg-amber-400/15 blur-3xl" />
       <div className="relative flex h-24 w-24 items-center justify-center rounded-[28px] border border-amber-200/60 bg-white shadow-[0_24px_60px_rgba(146,93,24,0.08)]">

@@ -1,5 +1,6 @@
 import { Plus, Puzzle, Settings2 } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
+import { Button } from '@/shared/ui/Button';
 
 interface GlobalRailProps {
   activeMode: 'sessions' | 'plugins' | 'settings';
@@ -21,7 +22,9 @@ export const GlobalRail = ({
   return (
     <div className="w-[64px] border-r border-slate-200 bg-[linear-gradient(180deg,#f7f4ed_0%,#f3efe6_100%)] flex flex-col items-center py-4">
       <div className="flex flex-col gap-3">
-        <button
+        <Button
+          variant="unstyled"
+          size="none"
           onClick={onWorkspaceClick}
           title={isCollapsed ? '展开工作区' : '收起工作区'}
           className={cn(
@@ -33,18 +36,22 @@ export const GlobalRail = ({
         >
           R
           <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white" />
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="unstyled"
+          size="none"
           onClick={onAddWorkspace}
           title="添加工作区"
           className="flex h-10 w-10 items-center justify-center rounded-2xl border border-transparent bg-white/60 text-slate-500 transition-colors hover:border-slate-200 hover:text-slate-800"
         >
           <Plus size={18} />
-        </button>
+        </Button>
       </div>
 
       <div className="mt-auto flex flex-col gap-3">
-        <button
+        <Button
+          variant="unstyled"
+          size="none"
           onClick={onOpenPlugins}
           title="插件"
           className={cn(
@@ -55,8 +62,10 @@ export const GlobalRail = ({
           )}
         >
           <Puzzle size={18} />
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="unstyled"
+          size="none"
           onClick={onOpenSettings}
           title="设置"
           className={cn(
@@ -67,7 +76,7 @@ export const GlobalRail = ({
           )}
         >
           <Settings2 size={18} />
-        </button>
+        </Button>
       </div>
     </div>
   );

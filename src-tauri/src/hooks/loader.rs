@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use crate::infrastructure::config::{HookConfig, HooksConfig};
-use crate::infrastructure::config::RhythmSettings;
 use super::events::HookEvent;
+use crate::infrastructure::config::RhythmSettings;
+use crate::infrastructure::config::{HookConfig, HooksConfig};
+use std::collections::HashMap;
 use std::path::Path;
 
 pub struct HookRegistry {
@@ -10,22 +10,30 @@ pub struct HookRegistry {
 
 impl HookRegistry {
     pub fn new() -> Self {
-        Self { hooks: HashMap::new() }
+        Self {
+            hooks: HashMap::new(),
+        }
     }
 
     pub fn register(&mut self, event: HookEvent, hook: HookConfig) {
-        self.hooks.entry(event.as_str().to_string()).or_default().push(hook);
+        self.hooks
+            .entry(event.as_str().to_string())
+            .or_default()
+            .push(hook);
     }
 
     pub fn get(&self, event: &HookEvent) -> Vec<&HookConfig> {
-        self.hooks.get(event.as_str())
+        self.hooks
+            .get(event.as_str())
             .map(|v| v.iter().collect())
             .unwrap_or_default()
     }
 }
 
 impl Default for HookRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Build a HookRegistry from the HooksConfig read from settings.

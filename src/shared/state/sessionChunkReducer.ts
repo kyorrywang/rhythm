@@ -232,7 +232,7 @@ const applyChunkToMessage = (
       status: 'waiting',
       startTime: Date.now(),
     });
-    return { ...message, segments, status: 'waiting_for_user' };
+    return { ...message, segments, status: 'waiting_for_user', _liveTextIndex: undefined };
   }
 
   if (chunk.type === 'permission_request') {
@@ -254,7 +254,7 @@ const applyChunkToMessage = (
       status: 'waiting',
       startTime: Date.now(),
     });
-    return { ...message, segments, status: 'waiting_for_permission' };
+    return { ...message, segments, status: 'waiting_for_permission', _liveTextIndex: undefined };
   }
 
   if (chunk.type === 'interrupted') {

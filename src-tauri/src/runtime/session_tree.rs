@@ -14,7 +14,9 @@ fn get_session_tree() -> Arc<Mutex<HashMap<String, Vec<String>>>> {
 pub async fn register_session_child(parent_session_id: String, child_session_id: String) {
     let tree = get_session_tree();
     let mut map = tree.lock().await;
-    map.entry(parent_session_id).or_default().push(child_session_id);
+    map.entry(parent_session_id)
+        .or_default()
+        .push(child_session_id);
 }
 
 pub async fn get_all_descendant_sessions(session_id: &str) -> Vec<String> {

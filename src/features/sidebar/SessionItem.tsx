@@ -3,6 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Archive, Loader2, MoreHorizontal, Pin, Pencil, Copy, RotateCcw } from 'lucide-react';
 import type { Session } from '@/shared/types/schema';
 import { useSessionStore } from '@/shared/state/useSessionStore';
+import { Button } from '@/shared/ui/Button';
 
 interface SessionItemProps {
   session: Session;
@@ -55,13 +56,13 @@ export const SessionItem = ({ session, isActive, onClick }: SessionItemProps) =>
         isActive ? 'bg-white shadow-[0_12px_28px_rgba(15,23,42,0.06)] ring-1 ring-slate-200' : 'hover:bg-white/80'
       }`}
     >
-      <button onClick={onClick} className="mr-2 flex min-w-0 flex-1 items-center text-left">
+      <Button variant="unstyled" size="none" onClick={onClick} className="mr-2 flex min-w-0 flex-1 items-center text-left">
         <div className="mr-2 flex w-5 shrink-0 items-center justify-center">{statusNode}</div>
         <div className="min-w-0">
           <div className="truncate text-[13px] font-medium text-slate-800">{session.title}</div>
           <div className="mt-0.5 truncate text-[11px] text-slate-400">{session.archived ? '已归档' : session.id}</div>
         </div>
-      </button>
+      </Button>
 
       <div className="relative flex w-14 shrink-0 items-center justify-end text-right">
         <span className={menuOpen ? 'hidden' : 'line-clamp-1 text-[10px] text-slate-400 group-hover:hidden'}>
@@ -69,13 +70,15 @@ export const SessionItem = ({ session, isActive, onClick }: SessionItemProps) =>
         </span>
         <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenu.Trigger asChild>
-            <button
+            <Button
+              variant="unstyled"
+              size="none"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
               className={`${menuOpen ? 'block' : 'hidden group-hover:block'} rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 data-[state=open]:bg-slate-100 data-[state=open]:text-slate-700`}
             >
               <MoreHorizontal size={14} />
-            </button>
+            </Button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content

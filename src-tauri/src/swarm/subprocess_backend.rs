@@ -30,7 +30,8 @@ impl SubprocessBackend {
     pub async fn spawn(&self, config: TeammateSpawnConfig) -> SpawnResult {
         let agent_id = format!("{}@{}", config.name, config.team);
         let task_id = format!("sub-{}", &agent_id);
-        let session_id = config.session_id
+        let session_id = config
+            .session_id
             .clone()
             .unwrap_or_else(|| format!("{}-sub", agent_id));
 
@@ -49,7 +50,10 @@ impl SubprocessBackend {
         if let Some(permission_mode) = &config.permission_mode {
             env_vars.insert(
                 "RHYTHM_PERMISSION_MODE_OVERRIDE".to_string(),
-                serde_json::to_string(permission_mode).unwrap_or_else(|_| "\"default\"".to_string()).trim_matches('"').to_string(),
+                serde_json::to_string(permission_mode)
+                    .unwrap_or_else(|_| "\"default\"".to_string())
+                    .trim_matches('"')
+                    .to_string(),
             );
         }
         if let Some(subagent_type) = &config.subagent_type {
@@ -85,7 +89,10 @@ impl SubprocessBackend {
                     let prompt_line = format!("{}\n", config.prompt);
                     let _ = stdin.write_all(prompt_line.as_bytes()).await;
                 }
-                self.agent_tasks.lock().await.insert(agent_id.clone(), child);
+                self.agent_tasks
+                    .lock()
+                    .await
+                    .insert(agent_id.clone(), child);
             }
             Err(e) => {
                 eprintln!("[SubprocessBackend] failed to spawn {}: {}", agent_id, e);
@@ -127,8 +134,8 @@ impl SubprocessBackend {
                 // maps to TerminateProcess which is always forceful.
                 #[cfg(unix)]
                 {
-                    use std::os::unix::process::CommandExt;
                     use libc::SIGTERM;
+                    use std::os::unix::process::CommandExt;
                     if let Some(pid) = child.id() {
                         unsafe { libc::kill(pid as i32, SIGTERM) };
                     }

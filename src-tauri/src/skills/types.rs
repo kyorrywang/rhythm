@@ -4,7 +4,9 @@ pub enum SkillSource {
     Bundled,
     User,
     /// Contributed by a plugin (Phase 10).
-    Plugin { plugin_name: String },
+    Plugin {
+        plugin_name: String,
+    },
 }
 
 /// A single named skill with its Markdown content.

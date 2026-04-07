@@ -2,6 +2,7 @@ import { BrainCircuit, Database, HardDrive, LockKeyhole, Monitor, Puzzle, Repeat
 import { useDisplayStore } from '@/shared/state/useDisplayStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useSettingsStore } from '@/shared/state/useSettingsStore';
+import { Button } from '@/shared/ui/Button';
 
 export type SettingsSection =
   | 'model'
@@ -30,7 +31,7 @@ export const SettingsWorkbench = ({ section }: { section: SettingsSection }) => 
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-sm font-medium text-slate-800">{provider.name}</div>
-                  <div className="mt-1 text-xs text-slate-500">{provider.baseUrl}</div>
+                  <div className="mt-1 text-xs text-slate-500">{provider.provider} · {provider.baseUrl}</div>
                 </div>
                 {provider.isDefault && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">默认 Provider</span>}
               </div>
@@ -216,9 +217,9 @@ export const SettingsWorkbench = ({ section }: { section: SettingsSection }) => 
                 </div>
               ))}
             </div>
-            <button onClick={resetToDefaults} className="mt-4 rounded-full bg-slate-100 px-4 py-2 text-sm text-slate-600">恢复显示默认</button>
+            <Button variant="unstyled" size="none" onClick={resetToDefaults} className="mt-4 rounded-full bg-slate-100 px-4 py-2 text-sm text-slate-600">恢复显示默认</Button>
           </div>
-          <button onClick={resetSettings} className="rounded-full bg-slate-900 px-4 py-2 text-sm text-white">恢复所有设置默认</button>
+          <Button variant="unstyled" size="none" onClick={resetSettings} className="rounded-full bg-slate-900 px-4 py-2 text-sm text-white">恢复所有设置默认</Button>
         </div>
       </Panel>
     ),
@@ -228,13 +229,15 @@ export const SettingsWorkbench = ({ section }: { section: SettingsSection }) => 
     <div className="h-full overflow-y-auto px-6 py-6">
       {views[section]}
       <div className="mt-4 flex justify-end">
-        <button
+        <Button
+          variant="unstyled"
+          size="none"
           onClick={() => void saveToBackend()}
           disabled={isLoading}
           className="rounded-full bg-emerald-600 px-4 py-2 text-sm text-white disabled:opacity-50"
         >
           保存到后端
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -260,10 +263,10 @@ const Field = ({ label, children }: { label: string; children: React.ReactNode }
 );
 
 const ToggleCard = ({ title, checked, onChange }: { title: string; checked: boolean; onChange: (checked: boolean) => void }) => (
-  <button onClick={() => onChange(!checked)} className={`flex items-center justify-between rounded-2xl border px-4 py-4 text-left ${checked ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+  <Button variant="unstyled" size="none" onClick={() => onChange(!checked)} className={`flex items-center justify-between rounded-2xl border px-4 py-4 text-left ${checked ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
     <span className="text-sm font-medium text-slate-800">{title}</span>
     <span className={`rounded-full px-2 py-0.5 text-[11px] ${checked ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500'}`}>{checked ? 'ON' : 'OFF'}</span>
-  </button>
+  </Button>
 );
 
 const TagEditor = ({ values, onChange }: { values: string[]; onChange: (values: string[]) => void }) => (

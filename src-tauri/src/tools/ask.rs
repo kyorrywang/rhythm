@@ -1,10 +1,10 @@
+use super::{BaseTool, ToolExecutionContext, ToolResult};
+use crate::infrastructure::event_bus;
+use crate::runtime::ask;
+use crate::shared::schema::{AskQuestion, EventPayload};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
-use crate::shared::schema::{EventPayload, AskQuestion};
-use crate::infrastructure::event_bus;
-use crate::runtime::ask;
-use super::{BaseTool, ToolExecutionContext, ToolResult};
 use tokio::sync::oneshot;
 
 pub struct AskTool;
@@ -37,11 +37,14 @@ fn parse_question(arg: &AskQuestionArg) -> AskQuestion {
 
 #[async_trait]
 impl BaseTool for AskTool {
-    fn name(&self) -> String { "ask_user".to_string() }
+    fn name(&self) -> String {
+        "ask_user".to_string()
+    }
 
     fn description(&self) -> String {
         "Ask the user one or more questions and wait for their answers. \
-         Use 'questions' for multiple questions, or 'question' for a single one.".to_string()
+         Use 'questions' for multiple questions, or 'question' for a single one."
+            .to_string()
     }
 
     fn parameters(&self) -> Value {
@@ -88,7 +91,9 @@ impl BaseTool for AskTool {
         })
     }
 
-    fn is_read_only(&self) -> bool { true }
+    fn is_read_only(&self) -> bool {
+        true
+    }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> ToolResult {
         let args: AskArgs = match serde_json::from_value(args) {
@@ -140,14 +145,18 @@ impl BaseTool for AskTool {
             return ToolResult::error("Ask requests require title");
         }
 
-        event_bus::emit(&ctx.agent_id, &ctx.session_id, EventPayload::AskRequest {
-            tool_id: ctx.tool_call_id.clone(),
-            title,
-            question: first.question.clone(),
-            options: first.options.clone(),
-            selection_type: first.selection_type.clone(),
-            questions: questions.clone(),
-        });
+        event_bus::emit(
+            &ctx.agent_id,
+            &ctx.session_id,
+            EventPayload::AskRequest {
+                tool_id: ctx.tool_call_id.clone(),
+                title,
+                question: first.question.clone(),
+                options: first.options.clone(),
+                selection_type: first.selection_type.clone(),
+                questions: questions.clone(),
+            },
+        );
 
         match rx.await {
             Ok(answer) => ToolResult::ok(answer),

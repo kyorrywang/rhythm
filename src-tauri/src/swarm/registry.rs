@@ -48,12 +48,7 @@ impl BackendRegistry {
         }
     }
 
-    pub async fn shutdown(
-        &self,
-        backend_type: &BackendType,
-        agent_id: &str,
-        force: bool,
-    ) {
+    pub async fn shutdown(&self, backend_type: &BackendType, agent_id: &str, force: bool) {
         match backend_type {
             BackendType::InProcess => self.in_process.shutdown(agent_id, force).await,
             BackendType::Subprocess => self.subprocess.shutdown(agent_id, force).await,

@@ -3,6 +3,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { Box, ExternalLink, FileText, Globe, GitCompareArrows, PanelLeftClose, PanelLeftOpen, RefreshCw, ScrollText, X } from 'lucide-react';
 import { usePluginStore } from '@/shared/state/usePluginStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
+import { Button } from '@/shared/ui/Button';
 import { PluginWorkbench } from './PluginWorkbench';
 import { SettingsWorkbench, type SettingsSection } from './SettingsWorkbench';
 
@@ -34,19 +35,23 @@ export const WorkbenchPanel = () => {
             <h3 className="mt-2 text-base font-semibold text-slate-900">{activeItem.title}</h3>
           </div>
           <div className="flex items-center gap-1">
-            <button
+            <Button
+              variant="unstyled"
+              size="none"
               onClick={() => setWorkbenchLayoutMode(isFocus ? 'split' : 'focus')}
               className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-white hover:text-slate-700"
               title={isFocus ? '切换为 split' : '切换为 focus'}
             >
               {isFocus ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="unstyled"
+              size="none"
               onClick={closeWorkbench}
               className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-white hover:text-slate-700"
             >
               <X size={16} />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -58,12 +63,12 @@ export const WorkbenchPanel = () => {
                 item.id === activeItem.id ? 'border-slate-300 bg-white text-slate-900' : 'border-transparent bg-slate-100 text-slate-500'
               }`}
             >
-              <button onClick={() => setActiveWorkbenchItem(item.id)} className="truncate">
+              <Button variant="unstyled" size="none" onClick={() => setActiveWorkbenchItem(item.id)} className="truncate">
                 {item.title}
-              </button>
-              <button onClick={() => closeWorkbenchItem(item.id)} className="text-slate-400 hover:text-slate-700">
+              </Button>
+              <Button variant="unstyled" size="none" onClick={() => closeWorkbenchItem(item.id)} className="text-slate-400 hover:text-slate-700">
                 <X size={12} />
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -92,20 +97,24 @@ const WorkbenchToolbar = ({ item, onRefresh }: { item: WorkbenchItem; onRefresh:
     <div className="flex items-center gap-1">
       {item.mode === 'web' && item.meta?.url && (
         <>
-          <button
+          <Button
+            variant="unstyled"
+            size="none"
             onClick={onRefresh}
             className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
             title="刷新"
           >
             <RefreshCw size={14} />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="unstyled"
+            size="none"
             onClick={() => openUrl(item.meta!.url!)}
             className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
             title="在浏览器中打开"
           >
             <ExternalLink size={14} />
-          </button>
+          </Button>
         </>
       )}
     </div>

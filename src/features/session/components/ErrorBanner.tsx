@@ -1,5 +1,6 @@
 import { AlertTriangle, X } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { Button } from '@/shared/ui/Button';
 
 interface ErrorBannerProps {
   message: string;
@@ -17,9 +18,9 @@ export const ErrorBanner = ({ message, onDismiss }: ErrorBannerProps) => {
       <AlertTriangle size={16} className="shrink-0" />
       <span className="flex-1">{message}</span>
       {onDismiss && (
-        <button onClick={onDismiss} className="text-red-400 hover:text-red-600 shrink-0">
+        <Button variant="unstyled" size="none" onClick={onDismiss} className="text-red-400 hover:text-red-600 shrink-0">
           <X size={14} />
-        </button>
+        </Button>
       )}
     </motion.div>
   );

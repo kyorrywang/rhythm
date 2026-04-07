@@ -6,12 +6,12 @@ use tokio::sync::Mutex;
 use crate::cron::registry::SharedRegistry;
 use crate::cron::types::CronRunStatus;
 use crate::engine::{QueryContext, QueryEngine};
-use crate::infrastructure::event_bus;
-use crate::infrastructure::config;
 use crate::hooks::executor::HookExecutor;
 use crate::hooks::loader::load_hook_registry_for_cwd;
-use crate::mcp::McpClientManager;
+use crate::infrastructure::config;
+use crate::infrastructure::event_bus;
 use crate::llm;
+use crate::mcp::McpClientManager;
 use crate::permissions::PermissionChecker;
 use crate::prompts::build_runtime_prompt;
 use crate::tools::ToolRegistry;
@@ -118,7 +118,7 @@ impl CronRunner {
         let settings = config::load_settings();
         let cwd_path = PathBuf::from(cwd);
         let client = Arc::from(llm::create_client(&settings.llm));
-        let system_prompt = build_runtime_prompt(&settings, &cwd_path, Some(prompt));
+        let system_prompt = build_runtime_prompt(&settings, &cwd_path, Some(prompt), false);
 
         let merged_mcp_configs = McpClientManager::merged_server_configs(&settings, &cwd_path);
         let mcp_manager = if merged_mcp_configs.is_empty() {
@@ -143,6 +143,7 @@ impl CronRunner {
             mcp_manager,
             cwd: cwd_path,
             model: settings.llm.model.clone(),
+            reasoning: None,
             system_prompt,
             agent_turn_limit: settings.agent_turn_limit,
             auto_compact_enabled: settings.auto_compact.enabled,

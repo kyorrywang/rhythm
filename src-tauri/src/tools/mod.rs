@@ -4,16 +4,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub mod context;
-pub mod shell;
-pub mod read_file;
-pub mod write_file;
-pub mod edit_file;
-pub mod delete_file;
 pub mod ask;
+pub mod context;
+pub mod delete_file;
+pub mod edit_file;
 pub mod plan;
-pub mod subagent;
+pub mod read_file;
+pub mod shell;
 pub mod skill;
+pub mod subagent;
+pub mod write_file;
 
 pub use context::ToolExecutionContext;
 
@@ -27,11 +27,17 @@ pub struct ToolResult {
 
 impl ToolResult {
     pub fn ok(output: impl Into<String>) -> Self {
-        Self { output: output.into(), is_error: false }
+        Self {
+            output: output.into(),
+            is_error: false,
+        }
     }
 
     pub fn error(output: impl Into<String>) -> Self {
-        Self { output: output.into(), is_error: true }
+        Self {
+            output: output.into(),
+            is_error: true,
+        }
     }
 }
 
@@ -48,7 +54,9 @@ pub trait BaseTool: Send + Sync {
     fn parameters(&self) -> Value;
     /// Whether this tool only reads state (never writes/deletes/executes).
     /// Used by the permission system to allow reads without confirmation.
-    fn is_read_only(&self) -> bool { false }
+    fn is_read_only(&self) -> bool {
+        false
+    }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> ToolResult;
 }
@@ -71,7 +79,9 @@ pub struct ToolRegistry {
 
 impl ToolRegistry {
     pub fn new() -> Self {
-        Self { tools: HashMap::new() }
+        Self {
+            tools: HashMap::new(),
+        }
     }
 
     pub fn register(&mut self, tool: Box<dyn BaseTool>) {
@@ -83,11 +93,15 @@ impl ToolRegistry {
     }
 
     pub fn to_api_schema(&self) -> Vec<LlmToolDefinition> {
-        let mut defs: Vec<LlmToolDefinition> = self.tools.values().map(|t| LlmToolDefinition {
-            name: t.name().to_string(),
-            description: t.description().to_string(),
-            parameters: t.parameters(),
-        }).collect();
+        let mut defs: Vec<LlmToolDefinition> = self
+            .tools
+            .values()
+            .map(|t| LlmToolDefinition {
+                name: t.name().to_string(),
+                description: t.description().to_string(),
+                parameters: t.parameters(),
+            })
+            .collect();
         defs.sort_by(|a, b| a.name.cmp(&b.name));
         defs
     }
@@ -98,7 +112,8 @@ impl ToolRegistry {
         disallowed_tools: Option<&[String]>,
     ) -> Self {
         if let Some(allowed) = allowed_tools {
-            self.tools.retain(|name, _| allowed.iter().any(|tool| tool == name));
+            self.tools
+                .retain(|name, _| allowed.iter().any(|tool| tool == name));
         }
 
         if let Some(disallowed) = disallowed_tools {
@@ -114,9 +129,7 @@ impl ToolRegistry {
         Self::create_with_mcp(None)
     }
 
-    pub fn create_with_mcp(
-        mcp_manager: Option<Arc<Mutex<crate::mcp::McpClientManager>>>,
-    ) -> Self {
+    pub fn create_with_mcp(mcp_manager: Option<Arc<Mutex<crate::mcp::McpClientManager>>>) -> Self {
         let mut registry = Self::new();
         registry.register(Box::new(shell::ShellTool));
         registry.register(Box::new(read_file::ReadFileTool));

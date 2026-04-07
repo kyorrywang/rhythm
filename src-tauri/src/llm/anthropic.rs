@@ -1,9 +1,11 @@
+use super::{
+    ChatMessage, ChatMessageBlock, LlmClient, LlmResponse, LlmResponseStream, LlmToolDefinition,
+};
+use crate::infrastructure::config::LlmConfig;
+use async_trait::async_trait;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use futures::StreamExt;
-use crate::infrastructure::config::LlmConfig;
-use super::{ChatMessage, ChatMessageBlock, LlmClient, LlmToolDefinition, LlmResponse, LlmResponseStream};
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -50,9 +52,9 @@ struct AnthropicMessage {
 #[serde(tag = "type")]
 enum AnthropicContent {
     #[serde(rename = "text")]
-    Text {
-        text: String,
-    },
+    Text { text: String },
+    #[serde(rename = "image")]
+    Image { source: AnthropicImageSource },
     #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
@@ -70,6 +72,14 @@ enum AnthropicContent {
 }
 
 #[derive(Serialize)]
+struct AnthropicImageSource {
+    #[serde(rename = "type")]
+    source_type: String,
+    media_type: String,
+    data: String,
+}
+
+#[derive(Serialize)]
 struct AnthropicThinking {
     #[serde(rename = "type")]
     thinking_type: String,
@@ -82,7 +92,10 @@ enum AnthropicEvent {
     #[serde(rename = "message_start")]
     MessageStart,
     #[serde(rename = "content_block_start")]
-    ContentBlockStart { index: u32, content_block: AnthropicContentBlock },
+    ContentBlockStart {
+        index: u32,
+        content_block: AnthropicContentBlock,
+    },
     #[serde(rename = "content_block_delta")]
     ContentBlockDelta { index: u32, delta: AnthropicDelta },
     #[serde(rename = "content_block_stop")]
@@ -124,7 +137,11 @@ struct ToolUseAccumulator {
     input_json: String,
 }
 
-fn process_anthropic_line(data: &str, thinking_indices: &mut HashSet<u32>, tool_use_accum: &mut HashMap<u32, ToolUseAccumulator>) -> Vec<Result<LlmResponse, String>> {
+fn process_anthropic_line(
+    data: &str,
+    thinking_indices: &mut HashSet<u32>,
+    tool_use_accum: &mut HashMap<u32, ToolUseAccumulator>,
+) -> Vec<Result<LlmResponse, String>> {
     let mut deltas = Vec::new();
 
     let Ok(ev) = serde_json::from_str::<AnthropicEvent>(data) else {
@@ -132,49 +149,70 @@ fn process_anthropic_line(data: &str, thinking_indices: &mut HashSet<u32>, tool_
     };
 
     match ev {
-        AnthropicEvent::ContentBlockStart { index, content_block } => {
-            match content_block.block_type.as_str() {
-                "thinking" => {
-                    thinking_indices.insert(index);
-                },
-                "tool_use" => {
-                    if let Some(name) = &content_block.name {
-                        tool_use_accum.insert(index, ToolUseAccumulator {
+        AnthropicEvent::ContentBlockStart {
+            index,
+            content_block,
+        } => match content_block.block_type.as_str() {
+            "thinking" => {
+                thinking_indices.insert(index);
+            }
+            "tool_use" => {
+                if let Some(name) = &content_block.name {
+                    tool_use_accum.insert(
+                        index,
+                        ToolUseAccumulator {
                             id: content_block.id.unwrap_or_default(),
                             name: name.clone(),
                             input_json: String::new(),
-                        });
-                    }
-                },
-                _ => {}
+                        },
+                    );
+                }
             }
+            _ => {}
         },
-        AnthropicEvent::ContentBlockDelta { delta: AnthropicDelta::TextDelta { text }, .. } => {
+        AnthropicEvent::ContentBlockDelta {
+            delta: AnthropicDelta::TextDelta { text },
+            ..
+        } => {
             deltas.push(Ok(LlmResponse::TextDelta(text)));
-        },
-        AnthropicEvent::ContentBlockDelta { delta: AnthropicDelta::ThinkingDelta { thinking }, .. } => {
+        }
+        AnthropicEvent::ContentBlockDelta {
+            delta: AnthropicDelta::ThinkingDelta { thinking },
+            ..
+        } => {
             deltas.push(Ok(LlmResponse::ThinkingDelta(thinking)));
-        },
-        AnthropicEvent::ContentBlockDelta { delta: AnthropicDelta::InputJsonDelta { partial_json }, index } => {
+        }
+        AnthropicEvent::ContentBlockDelta {
+            delta: AnthropicDelta::InputJsonDelta { partial_json },
+            index,
+        } => {
             tool_use_accum
                 .entry(index)
                 .and_modify(|acc| acc.input_json.push_str(&partial_json));
-        },
+        }
         AnthropicEvent::ContentBlockStop { index } => {
             if thinking_indices.contains(&index) {
                 deltas.push(Ok(LlmResponse::ThinkingEnd));
             }
             if let Some(acc) = tool_use_accum.remove(&index) {
                 deltas.push(Ok(LlmResponse::ToolCall(super::LlmToolCall {
-                    id: if acc.id.is_empty() { format!("toolu_{}", index) } else { acc.id },
+                    id: if acc.id.is_empty() {
+                        format!("toolu_{}", index)
+                    } else {
+                        acc.id
+                    },
                     name: acc.name,
-                    arguments: if acc.input_json.is_empty() { "{}".to_string() } else { acc.input_json },
+                    arguments: if acc.input_json.is_empty() {
+                        "{}".to_string()
+                    } else {
+                        acc.input_json
+                    },
                 })));
             }
-        },
+        }
         AnthropicEvent::MessageStop => {
             deltas.push(Ok(LlmResponse::Done));
-        },
+        }
         _ => {}
     }
 
@@ -192,14 +230,41 @@ fn map_messages(messages: Vec<ChatMessage>) -> Vec<AnthropicMessage> {
                 ChatMessageBlock::Text { text } => {
                     content.push(AnthropicContent::Text { text });
                 }
-                ChatMessageBlock::ToolCall { id, name, arguments } => {
+                ChatMessageBlock::Image { media_type, data } => {
+                    content.push(AnthropicContent::Image {
+                        source: AnthropicImageSource {
+                            source_type: "base64".to_string(),
+                            media_type,
+                            data,
+                        },
+                    });
+                }
+                ChatMessageBlock::File {
+                    name,
+                    mime_type,
+                    size,
+                    text,
+                } => {
+                    content.push(AnthropicContent::Text {
+                        text: format_file_block(&name, &mime_type, size, text.as_deref()),
+                    });
+                }
+                ChatMessageBlock::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                } => {
                     content.push(AnthropicContent::ToolUse {
                         id,
                         name,
                         input: arguments,
                     });
                 }
-                ChatMessageBlock::ToolResult { tool_call_id, content: block_content, is_error } => {
+                ChatMessageBlock::ToolResult {
+                    tool_call_id,
+                    content: block_content,
+                    is_error,
+                } => {
                     content.push(AnthropicContent::ToolResult {
                         tool_use_id: tool_call_id,
                         content: block_content,
@@ -220,6 +285,19 @@ fn map_messages(messages: Vec<ChatMessage>) -> Vec<AnthropicMessage> {
     mapped
 }
 
+fn format_file_block(name: &str, mime_type: &str, size: u64, text: Option<&str>) -> String {
+    match text {
+        Some(text) => format!(
+            "Attached file: {}\nMIME type: {}\nSize: {} bytes\n\n{}",
+            name, mime_type, size, text
+        ),
+        None => format!(
+            "Attached file: {}\nMIME type: {}\nSize: {} bytes\nContent was not included because it is binary or too large.",
+            name, mime_type, size
+        ),
+    }
+}
+
 #[async_trait]
 impl LlmClient for AnthropicClient {
     async fn chat_stream(
@@ -232,11 +310,16 @@ impl LlmClient for AnthropicClient {
         let tools_mapped = if tools.is_empty() {
             None
         } else {
-            Some(tools.into_iter().map(|t| AnthropicTool {
-                name: t.name,
-                description: t.description,
-                input_schema: t.parameters,
-            }).collect())
+            Some(
+                tools
+                    .into_iter()
+                    .map(|t| AnthropicTool {
+                        name: t.name,
+                        description: t.description,
+                        input_schema: t.parameters,
+                    })
+                    .collect(),
+            )
         };
 
         let req = AnthropicChatRequest {
@@ -251,7 +334,9 @@ impl LlmClient for AnthropicClient {
             tools: tools_mapped,
         };
 
-        let response = self.client.post(&url)
+        let response = self
+            .client
+            .post(&url)
             .header("x-api-key", &self.config.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("anthropic-beta", "extended-thinking-2025-05-14")
@@ -261,64 +346,68 @@ impl LlmClient for AnthropicClient {
             .map_err(|e| e.to_string())?;
 
         let thinking_indices: Arc<Mutex<HashSet<u32>>> = Arc::new(Mutex::new(HashSet::new()));
-        let tool_use_accum: Arc<Mutex<HashMap<u32, ToolUseAccumulator>>> = Arc::new(Mutex::new(HashMap::new()));
+        let tool_use_accum: Arc<Mutex<HashMap<u32, ToolUseAccumulator>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let buffer: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
 
-        let stream = response.bytes_stream().map(move |item| {
-            match item {
-               Ok(bytes) => {
-                   let chunk_text = String::from_utf8_lossy(&bytes);
-                   let mut deltas = Vec::new();
+        let stream = response
+            .bytes_stream()
+            .map(move |item| match item {
+                Ok(bytes) => {
+                    let chunk_text = String::from_utf8_lossy(&bytes);
+                    let mut deltas = Vec::new();
 
-                   {
-                       let mut buf = buffer.lock().unwrap();
-                       buf.push_str(&chunk_text);
+                    {
+                        let mut buf = buffer.lock().unwrap();
+                        buf.push_str(&chunk_text);
 
-                       let mut thinking = thinking_indices.lock().unwrap();
-                       let mut tools = tool_use_accum.lock().unwrap();
+                        let mut thinking = thinking_indices.lock().unwrap();
+                        let mut tools = tool_use_accum.lock().unwrap();
 
-                       while let Some(newline_pos) = buf.find('\n') {
-                           let line = buf[..newline_pos].to_string();
-                           *buf = buf[newline_pos + 1..].to_string();
+                        while let Some(newline_pos) = buf.find('\n') {
+                            let line = buf[..newline_pos].to_string();
+                            *buf = buf[newline_pos + 1..].to_string();
 
-                           let line = line.trim_end_matches('\r');
+                            let line = line.trim_end_matches('\r');
 
-                           if line.starts_with("data: ") {
-                               let data = &line[6..];
-                               let line_deltas = process_anthropic_line(data, &mut thinking, &mut tools);
-                               deltas.extend(line_deltas);
-                           }
-                       }
-                   }
+                            if line.starts_with("data: ") {
+                                let data = &line[6..];
+                                let line_deltas =
+                                    process_anthropic_line(data, &mut thinking, &mut tools);
+                                deltas.extend(line_deltas);
+                            }
+                        }
+                    }
 
-                   futures::stream::iter(deltas)
-               }
-               Err(e) => {
-                   let mut buf = buffer.lock().unwrap();
-                   let mut thinking = thinking_indices.lock().unwrap();
-                   let mut tools = tool_use_accum.lock().unwrap();
-                   let mut deltas = Vec::new();
+                    futures::stream::iter(deltas)
+                }
+                Err(e) => {
+                    let mut buf = buffer.lock().unwrap();
+                    let mut thinking = thinking_indices.lock().unwrap();
+                    let mut tools = tool_use_accum.lock().unwrap();
+                    let mut deltas = Vec::new();
 
-                   if !buf.is_empty() {
-                       let remaining = std::mem::take(&mut *buf);
-                       for line in remaining.split('\n') {
-                           let line = line.trim();
-                           if line.starts_with("data: ") {
-                               let data = &line[6..];
-                               let line_deltas = process_anthropic_line(data, &mut thinking, &mut tools);
-                               deltas.extend(line_deltas);
-                           }
-                       }
-                   }
+                    if !buf.is_empty() {
+                        let remaining = std::mem::take(&mut *buf);
+                        for line in remaining.split('\n') {
+                            let line = line.trim();
+                            if line.starts_with("data: ") {
+                                let data = &line[6..];
+                                let line_deltas =
+                                    process_anthropic_line(data, &mut thinking, &mut tools);
+                                deltas.extend(line_deltas);
+                            }
+                        }
+                    }
 
-                   if deltas.is_empty() {
-                       deltas.push(Err(e.to_string()));
-                   }
+                    if deltas.is_empty() {
+                        deltas.push(Err(e.to_string()));
+                    }
 
-                   futures::stream::iter(deltas)
-               },
-            }
-         }).flatten();
+                    futures::stream::iter(deltas)
+                }
+            })
+            .flatten();
 
         Ok(Box::pin(stream))
     }

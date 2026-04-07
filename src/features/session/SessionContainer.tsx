@@ -1,18 +1,17 @@
 import { useMemo, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { MoreHorizontal, ChevronLeft, Archive, Pencil, Copy } from 'lucide-react';
+import { MoreHorizontal, Archive, Pencil, Copy } from 'lucide-react';
 import { ComposerBox } from '@/features/composer/ComposerBox';
 import { UserMessage } from './components/UserMessage';
 import { AgentMessage } from './components/AgentMessage';
 import { SystemMessage } from './components/SystemMessage';
 import { ContextUsagePanel } from './components/ContextUsagePanel';
-import { PermissionDialog } from './components/PermissionDialog';
 import { ErrorBanner } from './components/ErrorBanner';
 import { useSessionStore, useActiveSession } from '@/shared/state/useSessionStore';
-import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useAutoScroll } from '@/shared/hooks/useAutoScroll';
 import { EmptyState } from './EmptyState';
 import type { Message, Session } from '@/shared/types/schema';
+import { Button } from '@/shared/ui/Button';
 
 export const SessionContainer = () => {
   const activeSession = useActiveSession();
@@ -26,10 +25,6 @@ export const SessionContainer = () => {
     activeSession?.messages.length,
     activeSession?.messages[activeSession.messages.length - 1]?.segments?.length,
   ]);
-
-  const pendingPermissions = usePermissionStore((s) => s.pendingPermissions);
-  const hasPendingPermission = pendingPermissions.size > 0;
-  const firstPermission = hasPendingPermission ? Array.from(pendingPermissions.values())[0] : null;
 
   const messages = activeSession?.messages ?? [];
   const isSessionRunning = activeSession?.phase !== 'idle' && activeSession?.phase !== undefined && activeSession?.phase !== 'waiting_for_permission';
@@ -55,20 +50,9 @@ export const SessionContainer = () => {
           </div>
         </div>
       ) : isEmpty ? (
-        <>
-          <div className="shrink-0 px-6">
-            <SessionHeader
-              activeSession={activeSession}
-              parentSession={parentSession}
-              onOpenContextPanel={() => setIsContextPanelOpen(true)}
-              archiveSession={archiveSession}
-              renameSession={renameSession}
-            />
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
-            <EmptyState />
-          </div>
-        </>
+        <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
+          <EmptyState />
+        </div>
       ) : (
         <>
           <div className="shrink-0 px-6">
@@ -82,7 +66,7 @@ export const SessionContainer = () => {
           </div>
 
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto no-scrollbar smooth-scroll">
-            <div className="max-w-[760px] w-full mx-auto relative pointer-events-auto z-10 px-6">
+            <div className="max-w-[820px] w-full mx-auto relative pointer-events-auto z-10 px-6">
             {activeSession?.error && (
               <div className="mb-4">
                 <ErrorBanner message={activeSession.error} onDismiss={() => useSessionStore.getState().updateSession(activeSession.id, { error: null })} />
@@ -99,6 +83,7 @@ export const SessionContainer = () => {
                   <AgentMessage
                     key={msg.id || index}
                     message={msg}
+                    sessionId={activeSession.id}
                     isLast={index === messages.length - 1}
                     isSessionRunning={isSessionRunning}
                   />
@@ -111,12 +96,12 @@ export const SessionContainer = () => {
       )}
 
       {showChatShell && (
-        <div className="shrink-0 bg-gradient-to-t from-white via-white/95 to-transparent py-4 pointer-events-none z-30">
+        <div className="shrink-0 bg-gradient-to-t from-white via-white/95 to-transparent pt-4 pb-1 pointer-events-none z-30">
           <ComposerBox />
         </div>
       )}
 
-      {activeSession && (
+      {activeSession && !isEmpty && (
         <ContextUsagePanel
           session={activeSession}
           isOpen={isContextPanelOpen}
@@ -124,14 +109,6 @@ export const SessionContainer = () => {
         />
       )}
 
-      {hasPendingPermission && firstPermission && (
-        <PermissionDialog
-          request={firstPermission}
-          onResolve={(toolId, approved) => {
-            usePermissionStore.getState().resolvePending(toolId, approved);
-          }}
-        />
-      )}
       </div>
     </div>
   );
@@ -150,25 +127,22 @@ const SessionHeader = ({
   archiveSession: (sessionId: string) => void;
   renameSession: (sessionId: string, title: string) => void;
 }) => (
-  <div className="mx-auto flex w-full max-w-[760px] items-center justify-between py-6">
+  <div className="mx-auto flex w-full max-w-[820px] items-center justify-between py-6">
     <div className="flex min-w-0 items-center gap-3">
       <div className="flex min-w-0 items-center gap-2 text-[13px] text-slate-500">
         {parentSession && (
           <>
-            <button
-              onClick={() => useSessionStore.getState().navigateBack()}
-              className="flex shrink-0 items-center gap-1 transition-colors hover:text-slate-800"
-            >
-              <ChevronLeft size={16} /> {parentSession.title}
-            </button>
+            <span className="shrink-0 truncate text-slate-500">{parentSession.title}</span>
             <span>/</span>
           </>
         )}
-        <h2 className="truncate text-[16px] font-medium text-gray-800">{activeSession?.title || '新会话'}</h2>
+        <h2 className="truncate text-[16px] font-semibold text-gray-900">{activeSession?.title || '新会话'}</h2>
       </div>
     </div>
     <div className="flex items-center gap-3">
-      <button
+      <Button
+        variant="unstyled"
+        size="none"
         className="relative flex h-[18px] w-[18px] shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-300 hover:text-gray-400 focus:outline-none"
         title="上下文用量"
         onClick={onOpenContextPanel}
@@ -181,14 +155,16 @@ const SessionHeader = ({
             d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
           />
         </svg>
-      </button>
+      </Button>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
-          <button
+          <Button
+            variant="unstyled"
+            size="none"
             className="rounded-lg p-1 text-gray-400 transition-colors hover:bg-slate-100 hover:text-gray-600 focus:outline-none data-[state=open]:bg-slate-100 data-[state=open]:text-gray-600"
           >
             <MoreHorizontal size={18} />
-          </button>
+          </Button>
         </DropdownMenu.Trigger>
         {activeSession && (
           <DropdownMenu.Portal>

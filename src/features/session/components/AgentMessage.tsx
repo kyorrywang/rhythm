@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -11,11 +12,15 @@ import {
 import { getToolPresentation } from '@/features/session/toolPresentation';
 import { useDisplayStore } from '@/shared/state/useDisplayStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
+import { usePermissionStore } from '@/shared/state/usePermissionStore';
+import { approvePermission } from '@/shared/api/commands';
 import type { Message, MessageSegment, ToolCall } from '@/shared/types/schema';
+import { Button } from '@/shared/ui/Button';
 import { CodeBlock } from '@/shared/ui/CodeBlock';
 
 interface AgentMessageProps {
   message: Message;
+  sessionId: string;
   isLast?: boolean;
   isSessionRunning?: boolean;
 }
@@ -71,7 +76,7 @@ const SegmentCard = ({
             event.preventDefault();
             setIsExpanded((v) => !v);
           }}
-          className="flex min-w-0 flex-1 items-baseline gap-1 text-left text-[13px] leading-6"
+          className={`flex min-w-0 flex-1 items-baseline gap-1 text-left text-[13px] leading-6 ${canExpand ? 'cursor-pointer' : ''}`}
           role={canExpand ? 'button' : undefined}
           tabIndex={canExpand ? 0 : undefined}
         >
@@ -122,15 +127,17 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
 
   if (tool.name === 'spawn_subagent') {
     const subagentSummary = tool.subSessionId ? (
-      <button
+      <Button
+        variant="link"
+        size="sm"
         onClick={(e) => {
           e.stopPropagation();
           setActiveSession(tool.subSessionId!);
         }}
-        className="cursor-pointer truncate text-sky-700 underline-offset-2 hover:underline"
+        className="min-w-0 truncate text-[13px] leading-6"
       >
         {presentation.summary || '打开子会话'}
-      </button>
+      </Button>
     ) : presentation.summary;
 
     return (
@@ -154,7 +161,9 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
       timerMs={tool.executionTime}
       defaultExpanded={defaultExpanded}
       action={presentation.actionTarget ? (
-        <button
+        <Button
+          variant="link"
+          size="sm"
           onClick={(e) => {
             e.stopPropagation();
             openWorkbench({
@@ -166,10 +175,10 @@ const ToolBlock = ({ tool }: { tool: ToolCall }) => {
               meta: presentation.actionTarget!.meta,
             });
           }}
-          className="text-[12px] font-medium text-sky-700 underline-offset-2 transition-colors hover:text-sky-900 hover:underline"
+          className="text-[12px]"
         >
           {presentation.actionLabel || '打开 Workbench'}
-        </button>
+        </Button>
       ) : undefined}
     >
       <div className="space-y-3">
@@ -215,8 +224,6 @@ const AskSegment = ({ segment }: { segment: MessageSegment & { type: 'ask' } }) 
       title="Ask"
       summary={title}
       running={isWaiting}
-      timerStart={segment.startTime || Date.now()}
-      timerMs={segment.timeCostMs}
       defaultExpanded={defaultExpanded}
     >
       <div className="space-y-4">
@@ -269,17 +276,43 @@ const ThinkingSegment = ({ segment, isLive }: { segment: MessageSegment & { type
   );
 };
 
-const PermissionSegment = ({ segment }: { segment: MessageSegment & { type: 'permission' } }) => {
+const PermissionSegment = ({
+  segment,
+  sessionId,
+}: {
+  segment: MessageSegment & { type: 'permission' };
+  sessionId: string;
+}) => {
+  const [alwaysAllow, setAlwaysAllow] = useState(false);
+  const resolvePending = usePermissionStore((s) => s.resolvePending);
+  const resolvePermissionRequestInTimeline = useSessionStore((s) => s.resolvePermissionRequestInTimeline);
+  const updateSession = useSessionStore((s) => s.updateSession);
+  const grantSessionPermission = useSessionStore((s) => s.grantSessionPermission);
+  const isWaiting = segment.status === 'waiting';
+
   const summary = segment.status === 'waiting'
     ? `等待权限确认: ${segment.request.toolName}`
     : `${segment.request.toolName} 已${segment.status === 'approved' ? '允许' : '拒绝'}`;
+
+  const resolve = async (approved: boolean) => {
+    if (!isWaiting) return;
+    if (approved && alwaysAllow) {
+      grantSessionPermission(sessionId, segment.request.toolName);
+    }
+    await approvePermission({ toolId: segment.request.toolId, approved });
+    resolvePending(segment.request.toolId, approved);
+    resolvePermissionRequestInTimeline(sessionId, segment.request.toolId, approved);
+    updateSession(sessionId, {
+      phase: 'streaming',
+      permissionPending: false,
+    });
+  };
 
   return (
     <SegmentCard
       title="Permission"
       summary={summary}
-      running={segment.status === 'waiting'}
-      timerStart={segment.startTime || Date.now()}
+      running={isWaiting}
       defaultExpanded
     >
       <div className="space-y-3 text-sm text-slate-700">
@@ -291,12 +324,44 @@ const PermissionSegment = ({ segment }: { segment: MessageSegment & { type: 'per
           <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">原因</div>
           <p className="mt-1 leading-6">{segment.request.reason}</p>
         </div>
+        {isWaiting && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-500">
+              <input
+                type="checkbox"
+                checked={alwaysAllow}
+                onChange={(event) => setAlwaysAllow(event.target.checked)}
+                className="rounded border-slate-300"
+              />
+              本会话始终允许此工具
+            </label>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void resolve(false)}
+                className="rounded-xl text-xs text-slate-500 hover:text-slate-800"
+              >
+                拒绝
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => void resolve(true)}
+                className="rounded-xl bg-amber-600 text-xs hover:bg-amber-700"
+              >
+                允许
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </SegmentCard>
   );
 };
 
-export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessageProps) => {
+export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: AgentMessageProps) => {
+  const [copied, setCopied] = useState(false);
   const isMessageRunning = Boolean(isSessionRunning && isLast);
   const isMessageComplete = !isSessionRunning && isLast;
   const segments = message.segments || [];
@@ -311,6 +376,8 @@ export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessage
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
       // Ignore clipboard failures in the presentation layer.
     }
@@ -339,7 +406,7 @@ export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessage
               {segment.type === 'thinking' && <ThinkingSegment segment={segment} isLive={segment.isLive || false} />}
               {segment.type === 'tool' && <ToolBlock tool={segment.tool} />}
               {segment.type === 'ask' && <AskSegment segment={segment} />}
-              {segment.type === 'permission' && <PermissionSegment segment={segment} />}
+              {segment.type === 'permission' && <PermissionSegment segment={segment} sessionId={sessionId} />}
               {segment.type === 'text' && segment.content && (
                 <motion.div
                   initial={{ opacity: 0 }}
@@ -351,15 +418,21 @@ export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessage
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
-                        code({ className, children, ...props }: any) {
+                        pre({ children }) {
+                          return <>{children}</>;
+                        },
+                        code({ inline, className, children }: any) {
                           const match = /language-(\w+)/.exec(className || '');
-                          return match ? (
+                          const code = String(children).replace(/\n$/, '');
+                          const isBlock = !inline && (match || String(children).includes('\n'));
+
+                          return isBlock ? (
                             <CodeBlock
-                              language={match[1]}
-                              code={String(children).replace(/\n$/, '')}
+                              language={match?.[1] || 'text'}
+                              code={code}
                             />
                           ) : (
-                            <code {...props} className={`${className || ''} rounded-md bg-slate-100 px-1.5 py-0.5 text-sm text-fuchsia-700 font-mono`}>
+                            <code className="rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[0.92em] text-fuchsia-700">
                               {children}
                             </code>
                           );
@@ -378,13 +451,15 @@ export const AgentMessage = ({ message, isLast, isSessionRunning }: AgentMessage
 
       <div className="mt-3 h-6 flex-col justify-center">
         <div className="flex items-center text-[12px] text-slate-400">
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={handleCopy}
-            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="h-7 w-7 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
             title="Copy"
           >
-            <Copy size={14} />
-          </button>
+            {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+          </Button>
           <span className="mx-2 text-slate-300">|</span>
           <span>{modelName}</span>
           <span className="mx-2 text-slate-300">·</span>

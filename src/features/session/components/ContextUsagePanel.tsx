@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { Session } from '@/shared/types/schema';
 import { formatTokenCount, formatPercentage } from '@/shared/lib/formatters';
+import { Button } from '@/shared/ui/Button';
 
 interface ContextUsagePanelProps {
   session: Session;
@@ -55,9 +56,9 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
               <div className="text-lg font-medium text-zinc-900">{session.title || 'Untitled'}</div>
               <div className="text-xs text-zinc-400">最近更新 {new Date(session.updatedAt).toLocaleString('zh-CN')}</div>
             </div>
-            <button onClick={onClose} className="rounded-xl p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">
+            <Button variant="unstyled" size="none" onClick={onClose} className="rounded-xl p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">
               <X size={16} />
-            </button>
+            </Button>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

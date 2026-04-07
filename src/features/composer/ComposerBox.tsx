@@ -1,4 +1,7 @@
 import { useSessionStore } from '@/shared/state/useSessionStore';
+import { usePermissionStore } from '@/shared/state/usePermissionStore';
+import { approvePermission } from '@/shared/api/commands';
+import { useSettingsStore } from '@/shared/state/useSettingsStore';
 import { PHASE_TO_DOCK } from './types';
 import { useComposerActions } from './hooks/useComposerActions';
 import { AskDock } from './components/AskDock';
@@ -14,8 +17,11 @@ export const ComposerBox = () => {
     toggleAppendMinimized,
     composerControls,
     setComposerControls,
-    toggleComposerFullAuto,
+    resolvePermissionRequestInTimeline,
+    updateSession,
   } = useSessionStore();
+  const setPermissionConfig = usePermissionStore((s) => s.setConfig);
+  const providers = useSettingsStore((s) => s.settings.providers);
   const activeSession = activeSessionId ? sessions.get(activeSessionId) : undefined;
   const currentAsk = activeSession?.currentAsk;
   const currentTasks = activeSession?.currentTasks;
@@ -27,10 +33,48 @@ export const ComposerBox = () => {
   const allTasksDone: boolean = hasTasks && currentTasks!.every((t: { status: string }) => t.status === 'completed');
 
   const dockType = PHASE_TO_DOCK[phase as keyof typeof PHASE_TO_DOCK] || 'none';
+  const modelGroups = providers
+    .map((provider) => ({
+      providerId: provider.id,
+      providerName: provider.name,
+      models: provider.models
+        .filter((model) => model.enabled)
+        .map((model) => ({
+          id: model.id,
+          name: model.name,
+          note: model.note,
+          isDefault: model.isDefault,
+        })),
+    }))
+    .filter((group) => group.models.length > 0);
+
+  const handleToggleFullAuto = () => {
+    const nextFullAuto = !composerControls.fullAuto;
+    const nextMode = nextFullAuto ? 'full_auto' : 'default';
+
+    setComposerControls({ fullAuto: nextFullAuto });
+    setPermissionConfig({ mode: nextMode });
+
+    if (!nextFullAuto) return;
+
+    const pendingPermissions = Array.from(usePermissionStore.getState().pendingPermissions.values());
+    pendingPermissions.forEach((request) => {
+      void approvePermission({ toolId: request.toolId, approved: true });
+      usePermissionStore.getState().resolvePending(request.toolId, true);
+      resolvePermissionRequestInTimeline(request.sessionId, request.toolId, true);
+      updateSession(request.sessionId, {
+        phase: 'streaming',
+        permissionPending: false,
+      });
+    });
+  };
 
   const {
     text,
     setText,
+    attachments,
+    handleAddAttachments,
+    handleRemoveAttachment,
     selectedAskOptions,
     handleSend,
     handleCancelQueue,
@@ -88,15 +132,20 @@ export const ComposerBox = () => {
     <MainComposer
       text={text}
       onTextChange={setText}
+      attachments={attachments}
+      onAddAttachments={handleAddAttachments}
+      onRemoveAttachment={handleRemoveAttachment}
       onSend={handleSend}
       dockType={dockType}
       headerContent={headerContent}
       controls={composerControls}
+      modelGroups={modelGroups}
       sessionPhase={phase}
       onSetMode={(mode) => setComposerControls({ mode })}
-      onSetModel={(model) => setComposerControls({ model })}
+      onSetModel={(model) => setComposerControls(model)}
       onSetReasoning={(reasoning) => setComposerControls({ reasoning })}
-      onToggleFullAuto={toggleComposerFullAuto}
+      onToggleFullAuto={handleToggleFullAuto}
+      onInterrupt={handleInterrupt}
     />
   );
 };

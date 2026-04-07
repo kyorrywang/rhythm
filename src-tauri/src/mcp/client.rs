@@ -1,12 +1,12 @@
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::process::Command;
 use tokio::sync::Mutex;
-use serde_json::{json, Value};
 
 use super::types::{
-    McpConnectionStatus, McpServerConfig, McpState, McpToolInfo, McpResourceInfo,
-    McpStdioServerConfig,
+    McpConnectionStatus, McpResourceInfo, McpServerConfig, McpState, McpStdioServerConfig,
+    McpToolInfo,
 };
 
 /// A single active MCP session (stdio transport).
@@ -60,8 +60,7 @@ impl McpClientManager {
 
     /// Connect all configured stdio MCP servers.
     pub async fn connect_all(&mut self) {
-        let configs: Vec<(String, McpServerConfig)> =
-            self.server_configs.drain().collect();
+        let configs: Vec<(String, McpServerConfig)> = self.server_configs.drain().collect();
 
         for (name, config) in configs {
             match &config {
@@ -199,11 +198,7 @@ impl McpClientManager {
     }
 
     /// Read an MCP resource by server and URI.
-    pub async fn read_resource(
-        &self,
-        server_name: &str,
-        uri: &str,
-    ) -> Result<String, String> {
+    pub async fn read_resource(&self, server_name: &str, uri: &str) -> Result<String, String> {
         let session = self
             .sessions
             .get(server_name)
@@ -406,14 +401,8 @@ async fn send_jsonrpc_request(
 ) -> Result<Value, String> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    let stdin = child
-        .stdin
-        .as_mut()
-        .ok_or("Child stdin not available")?;
-    let stdout = child
-        .stdout
-        .as_mut()
-        .ok_or("Child stdout not available")?;
+    let stdin = child.stdin.as_mut().ok_or("Child stdin not available")?;
+    let stdout = child.stdout.as_mut().ok_or("Child stdout not available")?;
 
     // Write request + newline
     let line = serde_json::to_string(request).map_err(|e| e.to_string())?;
@@ -421,10 +410,7 @@ async fn send_jsonrpc_request(
         .write_all(line.as_bytes())
         .await
         .map_err(|e| e.to_string())?;
-    stdin
-        .write_all(b"\n")
-        .await
-        .map_err(|e| e.to_string())?;
+    stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
     stdin.flush().await.map_err(|e| e.to_string())?;
 
     // Read response line
@@ -435,8 +421,7 @@ async fn send_jsonrpc_request(
         .await
         .map_err(|e| e.to_string())?;
 
-    let response: Value =
-        serde_json::from_str(&response_line).map_err(|e| e.to_string())?;
+    let response: Value = serde_json::from_str(&response_line).map_err(|e| e.to_string())?;
 
     // Check for error response
     if let Some(error) = response.get("error") {
@@ -453,19 +438,13 @@ async fn write_jsonrpc_line(
 ) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
 
-    let stdin = child
-        .stdin
-        .as_mut()
-        .ok_or("Child stdin not available")?;
+    let stdin = child.stdin.as_mut().ok_or("Child stdin not available")?;
     let line = serde_json::to_string(message).map_err(|e| e.to_string())?;
     stdin
         .write_all(line.as_bytes())
         .await
         .map_err(|e| e.to_string())?;
-    stdin
-        .write_all(b"\n")
-        .await
-        .map_err(|e| e.to_string())?;
+    stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
     stdin.flush().await.map_err(|e| e.to_string())?;
     Ok(())
 }

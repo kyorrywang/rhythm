@@ -4,6 +4,7 @@ import { usePluginStore } from '@/shared/state/usePluginStore';
 import { useSessions, useSessionStore } from '@/shared/state/useSessionStore';
 import { SessionItem } from './SessionItem';
 import { ProjectHeader } from './ProjectHeader';
+import { Button } from '@/shared/ui/Button';
 
 const settingItems = [
   { id: 'model', name: '模型', description: '管理 provider、模型和默认选择。' },
@@ -79,7 +80,9 @@ export const LeftPanel = () => {
         </div>
         <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-4">
           {pluginStore.plugins.map((plugin) => (
-            <button
+            <Button
+              variant="unstyled"
+              size="none"
               key={plugin.name}
               onClick={() =>
                 openWorkbench({
@@ -103,7 +106,7 @@ export const LeftPanel = () => {
                 <span>{plugin.enabled ? '已启用' : '已禁用'}</span>
                 <span>{plugin.skills_count} skills</span>
               </div>
-            </button>
+            </Button>
           ))}
           {!pluginStore.isLoading && pluginStore.plugins.length === 0 && (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
@@ -125,7 +128,9 @@ export const LeftPanel = () => {
         />
         <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-4">
           {settingItems.map((item) => (
-            <button
+            <Button
+              variant="unstyled"
+              size="none"
               key={item.id}
               onClick={() =>
                 openWorkbench({
@@ -145,7 +150,7 @@ export const LeftPanel = () => {
                 <div className="mt-1 text-xs text-slate-500">{item.description}</div>
               </div>
               <ChevronRight size={16} className="text-slate-400" />
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -181,13 +186,15 @@ export const LeftPanel = () => {
             <FolderOpen size={18} className="mx-auto text-slate-400" />
             <p className="mt-3 text-sm font-medium text-slate-700">还没有会话</p>
             <p className="mt-1 text-xs leading-5 text-slate-500">发送第一条消息时会自动创建新会话。</p>
-            <button
+            <Button
+              variant="unstyled"
+              size="none"
               onClick={handleNewSession}
               className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-800"
             >
               <Plus size={14} />
               新建会话
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="space-y-4">

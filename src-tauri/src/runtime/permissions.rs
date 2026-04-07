@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{oneshot, Mutex};
 
 static PERMISSION_WAITERS: OnceLock<Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>> =
     OnceLock::new();
@@ -25,6 +25,9 @@ pub async fn resolve_permission(tool_id: &str, approved: bool) -> Result<(), Str
         let _ = sender.send(approved);
         Ok(())
     } else {
-        Err(format!("No pending permission request for tool_id '{}'", tool_id))
+        Err(format!(
+            "No pending permission request for tool_id '{}'",
+            tool_id
+        ))
     }
 }

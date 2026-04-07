@@ -1,9 +1,9 @@
 pub mod events;
-pub mod types;
-pub mod loader;
 pub mod executor;
+pub mod loader;
+pub mod types;
 
 pub use events::HookEvent;
-pub use types::{HookResult, AggregatedHookResult};
-pub use loader::{HookRegistry, load_hook_registry, load_hook_registry_for_cwd};
 pub use executor::HookExecutor;
+pub use loader::{load_hook_registry, load_hook_registry_for_cwd, HookRegistry};
+pub use types::{AggregatedHookResult, HookResult};

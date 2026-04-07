@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
+use super::mailbox::{make_id, now_f64, MailboxMessage, MessageType, TeammateMailbox};
 use crate::infrastructure::paths;
-use super::mailbox::{MailboxMessage, MessageType, TeammateMailbox, make_id, now_f64};
+use serde::{Deserialize, Serialize};
 
 // ─── Data types ───────────────────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ pub struct SwarmPermissionRequest {
     pub description: String,
     pub input: serde_json::Value,
     #[serde(default = "default_pending")]
-    pub status: String,  // "pending" | "approved" | "rejected"
+    pub status: String, // "pending" | "approved" | "rejected"
     pub resolved_by: Option<String>,
     pub feedback: Option<String>,
 }
@@ -72,9 +72,7 @@ pub async fn wait_for_permission_response(
 
 // ─── Read-only tool fast-path ──────────────────────────────────────────────────
 
-const READ_ONLY_TOOLS: &[&str] = &[
-    "read_file", "shell_read", "skill",
-];
+const READ_ONLY_TOOLS: &[&str] = &["read_file", "shell_read", "skill"];
 
 pub fn is_read_only_tool(tool_name: &str) -> bool {
     READ_ONLY_TOOLS.contains(&tool_name)
@@ -83,7 +81,9 @@ pub fn is_read_only_tool(tool_name: &str) -> bool {
 // ─── File-based permission sync ───────────────────────────────────────────────
 
 /// Write a permission request to `~/.rhythm/data/teams/{team}/permissions/pending/{id}.json`.
-pub fn write_permission_request(request: &SwarmPermissionRequest) -> Result<(), crate::shared::error::RhythmError> {
+pub fn write_permission_request(
+    request: &SwarmPermissionRequest,
+) -> Result<(), crate::shared::error::RhythmError> {
     let pending_dir = paths::get_teams_dir()
         .join(&request.team_name)
         .join("permissions")
@@ -115,7 +115,11 @@ pub fn resolve_permission_request(
         let mut req: SwarmPermissionRequest = serde_json::from_str(&text)
             .map_err(|e| crate::shared::error::RhythmError::SerdeError(e.to_string()))?;
 
-        req.status = if response.allowed { "approved".to_string() } else { "rejected".to_string() };
+        req.status = if response.allowed {
+            "approved".to_string()
+        } else {
+            "rejected".to_string()
+        };
         req.feedback = response.feedback.clone();
 
         let json = serde_json::to_string_pretty(&req)
@@ -134,7 +138,9 @@ pub fn list_pending_requests(team_name: &str) -> Vec<SwarmPermissionRequest> {
         .join("permissions")
         .join("pending");
 
-    let Ok(dir) = std::fs::read_dir(&pending_dir) else { return vec![] };
+    let Ok(dir) = std::fs::read_dir(&pending_dir) else {
+        return vec![];
+    };
 
     dir.flatten()
         .filter_map(|e| {

@@ -1,10 +1,10 @@
+use super::{BaseTool, ToolExecutionContext, ToolResult};
+use crate::infrastructure::event_bus;
+use crate::shared::schema::EventPayload;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 use std::process::{Command as StdCommand, Stdio};
-use crate::shared::schema::EventPayload;
-use crate::infrastructure::event_bus;
-use super::{BaseTool, ToolExecutionContext, ToolResult};
 
 pub struct ShellTool;
 
@@ -15,7 +15,9 @@ struct ShellArgs {
 
 #[async_trait]
 impl BaseTool for ShellTool {
-    fn name(&self) -> String { "shell".to_string() }
+    fn name(&self) -> String {
+        "shell".to_string()
+    }
 
     fn description(&self) -> String {
         "Execute a shell command and return its output.".to_string()
@@ -34,7 +36,9 @@ impl BaseTool for ShellTool {
         })
     }
 
-    fn is_read_only(&self) -> bool { false }
+    fn is_read_only(&self) -> bool {
+        false
+    }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> ToolResult {
         let args: ShellArgs = match serde_json::from_value(args) {
@@ -42,10 +46,14 @@ impl BaseTool for ShellTool {
             Err(e) => return ToolResult::error(e.to_string()),
         };
 
-        event_bus::emit(&ctx.agent_id, &ctx.session_id, EventPayload::ToolOutput {
-            tool_id: ctx.tool_call_id.clone(),
-            log_line: format!("Executing: {}\n", args.command),
-        });
+        event_bus::emit(
+            &ctx.agent_id,
+            &ctx.session_id,
+            EventPayload::ToolOutput {
+                tool_id: ctx.tool_call_id.clone(),
+                log_line: format!("Executing: {}\n", args.command),
+            },
+        );
 
         let output = if cfg!(target_os = "windows") {
             StdCommand::new("cmd")
@@ -72,22 +80,34 @@ impl BaseTool for ShellTool {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         if !stdout.is_empty() {
-            event_bus::emit(&ctx.agent_id, &ctx.session_id, EventPayload::ToolOutput {
-                tool_id: ctx.tool_call_id.clone(),
-                log_line: stdout.clone(),
-            });
+            event_bus::emit(
+                &ctx.agent_id,
+                &ctx.session_id,
+                EventPayload::ToolOutput {
+                    tool_id: ctx.tool_call_id.clone(),
+                    log_line: stdout.clone(),
+                },
+            );
         }
         if !stderr.is_empty() {
-            event_bus::emit(&ctx.agent_id, &ctx.session_id, EventPayload::ToolOutput {
-                tool_id: ctx.tool_call_id.clone(),
-                log_line: stderr.clone(),
-            });
+            event_bus::emit(
+                &ctx.agent_id,
+                &ctx.session_id,
+                EventPayload::ToolOutput {
+                    tool_id: ctx.tool_call_id.clone(),
+                    log_line: stderr.clone(),
+                },
+            );
         }
 
         if output.status.success() {
             ToolResult::ok(stdout)
         } else {
-            ToolResult::error(format!("Exit code: {}\n{}", output.status.code().unwrap_or(-1), stderr))
+            ToolResult::error(format!(
+                "Exit code: {}\n{}",
+                output.status.code().unwrap_or(-1),
+                stderr
+            ))
         }
     }
 }

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use crate::infrastructure::config::{self, CommandHookConfig, HookConfig, HooksConfig, HttpHookConfig, RhythmSettings};
+use crate::infrastructure::config::{
+    self, CommandHookConfig, HookConfig, HooksConfig, HttpHookConfig, RhythmSettings,
+};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct FrontendProviderModel {
@@ -16,6 +18,8 @@ pub struct FrontendProviderModel {
 pub struct FrontendProviderConfig {
     pub id: String,
     pub name: String,
+    #[serde(default = "default_provider_format")]
+    pub provider: String,
     #[serde(rename = "baseUrl")]
     pub base_url: String,
     #[serde(rename = "apiKey")]
@@ -23,6 +27,10 @@ pub struct FrontendProviderConfig {
     #[serde(rename = "isDefault")]
     pub is_default: bool,
     pub models: Vec<FrontendProviderModel>,
+}
+
+fn default_provider_format() -> String {
+    String::new()
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -94,8 +102,8 @@ pub async fn save_settings(settings: FrontendSettings) -> Result<(), String> {
 }
 
 fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
-    let provider_id = settings.llm.provider.clone();
-    let provider_name = settings.llm.provider.clone();
+    let provider_id = settings.llm.name.clone();
+    let provider_name = settings.llm.name.clone();
     let provider_model = FrontendProviderModel {
         id: settings.llm.model.clone(),
         name: settings.llm.model.clone(),
@@ -110,6 +118,7 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
         providers: vec![FrontendProviderConfig {
             id: provider_id.clone(),
             name: provider_name,
+            provider: settings.llm.provider.clone(),
             base_url: settings.llm.base_url.clone(),
             api_key: settings.llm.api_key.clone(),
             is_default: true,
@@ -127,7 +136,13 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
             .permission
             .path_rules
             .iter()
-            .map(|rule| format!("{}: {}", if rule.allow { "allow" } else { "deny" }, rule.pattern))
+            .map(|rule| {
+                format!(
+                    "{}: {}",
+                    if rule.allow { "allow" } else { "deny" },
+                    rule.pattern
+                )
+            })
             .collect(),
         denied_commands: settings.permission.denied_commands.clone(),
         memory_enabled: settings.memory.enabled,
@@ -178,14 +193,25 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
 
     RhythmSettings {
         llm: config::LlmConfig {
-            provider: provider.map(|p| p.id.clone()).unwrap_or_else(|| "openai".to_string()),
+            name: provider
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| "OpenAI".to_string()),
+            provider: provider
+                .and_then(|p| resolve_provider_format(p))
+                .unwrap_or_else(|| "openai".to_string()),
             base_url: provider.map(|p| p.base_url.clone()).unwrap_or_default(),
             api_key: provider.map(|p| p.api_key.clone()).unwrap_or_default(),
-            model: model.map(|m| m.name.clone()).unwrap_or_else(|| "gpt-5.4".to_string()),
+            model: model
+                .map(|m| m.name.clone())
+                .unwrap_or_else(|| "gpt-5.4".to_string()),
             max_tokens: None,
         },
         agent_turn_limit: None,
-        system_prompt: if settings.system_prompt.trim().is_empty() { None } else { Some(settings.system_prompt) },
+        system_prompt: if settings.system_prompt.trim().is_empty() {
+            None
+        } else {
+            Some(settings.system_prompt)
+        },
         permission: config::PermissionConfig {
             mode: crate::permissions::modes::PermissionMode::from_str(&settings.permission_mode),
             allowed_tools: settings.allowed_tools,
@@ -217,17 +243,21 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
             .into_iter()
             .map(|server| {
                 let config = if server.transport == "stdio" {
-                    crate::mcp::types::McpServerConfig::Stdio(crate::mcp::types::McpStdioServerConfig {
-                        command: server.endpoint.clone(),
-                        args: vec![],
-                        env: HashMap::new(),
-                        cwd: None,
-                    })
+                    crate::mcp::types::McpServerConfig::Stdio(
+                        crate::mcp::types::McpStdioServerConfig {
+                            command: server.endpoint.clone(),
+                            args: vec![],
+                            env: HashMap::new(),
+                            cwd: None,
+                        },
+                    )
                 } else {
-                    crate::mcp::types::McpServerConfig::Http(crate::mcp::types::McpHttpServerConfig {
-                        url: server.endpoint.clone(),
-                        headers: HashMap::new(),
-                    })
+                    crate::mcp::types::McpServerConfig::Http(
+                        crate::mcp::types::McpHttpServerConfig {
+                            url: server.endpoint.clone(),
+                            headers: HashMap::new(),
+                        },
+                    )
                 };
                 (server.name, config)
             })
@@ -243,6 +273,20 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
             .map(|name| (name, true))
             .collect(),
     }
+}
+
+fn resolve_provider_format(provider: &FrontendProviderConfig) -> Option<String> {
+    let explicit = provider.provider.trim();
+    if !explicit.is_empty() {
+        return Some(explicit.to_string());
+    }
+
+    let legacy_id = provider.id.trim();
+    if matches!(legacy_id, "openai" | "anthropic") {
+        return Some(legacy_id.to_string());
+    }
+
+    None
 }
 
 fn flatten_hooks(hooks: &HooksConfig) -> Vec<FrontendHookConfig> {

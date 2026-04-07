@@ -15,12 +15,16 @@ pub fn is_coordinator_mode() -> bool {
 
 /// Returns the agent ID of the current worker process, if any.
 pub fn get_agent_id() -> Option<String> {
-    std::env::var("RHYTHM_AGENT_ID").ok().filter(|s| !s.is_empty())
+    std::env::var("RHYTHM_AGENT_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 /// Returns the team name this process belongs to, if any.
 pub fn get_team_name() -> Option<String> {
-    std::env::var("RHYTHM_TEAM_NAME").ok().filter(|s| !s.is_empty())
+    std::env::var("RHYTHM_TEAM_NAME")
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 /// Returns `true` if the current process is a swarm Worker (has agent + team env vars).
@@ -51,7 +55,11 @@ impl TeamRegistry {
         Self::default()
     }
 
-    pub fn create_team(&mut self, name: impl Into<String>, description: impl Into<String>) -> &TeamRecord {
+    pub fn create_team(
+        &mut self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+    ) -> &TeamRecord {
         let name = name.into();
         self.teams.entry(name.clone()).or_insert(TeamRecord {
             name,
@@ -95,10 +103,7 @@ pub fn build_coordinator_system_prompt_addition(agents: &[AgentDefinition]) -> S
     );
 
     for agent in agents {
-        s.push_str(&format!(
-            "- **{}**: {}\n",
-            agent.name, agent.description
-        ));
+        s.push_str(&format!("- **{}**: {}\n", agent.name, agent.description));
     }
 
     s.push_str(
@@ -164,12 +169,6 @@ pub fn format_task_notification(n: &TaskNotification) -> String {
            <duration_ms>{}</duration_ms>\n  \
          </usage>\n\
          </task-notification>",
-        n.task_id,
-        status,
-        n.summary,
-        n.result,
-        n.total_tokens,
-        n.tool_uses,
-        n.duration_ms,
+        n.task_id, status, n.summary, n.result, n.total_tokens, n.tool_uses, n.duration_ms,
     )
 }

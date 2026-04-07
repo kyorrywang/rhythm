@@ -1,7 +1,7 @@
-use std::path::Path;
+use super::types::PluginSummary;
 use crate::infrastructure::paths;
 use crate::shared::error::RhythmError;
-use super::types::PluginSummary;
+use std::path::Path;
 
 /// Copy a plugin directory into `~/.rhythm/plugins/<dir_name>`.
 /// Overwrites any existing plugin with the same directory name.
@@ -28,8 +28,7 @@ pub fn install_plugin(source: &Path) -> Result<PluginSummary, RhythmError> {
 
     // Read manifest for summary
     let manifest_path = dest.join("plugin.json");
-    let manifest_text = std::fs::read_to_string(&manifest_path)
-        .map_err(RhythmError::IoError)?;
+    let manifest_text = std::fs::read_to_string(&manifest_path).map_err(RhythmError::IoError)?;
     let manifest: super::types::PluginManifest = serde_json::from_str(&manifest_text)
         .map_err(|e| RhythmError::ConfigError(e.to_string()))?;
 

@@ -2,25 +2,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::engine::{QueryContext, QueryEngine};
-use crate::hooks::loader::load_hook_registry_for_cwd;
-use crate::hooks::executor::HookExecutor;
+use super::types::{BackendType, SpawnResult, TeammateMessage, TeammateSpawnConfig};
 use crate::coordinator::{
-    TaskNotification,
-    TaskNotificationStatus,
-    format_task_notification,
-    get_builtin_agent,
+    format_task_notification, get_builtin_agent, TaskNotification, TaskNotificationStatus,
 };
+use crate::engine::{QueryContext, QueryEngine};
+use crate::hooks::executor::HookExecutor;
+use crate::hooks::loader::load_hook_registry_for_cwd;
 use crate::infrastructure::config;
 use crate::infrastructure::event_bus;
-use crate::mcp::McpClientManager;
 use crate::llm;
+use crate::mcp::McpClientManager;
 use crate::permissions::PermissionChecker;
 use crate::prompts::build_runtime_prompt;
 use crate::shared::schema::EventPayload;
-use crate::tools::ToolRegistry;
 use crate::swarm::agent_registry;
-use super::types::{BackendType, SpawnResult, TeammateMessage, TeammateSpawnConfig};
+use crate::tools::ToolRegistry;
 
 // ─── Active entry ─────────────────────────────────────────────────────────────
 
@@ -64,7 +61,8 @@ impl InProcessBackend {
                 .subagent_type
                 .as_deref()
                 .and_then(get_builtin_agent);
-            let system_prompt = build_runtime_prompt(&settings, &cwd, Some(&config_clone.prompt));
+            let system_prompt =
+                build_runtime_prompt(&settings, &cwd, Some(&config_clone.prompt), false);
             let merged_mcp_configs = McpClientManager::merged_server_configs(&settings, &cwd);
             let mcp_manager = if merged_mcp_configs.is_empty() {
                 None
@@ -76,7 +74,9 @@ impl InProcessBackend {
             let tool_registry = Arc::new(ToolRegistry::create_for_agent(
                 mcp_manager.clone(),
                 agent_def.as_ref().and_then(|a| a.tools.as_deref()),
-                agent_def.as_ref().and_then(|a| a.disallowed_tools.as_deref()),
+                agent_def
+                    .as_ref()
+                    .and_then(|a| a.disallowed_tools.as_deref()),
             ));
             let permission_checker = Arc::new(PermissionChecker::new_with_mode(
                 &settings.permission,
@@ -89,16 +89,13 @@ impl InProcessBackend {
             let hook_executor = load_hook_registry_for_cwd(&settings, &cwd);
             let hook_executor = Arc::new(HookExecutor::new(hook_executor));
 
-            let sub_session_id = config_clone.session_id
+            let sub_session_id = config_clone
+                .session_id
                 .clone()
                 .unwrap_or_else(|| format!("{}-{}", config_clone.team, &agent_id_clone));
 
             // Register agent in the registry so events route correctly
-            let registered_id = agent_registry::register_agent(
-                sub_session_id.clone(),
-                None,
-                1,
-            );
+            let registered_id = agent_registry::register_agent(sub_session_id.clone(), None, 1);
 
             let context = QueryContext {
                 api_client: client,
@@ -112,6 +109,7 @@ impl InProcessBackend {
                     .clone()
                     .or_else(|| agent_def.as_ref().and_then(|a| a.model.clone()))
                     .unwrap_or_else(|| settings.llm.model.clone()),
+                reasoning: None,
                 system_prompt,
                 agent_turn_limit: agent_def
                     .as_ref()
@@ -129,20 +127,24 @@ impl InProcessBackend {
 
             // Initial task prompt
             let started_at = std::time::Instant::now();
-            let (mut final_status, mut final_result) = match engine.submit_message(config_clone.prompt.clone()).await {
-                Ok(text) => (TaskNotificationStatus::Completed, text),
-                Err(e) => {
-                    eprintln!("[InProcessBackend] agent {} error: {}", agent_id_clone, e);
-                    event_bus::emit(
-                        &registered_id,
-                        &sub_session_id,
-                        EventPayload::TextDelta {
-                            content: format!("\n[Agent error: {}]", e),
-                        },
-                    );
-                    (TaskNotificationStatus::Failed, format!("Agent error: {}", e))
-                }
-            };
+            let (mut final_status, mut final_result) =
+                match engine.submit_message(config_clone.prompt.clone()).await {
+                    Ok(text) => (TaskNotificationStatus::Completed, text),
+                    Err(e) => {
+                        eprintln!("[InProcessBackend] agent {} error: {}", agent_id_clone, e);
+                        event_bus::emit(
+                            &registered_id,
+                            &sub_session_id,
+                            EventPayload::TextDelta {
+                                content: format!("\n[Agent error: {}]", e),
+                            },
+                        );
+                        (
+                            TaskNotificationStatus::Failed,
+                            format!("Agent error: {}", e),
+                        )
+                    }
+                };
 
             while let Some(msg) = rx.recv().await {
                 match engine.submit_message(msg.text).await {
@@ -152,7 +154,10 @@ impl InProcessBackend {
                     Err(e) => {
                         final_status = TaskNotificationStatus::Failed;
                         final_result = format!("Agent error: {}", e);
-                        eprintln!("[InProcessBackend] follow-up error for {}: {}", agent_id_clone, e);
+                        eprintln!(
+                            "[InProcessBackend] follow-up error for {}: {}",
+                            agent_id_clone, e
+                        );
                         event_bus::emit(
                             &registered_id,
                             &sub_session_id,
@@ -186,7 +191,10 @@ impl InProcessBackend {
             agent_registry::unregister_agent(&registered_id);
         });
 
-        self.active.lock().await.insert(agent_id.clone(), TeammateEntry { task, tx });
+        self.active
+            .lock()
+            .await
+            .insert(agent_id.clone(), TeammateEntry { task, tx });
 
         SpawnResult {
             task_id,

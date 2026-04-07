@@ -3,15 +3,21 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::tools::{BaseTool, ToolResult, ToolExecutionContext};
-use super::types::McpToolInfo;
 use super::client::McpClientManager;
+use super::types::McpToolInfo;
+use crate::tools::{BaseTool, ToolExecutionContext, ToolResult};
 
 /// Sanitize a string segment for use in a tool name.
 fn sanitize_segment(value: &str) -> String {
     let sanitized: String = value
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
 
     if sanitized.is_empty() {
@@ -37,10 +43,7 @@ pub struct McpToolAdapter {
 }
 
 impl McpToolAdapter {
-    pub fn new(
-        manager: Arc<Mutex<McpClientManager>>,
-        tool_info: &McpToolInfo,
-    ) -> Self {
+    pub fn new(manager: Arc<Mutex<McpClientManager>>, tool_info: &McpToolInfo) -> Self {
         let server_segment = sanitize_segment(&tool_info.server_name);
         let tool_segment = sanitize_segment(&tool_info.name);
 
@@ -73,11 +76,7 @@ impl BaseTool for McpToolAdapter {
         false
     }
 
-    async fn execute(
-        &self,
-        args: Value,
-        _ctx: &ToolExecutionContext,
-    ) -> ToolResult {
+    async fn execute(&self, args: Value, _ctx: &ToolExecutionContext) -> ToolResult {
         let manager = self.manager.lock().await;
 
         match manager

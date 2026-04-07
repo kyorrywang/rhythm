@@ -1,7 +1,7 @@
 use async_trait::async_trait;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use futures::Stream;
 use std::pin::Pin;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11,11 +11,33 @@ pub struct ChatMessage {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChatAttachment {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    pub size: u64,
+    #[serde(rename = "dataUrl")]
+    pub data_url: Option<String>,
+    #[serde(rename = "previewUrl")]
+    pub preview_url: Option<String>,
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum ChatMessageBlock {
     #[serde(rename = "text")]
-    Text {
-        text: String,
+    Text { text: String },
+    #[serde(rename = "image")]
+    Image { media_type: String, data: String },
+    #[serde(rename = "file")]
+    File {
+        name: String,
+        mime_type: String,
+        size: u64,
+        text: Option<String>,
     },
     #[serde(rename = "tool_call")]
     ToolCall {
@@ -66,12 +88,12 @@ pub trait LlmClient: Send + Sync {
     ) -> Result<LlmResponseStream, String>;
 }
 
-pub mod openai;
 pub mod anthropic;
+pub mod openai;
 
 use crate::infrastructure::config::LlmConfig;
-use openai::OpenAiClient;
 use anthropic::AnthropicClient;
+use openai::OpenAiClient;
 
 pub fn create_client(config: &LlmConfig) -> Box<dyn LlmClient> {
     match config.provider.to_lowercase().as_str() {

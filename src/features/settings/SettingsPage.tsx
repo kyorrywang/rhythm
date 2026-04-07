@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Monitor, Moon, Sun, Type, Shield, RotateCcw } from 'lucide-react';
 import { useSettingsStore, type AppSettings } from '@/shared/state/useSettingsStore';
 import { useDisplayStore } from '@/shared/state/useDisplayStore';
+import { Button } from '@/shared/ui/Button';
 
 interface SettingsPageProps {
   onClose: () => void;
@@ -23,9 +24,9 @@ export const SettingsPage = ({ onClose }: SettingsPageProps) => {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h2 className="text-lg font-medium text-gray-800">设置</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <Button variant="unstyled" size="none" onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X size={20} />
-          </button>
+          </Button>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
@@ -34,7 +35,9 @@ export const SettingsPage = ({ onClose }: SettingsPageProps) => {
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
-                <button
+                <Button
+                  variant="unstyled"
+                  size="none"
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm transition-colors ${
@@ -45,7 +48,7 @@ export const SettingsPage = ({ onClose }: SettingsPageProps) => {
                 >
                   <Icon size={16} />
                   {tab.label}
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -80,7 +83,9 @@ function GeneralSettings({ settings, onUpdate, onReset }: { settings: AppSetting
           ].map((theme) => {
             const Icon = theme.icon;
             return (
-              <button
+              <Button
+                variant="unstyled"
+                size="none"
                 key={theme.value}
                 onClick={() => onUpdate({ theme: theme.value as AppSettings['theme'] })}
                 className={`flex-1 flex items-center justify-center gap-2 py-2.5 border rounded-lg text-sm transition-colors ${
@@ -91,7 +96,7 @@ function GeneralSettings({ settings, onUpdate, onReset }: { settings: AppSetting
               >
                 <Icon size={16} />
                 {theme.label}
-              </button>
+              </Button>
             );
           })}
         </div>
@@ -119,13 +124,15 @@ function GeneralSettings({ settings, onUpdate, onReset }: { settings: AppSetting
       </div>
 
       <div className="flex justify-end pt-4 border-t border-gray-100">
-        <button
+        <Button
+          variant="unstyled"
+          size="none"
           onClick={onReset}
           className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
         >
           <RotateCcw size={14} />
           恢复默认
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -181,13 +188,15 @@ function DisplaySettings({ preferences, onUpdate, onReset }: { preferences: Disp
       </div>
 
       <div className="flex justify-end pt-4 border-t border-gray-100">
-        <button
+        <Button
+          variant="unstyled"
+          size="none"
           onClick={onReset}
           className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
         >
           <RotateCcw size={14} />
           恢复默认
-        </button>
+        </Button>
       </div>
     </div>
   );
