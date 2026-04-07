@@ -1,5 +1,5 @@
 import type { Session } from '@/shared/types/schema';
-import { savePersistedSessions } from '@/shared/lib/sessionPersistence';
+import { persistSession, removePersistedSession } from '@/shared/lib/sessionPersistence';
 
 interface SessionSliceState {
   sessions: Map<string, Session>;
@@ -42,13 +42,13 @@ export const createSessionSlice = (
       const session = state.sessions.get(id);
       if (!session) return { activeSessionId: id };
       const next = new Map(state.sessions);
-      next.set(id, { ...session, hasUnreadCompleted: false });
-      savePersistedSessions(Array.from(next.values()));
+      const updated = { ...session, hasUnreadCompleted: false };
+      next.set(id, updated);
+      persistSession(updated);
       return { activeSessionId: id, sessions: next };
     }),
 
   setSessions: (sessions) => {
-    savePersistedSessions(sessions);
     set({
       sessions: new Map(sessions.map((s) => [s.id, s])),
     });
@@ -58,7 +58,7 @@ export const createSessionSlice = (
     set((state) => {
       const next = new Map(state.sessions);
       next.set(session.id, session);
-      savePersistedSessions(Array.from(next.values()));
+      persistSession(session);
       return { sessions: next };
     }),
 
@@ -67,8 +67,9 @@ export const createSessionSlice = (
       const session = state.sessions.get(id);
       if (!session) return state;
       const next = new Map(state.sessions);
-      next.set(id, { ...session, pinned: !(session.pinned ?? false), updatedAt: Date.now() });
-      savePersistedSessions(Array.from(next.values()));
+      const updated = { ...session, pinned: !(session.pinned ?? false), updatedAt: Date.now() };
+      next.set(id, updated);
+      persistSession(updated);
       return { sessions: next };
     }),
 
@@ -77,8 +78,9 @@ export const createSessionSlice = (
       const session = state.sessions.get(id);
       if (!session) return state;
       const next = new Map(state.sessions);
-      next.set(id, { ...session, archived: true, hasUnreadCompleted: false, updatedAt: Date.now() });
-      savePersistedSessions(Array.from(next.values()));
+      const updated = { ...session, archived: true, hasUnreadCompleted: false, updatedAt: Date.now() };
+      next.set(id, updated);
+      persistSession(updated);
       return {
         sessions: next,
         activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
@@ -90,8 +92,9 @@ export const createSessionSlice = (
       const session = state.sessions.get(id);
       if (!session) return state;
       const next = new Map(state.sessions);
-      next.set(id, { ...session, archived: false, updatedAt: Date.now() });
-      savePersistedSessions(Array.from(next.values()));
+      const updated = { ...session, archived: false, updatedAt: Date.now() };
+      next.set(id, updated);
+      persistSession(updated);
       return { sessions: next };
     }),
 
@@ -100,8 +103,9 @@ export const createSessionSlice = (
       const session = state.sessions.get(id);
       if (!session) return state;
       const next = new Map(state.sessions);
-      next.set(id, { ...session, title, updatedAt: Date.now() });
-      savePersistedSessions(Array.from(next.values()));
+      const updated = { ...session, title, updatedAt: Date.now() };
+      next.set(id, updated);
+      persistSession(updated);
       return { sessions: next };
     }),
 
@@ -110,8 +114,9 @@ export const createSessionSlice = (
       const session = state.sessions.get(id);
       if (!session) return state;
       const next = new Map(state.sessions);
-      next.set(id, { ...session, title });
-      savePersistedSessions(Array.from(next.values()));
+      const updated = { ...session, title, updatedAt: Date.now() };
+      next.set(id, updated);
+      persistSession(updated);
       return { sessions: next };
     }),
 
@@ -122,19 +127,23 @@ export const createSessionSlice = (
       const grants = session.permissionGrants ?? [];
       if (grants.includes(toolName)) return state;
       const next = new Map(state.sessions);
-      next.set(id, {
+      const updated = {
         ...session,
         permissionGrants: [...grants, toolName],
-      });
-      savePersistedSessions(Array.from(next.values()));
+      };
+      next.set(id, updated);
+      persistSession(updated);
       return { sessions: next };
     }),
 
   removeSession: (id) =>
     set((state) => {
       const next = new Map(state.sessions);
+      const session = next.get(id);
       next.delete(id);
-      savePersistedSessions(Array.from(next.values()));
+      if (session) {
+        removePersistedSession(session);
+      }
       return {
         sessions: next,
         activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
@@ -146,8 +155,9 @@ export const createSessionSlice = (
       const session = state.sessions.get(id);
       if (!session) return state;
       const next = new Map(state.sessions);
-      next.set(id, { ...session, ...updates, updatedAt: Date.now() });
-      savePersistedSessions(Array.from(next.values()));
+      const updated = { ...session, ...updates, updatedAt: Date.now() };
+      next.set(id, updated);
+      persistSession(updated);
       return { sessions: next };
     }),
 
@@ -158,8 +168,9 @@ export const createSessionSlice = (
       const session = state.sessions.get(sessionId);
       if (!session) return state;
       const next = new Map(state.sessions);
-      next.set(sessionId, { ...session, taskDockMinimized: minimized });
-      savePersistedSessions(Array.from(next.values()));
+      const updated = { ...session, taskDockMinimized: minimized };
+      next.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: next };
     }),
 
@@ -170,11 +181,12 @@ export const createSessionSlice = (
       const session = state.sessions.get(sessionId);
       if (!session) return state;
       const next = new Map(state.sessions);
-      next.set(sessionId, {
+      const updated = {
         ...session,
         taskDockMinimized: !(session.taskDockMinimized ?? false),
-      });
-      savePersistedSessions(Array.from(next.values()));
+      };
+      next.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: next };
     }),
 
@@ -185,11 +197,12 @@ export const createSessionSlice = (
       const session = state.sessions.get(sessionId);
       if (!session) return state;
       const next = new Map(state.sessions);
-      next.set(sessionId, {
+      const updated = {
         ...session,
         appendDockMinimized: !(session.appendDockMinimized ?? false),
-      });
-      savePersistedSessions(Array.from(next.values()));
+      };
+      next.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: next };
     }),
 

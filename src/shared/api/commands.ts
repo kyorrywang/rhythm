@@ -1,8 +1,6 @@
 import { Channel } from '@tauri-apps/api/core';
 import { client } from './client';
-import { loadPersistedSessions } from '@/shared/lib/sessionPersistence';
 import type {
-  BackendSessionInfo,
   BackendSettings,
   BackendWorkspaceInfo,
   BackendPluginSummary,
@@ -82,46 +80,25 @@ export function getWorkspaceInfo(path: string): Promise<BackendWorkspaceInfo> {
   return client.invoke('workspace_info', { path } as never);
 }
 
-function mapBackendSessionInfo(info: BackendSessionInfo): Session {
-  const createdAt = Number(info.created_at || 0) * 1000 || Date.now();
-  return {
-    id: info.session_id,
-    title: info.session_id,
-    updatedAt: createdAt,
-    messages: [],
-    taskDockMinimized: false,
-    appendDockMinimized: false,
-    queuedMessages: [],
-    phase: info.status === 'running' ? 'streaming' : 'idle',
-  };
+export function listWorkspaceSessions(cwd: string): Promise<Session[]> {
+  return client.invoke('list_workspace_sessions', { cwd } as never);
 }
 
-export async function getSessions(): Promise<Session[]> {
-  const persisted = loadPersistedSessions();
-  const runtimeSessions = await client.invoke('get_sessions', {} as never);
-  const runtimeMapped = runtimeSessions.map(mapBackendSessionInfo);
+export function getWorkspaceSession(cwd: string, sessionId: string): Promise<Session | null> {
+  return client.invoke('get_workspace_session', { cwd, sessionId } as never);
+}
 
-  const merged = new Map<string, Session>();
-  for (const session of persisted) {
-    merged.set(session.id, {
-      ...session,
-      messages: session.messages || [],
-      queuedMessages: session.queuedMessages || [],
-      taskDockMinimized: session.taskDockMinimized ?? false,
-      appendDockMinimized: session.appendDockMinimized ?? false,
-    });
-  }
-  for (const session of runtimeMapped) {
-    const existing = merged.get(session.id);
-    merged.set(session.id, {
-      ...session,
-      ...existing,
-      phase: session.phase,
-      updatedAt: Math.max(existing?.updatedAt || 0, session.updatedAt),
-    });
-  }
+export function saveWorkspaceSession(cwd: string, session: Session): Promise<Session> {
+  return client.invoke('save_workspace_session', { cwd, session } as never);
+}
 
-  return Array.from(merged.values());
+export function deleteWorkspaceSession(cwd: string, sessionId: string): Promise<boolean> {
+  return client.invoke('delete_workspace_session', { cwd, sessionId } as never);
+}
+
+export async function getSessions(cwd: string): Promise<Session[]> {
+  const sessions = await listWorkspaceSessions(cwd);
+  return sessions.map(normalizeSession);
 }
 
 export async function createSession(title = 'New Session', workspacePath?: string): Promise<Session> {
@@ -136,5 +113,16 @@ export async function createSession(title = 'New Session', workspacePath?: strin
     appendDockMinimized: false,
     queuedMessages: [],
     phase: 'idle',
+  };
+}
+
+function normalizeSession(session: Session): Session {
+  return {
+    ...session,
+    messages: session.messages || [],
+    queuedMessages: session.queuedMessages || [],
+    taskDockMinimized: session.taskDockMinimized ?? false,
+    appendDockMinimized: session.appendDockMinimized ?? false,
+    phase: session.phase === 'streaming' ? 'idle' : session.phase,
   };
 }

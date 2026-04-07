@@ -1,5 +1,6 @@
 import type { Message, MessageSegment, ServerEventChunk, Session, QueuedMessage, Task, AskRequest } from '@/shared/types/schema';
 import { reduceSessionChunk } from '@/shared/state/sessionChunkReducer';
+import { persistSession } from '@/shared/lib/sessionPersistence';
 
 interface MessageSliceState {
   messages: Map<string, Message>;
@@ -46,11 +47,13 @@ export const createMessageSlice = (
       const nextSessions = new Map(state.sessions);
       const session = nextSessions.get(sessionId);
       if (!session) return state;
-      nextSessions.set(sessionId, {
+      const updated: Session = {
         ...session,
         messages: [...session.messages, message],
         updatedAt: Date.now(),
-      });
+      };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: nextSessions };
     }),
 
@@ -59,13 +62,15 @@ export const createMessageSlice = (
       const nextSessions = new Map(state.sessions);
       const session = nextSessions.get(sessionId);
       if (!session) return state;
-      nextSessions.set(sessionId, {
+      const updated = {
         ...session,
         messages: session.messages.map((msg) =>
           msg.id === messageId ? { ...msg, ...updates } : msg,
         ),
         updatedAt: Date.now(),
-      });
+      };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: nextSessions };
     }),
 
@@ -87,7 +92,9 @@ export const createMessageSlice = (
         if (a.priority !== 'urgent' && b.priority === 'urgent') return 1;
         return a.createdAt - b.createdAt;
       });
-      nextSessions.set(sessionId, { ...session, queuedMessages: sorted, updatedAt: Date.now() });
+      const updated = { ...session, queuedMessages: sorted, updatedAt: Date.now() };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: nextSessions };
     }),
 
@@ -99,11 +106,13 @@ export const createMessageSlice = (
       const queue = session?.queuedMessages;
       if (!session || !queue || queue.length === 0) return state;
       result = queue[0];
-      nextSessions.set(sessionId, {
+      const updated = {
         ...session,
         queuedMessages: queue.slice(1),
         updatedAt: Date.now(),
-      });
+      };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: nextSessions };
     });
     return result;
@@ -115,11 +124,13 @@ export const createMessageSlice = (
       const session = nextSessions.get(sessionId);
       const queue = session?.queuedMessages;
       if (!session || !queue) return state;
-      nextSessions.set(sessionId, {
+      const updated = {
         ...session,
         queuedMessages: queue.filter((q) => q.id !== queuedMessageId),
         updatedAt: Date.now(),
-      });
+      };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: nextSessions };
     }),
 
@@ -128,7 +139,9 @@ export const createMessageSlice = (
       const nextSessions = new Map(state.sessions);
       const session = nextSessions.get(sessionId);
       if (!session) return state;
-      nextSessions.set(sessionId, { ...session, queuedMessages: [], updatedAt: Date.now() });
+      const updated = { ...session, queuedMessages: [], updatedAt: Date.now() };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: nextSessions };
     }),
 
@@ -142,12 +155,14 @@ export const createMessageSlice = (
       const nextSessions = new Map(state.sessions);
       const session = nextSessions.get(sessionId);
       if (!session) return state;
-      nextSessions.set(sessionId, {
+      const updated = {
         ...session,
         phase,
         currentAsk: phase !== 'waiting_for_ask' ? null : session.currentAsk,
         updatedAt: Date.now(),
-      });
+      };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: nextSessions };
     }),
 
@@ -156,7 +171,9 @@ export const createMessageSlice = (
       const nextSessions = new Map(state.sessions);
       const session = nextSessions.get(sessionId);
       if (!session) return state;
-      nextSessions.set(sessionId, { ...session, currentAsk: null, updatedAt: Date.now() });
+      const updated = { ...session, currentAsk: null, updatedAt: Date.now() };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: nextSessions };
     }),
 
@@ -165,7 +182,7 @@ export const createMessageSlice = (
       const nextSessions = new Map(state.sessions);
       const session = nextSessions.get(sessionId);
       if (!session) return state;
-      nextSessions.set(sessionId, {
+      const updated = {
         ...session,
         currentAsk: null,
         messages: session.messages.map((msg) =>
@@ -182,7 +199,9 @@ export const createMessageSlice = (
               },
         ),
         updatedAt: Date.now(),
-      });
+      };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: nextSessions };
     }),
 
@@ -192,7 +211,9 @@ export const createMessageSlice = (
       const session = nextSessions.get(sessionId);
       if (!session) return state;
       if (!session.currentTasks?.length) return state;
-      nextSessions.set(sessionId, { ...session, currentTasks: [] });
+      const updated = { ...session, currentTasks: [] };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
       return { sessions: nextSessions };
     }),
 
@@ -202,7 +223,7 @@ export const createMessageSlice = (
       const session = nextSessions.get(sessionId);
       if (!session) return state;
 
-      nextSessions.set(sessionId, {
+      const updated = {
         ...session,
         messages: session.messages.map((msg) =>
           !msg.segments
@@ -211,13 +232,15 @@ export const createMessageSlice = (
                 ...msg,
                 segments: msg.segments.map((seg) =>
                   seg.type === 'permission' && seg.request.toolId === toolId
-                    ? { ...seg, status: approved ? 'approved' : 'denied' }
+                    ? { ...seg, status: approved ? 'approved' as const : 'denied' as const }
                     : seg,
                 ),
               },
         ),
         updatedAt: Date.now(),
-      });
+      };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
 
       return { sessions: nextSessions };
     }),

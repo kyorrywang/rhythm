@@ -1,4 +1,4 @@
-import type { Attachment } from './schema';
+import type { Attachment, Session } from './schema';
 
 export interface ChatStreamRequest {
   sessionId: string;
@@ -157,6 +157,22 @@ export interface TauriCommands {
   get_sessions: {
     request: void;
     response: BackendSessionInfo[];
+  };
+  list_workspace_sessions: {
+    request: { cwd: string };
+    response: Session[];
+  };
+  get_workspace_session: {
+    request: { cwd: string; sessionId: string };
+    response: Session | null;
+  };
+  save_workspace_session: {
+    request: { cwd: string; session: Session };
+    response: Session;
+  };
+  delete_workspace_session: {
+    request: { cwd: string; sessionId: string };
+    response: boolean;
   };
   get_settings: {
     request: void;

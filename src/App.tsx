@@ -6,25 +6,50 @@ import { ToastContainer } from '@/shared/ui/Toast';
 import { useSettingsStore } from '@/shared/state/useSettingsStore';
 import type { AppSettings } from '@/shared/state/useSettingsStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
+import { useActiveWorkspace } from '@/shared/state/useWorkspaceStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useEffect } from 'react';
+import { getSessions } from '@/shared/api/commands';
 
 export function App() {
   const workbench = useSessionStore((s) => s.workbench);
   const setLeftPanelMode = useSessionStore((s) => s.setLeftPanelMode);
   const closeWorkbench = useSessionStore((s) => s.closeWorkbench);
   const setComposerControls = useSessionStore((s) => s.setComposerControls);
+  const setSessions = useSessionStore((s) => s.setSessions);
   const hydrateFromBackend = useSettingsStore((s) => s.hydrateFromBackend);
   const isHydratedFromBackend = useSettingsStore((s) => s.isHydratedFromBackend);
   const settings = useSettingsStore((s) => s.settings);
   const setPermissionConfig = usePermissionStore((s) => s.setConfig);
+  const activeWorkspace = useActiveWorkspace();
 
   useEffect(() => {
     if (!isHydratedFromBackend) {
       void hydrateFromBackend();
     }
   }, [hydrateFromBackend, isHydratedFromBackend]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getSessions(activeWorkspace.path)
+      .then((sessions) => {
+        if (cancelled) return;
+        setSessions(sessions);
+        const current = useSessionStore.getState().activeSessionId;
+        if (!current || !sessions.some((session) => session.id === current)) {
+          const nextActive = sessions.find((session) => !session.archived)?.id || null;
+          useSessionStore.getState().setActiveSession(nextActive);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to load workspace sessions', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspace.path, setSessions]);
 
   useEffect(() => {
     const defaultModel = selectDefaultModel(settings, useSessionStore.getState().composerControls);

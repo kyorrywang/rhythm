@@ -45,6 +45,10 @@ pub fn run() {
             commands::chat::approve_permission,
             commands::llm::llm_complete,
             commands::session::get_sessions,
+            commands::session::list_workspace_sessions,
+            commands::session::get_workspace_session,
+            commands::session::save_workspace_session,
+            commands::session::delete_workspace_session,
             commands::interrupt::interrupt_session,
             commands::workspace::workspace_info,
             // Memory management

@@ -1,26 +1,22 @@
 import type { Session } from '@/shared/types/schema';
+import { deleteWorkspaceSession, saveWorkspaceSession } from '@/shared/api/commands';
 
-const STORAGE_KEY = 'rhythm.sessions.v1';
-
-export function loadPersistedSessions(): Session[] {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Session[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+export function persistSession(session: Session): void {
+  if (!session.workspacePath) return;
+  void saveWorkspaceSession(session.workspacePath, session).catch((error) => {
+    console.error('Failed to persist session', error);
+  });
 }
 
-export function savePersistedSessions(sessions: Session[]): void {
-  if (typeof window === 'undefined') return;
+export function removePersistedSession(session: Session): void {
+  if (!session.workspacePath) return;
+  void deleteWorkspaceSession(session.workspacePath, session.id).catch((error) => {
+    console.error('Failed to delete session', error);
+  });
+}
 
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-  } catch {
-    // Ignore storage failures and keep the in-memory session state usable.
+export function persistSessions(sessions: Iterable<Session>): void {
+  for (const session of sessions) {
+    persistSession(session);
   }
 }

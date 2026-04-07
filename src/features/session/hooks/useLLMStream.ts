@@ -4,6 +4,7 @@ import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useToastStore } from '@/shared/state/useToastStore';
 import { useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
+import { persistSession, persistSessions } from '@/shared/lib/sessionPersistence';
 import { Attachment, Message, ServerEventChunk, Session } from '@/shared/types/schema';
 import { chatStream, submitUserAnswer, approvePermission, interruptSession, llmComplete } from '@/shared/api/commands';
 
@@ -24,6 +25,27 @@ export const useLLMStream = () => {
   const rootSessionIdRef = useRef<string | null>(null);
   const rootAiMessageIdRef = useRef<string | null>(null);
   const subSessionMessageMapRef = useRef<Map<string, string>>(new Map());
+  const persistTimersRef = useRef<Map<string, number>>(new Map());
+
+  const schedulePersistSession = useCallback((session: Session | undefined, immediate = false) => {
+    if (!session) return;
+    const existingTimer = persistTimersRef.current.get(session.id);
+    if (existingTimer !== undefined) {
+      window.clearTimeout(existingTimer);
+      persistTimersRef.current.delete(session.id);
+    }
+
+    if (immediate) {
+      persistSession(session);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      persistSession(session);
+      persistTimersRef.current.delete(session.id);
+    }, 500);
+    persistTimersRef.current.set(session.id, timer);
+  }, []);
 
   const connectStream = useCallback(async (
     prompt: string,
@@ -86,6 +108,10 @@ export const useLLMStream = () => {
           let newSessions = reduced.sessions;
           newSessions = liveState.migrateQueueToChild(chunk.parentSessionId, chunk.subSessionId, newSessions);
           store.setState({ sessions: newSessions });
+          persistSessions([
+            newSessions.get(chunk.parentSessionId),
+            newSessions.get(chunk.subSessionId),
+          ].filter(Boolean) as Session[]);
 
           const subAiMessageId = Date.now().toString() + '-a-sub';
           store.getState().addMessage(chunk.subSessionId, {
@@ -104,10 +130,12 @@ export const useLLMStream = () => {
           const subAiMessageId = subSessionMessageMapRef.current.get(chunk.subSessionId) || aiMessageId;
           const reduced = liveState.processChunk(liveState.sessions, chunk.subSessionId, subAiMessageId, chunk);
           store.setState({ sessions: reduced.sessions });
+          schedulePersistSession(reduced.sessions.get(chunk.subSessionId), true);
           const parentSessionId = reduced.sessions.get(chunk.subSessionId)?.parentId;
           if (parentSessionId) {
             const newSessions = store.getState().restoreQueueToParent(chunk.subSessionId, parentSessionId, reduced.sessions);
             store.setState({ sessions: newSessions });
+            schedulePersistSession(newSessions.get(parentSessionId), true);
           }
           return;
         }
@@ -134,6 +162,7 @@ export const useLLMStream = () => {
           const targetAiMessageId = subSessionMessageMapRef.current.get(chunk.sessionId) || aiMessageId;
           const reduced = liveState.processChunk(liveState.sessions, chunk.sessionId, targetAiMessageId, chunk);
           store.setState({ sessions: reduced.sessions });
+          schedulePersistSession(reduced.sessions.get(chunk.sessionId), true);
 
           if (liveState.activeSessionId !== chunk.sessionId) {
             const sessionTitle = liveState.sessions.get(chunk.sessionId)?.title || '子会话';
@@ -155,6 +184,7 @@ export const useLLMStream = () => {
         const targetAiMessageId = subSessionMessageMapRef.current.get(targetSessionId) || aiMessageId;
         const reduced = liveState.processChunk(liveState.sessions, targetSessionId, targetAiMessageId, chunk);
         store.setState({ sessions: reduced.sessions });
+        schedulePersistSession(reduced.sessions.get(targetSessionId), chunk.type === 'done' || chunk.type === 'interrupted');
 
         if (chunk.type === 'done') {
           const isSubSession = subSessionMessageMapRef.current.has(targetSessionId);
@@ -195,7 +225,7 @@ export const useLLMStream = () => {
         error: 'Stream connection failed',
       });
     }
-  }, [store, permissionStore]);
+  }, [store, permissionStore, schedulePersistSession]);
 
   const processQueueAfterDone = useCallback(async (sessionId: string, _lastMode: 'normal' | 'build' | 'task' | 'ask' | 'append') => {
     const queuedItem = store.getState().dequeueMessage(sessionId);
