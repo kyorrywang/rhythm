@@ -22,7 +22,7 @@ pub struct PluginManifest {
     #[serde(default = "default_true", alias = "enabledByDefault")]
     pub enabled_by_default: bool,
     /// JavaScript plugin entrypoint, for example "dist/main.js" or "src/main.tsx" in dev mode.
-    #[serde(default)]
+    #[serde(default, alias = "main")]
     pub entry: Option<String>,
     /// Host capabilities requested by this plugin.
     #[serde(default)]
@@ -55,6 +55,10 @@ pub struct PluginRequires {
     /// Capability requirements. Core and enabled plugins can satisfy these.
     #[serde(default)]
     pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub commands: Vec<String>,
+    #[serde(default)]
+    pub tools: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -67,14 +71,20 @@ pub struct PluginProvides {
 pub struct PluginContributions {
     #[serde(default, alias = "activityBar")]
     pub activity_bar: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub views: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub menus: Vec<serde_json::Value>,
     #[serde(default, alias = "leftPanelViews")]
     pub left_panel_views: Vec<serde_json::Value>,
     #[serde(default, alias = "workbenchViews")]
     pub workbench_views: Vec<serde_json::Value>,
     #[serde(default)]
     pub commands: Vec<serde_json::Value>,
-    #[serde(default, alias = "agentTools")]
+    #[serde(default, alias = "agentTools", alias = "tools")]
     pub agent_tools: Vec<serde_json::Value>,
+    #[serde(default, alias = "skills")]
+    pub skills: Vec<serde_json::Value>,
     #[serde(default, alias = "settingsSections")]
     pub settings_sections: Vec<serde_json::Value>,
     #[serde(default, alias = "messageActions")]
@@ -164,6 +174,7 @@ pub struct PluginSummary {
     pub hooks_count: usize,
     pub mcp_servers_count: usize,
     pub path: String,
+    pub main: Option<String>,
     pub entry: Option<String>,
     pub permissions: Vec<String>,
     pub granted_permissions: Vec<String>,
@@ -186,6 +197,7 @@ impl From<&LoadedPlugin> for PluginSummary {
             hooks_count: p.hooks.values().map(Vec::len).sum(),
             mcp_servers_count: p.mcp_servers.len(),
             path: p.path.to_string_lossy().to_string(),
+            main: p.manifest.entry.clone(),
             entry: p.manifest.entry.clone(),
             permissions: p.manifest.permissions.clone(),
             granted_permissions: p.granted_permissions.clone(),

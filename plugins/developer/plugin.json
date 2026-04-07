@@ -2,27 +2,177 @@
   "name": "developer",
   "version": "0.1.0",
   "description": "Developer workflow views for command logs, validation and diffs.",
-  "entry": "src/main.tsx",
+  "main": "dist/main.js",
+  "dev": {
+    "main": "src/main.tsx"
+  },
   "enabledByDefault": true,
   "permissions": [
-    "workspace.files.read",
     "terminal.run"
   ],
   "requires": {
     "plugins": {
       "folder": "^0.1.0"
     },
-    "capabilities": [
-      "workspace.files.read",
-      "terminal.run",
-      "workspace.tree"
-    ]
+    "commands": [
+      "tool.shell",
+      "folder.reveal",
+      "folder.openFile"
+    ],
+    "tools": []
   },
-  "provides": {
-    "capabilities": [
-      "developer.diff",
-      "developer.log",
-      "developer.validation"
+  "contributes": {
+    "commands": [
+      {
+        "id": "developer.runCommand",
+        "description": "Run a command in the current workspace.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string" }
+          },
+          "required": ["command"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "developer.runCommand"
+      },
+      {
+        "id": "developer.gitStatus",
+        "description": "Get git status for the current workspace.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "developer.gitStatus"
+      },
+      {
+        "id": "developer.gitDiff",
+        "description": "Get git diff for the current workspace.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "developer.gitDiff"
+      },
+      {
+        "id": "developer.gitDiffFile",
+        "description": "Get git diff for one file in the current workspace.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" }
+          },
+          "required": ["path"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "developer.gitDiffFile"
+      },
+      {
+        "id": "developer.stageFile",
+        "description": "Stage a file with git add.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" }
+          },
+          "required": ["path"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "developer.stageFile"
+      },
+      {
+        "id": "developer.unstageFile",
+        "description": "Unstage a file with git restore --staged.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" }
+          },
+          "required": ["path"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "developer.unstageFile"
+      },
+      {
+        "id": "developer.stagedDiff",
+        "description": "Get staged git diff for the current workspace.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "developer.stagedDiff"
+      },
+      {
+        "id": "developer.commit",
+        "description": "Commit staged changes with a commit message.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "message": { "type": "string" }
+          },
+          "required": ["message"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "developer.commit"
+      },
+      {
+        "id": "developer.runValidation",
+        "description": "Run a validation command and parse common diagnostics.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string" }
+          },
+          "required": ["command"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "developer.runValidation"
+      },
+      {
+        "id": "developer.detectValidationCommands",
+        "description": "Suggest validation commands for the current workspace.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "developer.detectValidationCommands"
+      }
+    ],
+    "views": [
+      {
+        "id": "developer.panel",
+        "title": "Development",
+        "location": "leftPanel"
+      },
+      {
+        "id": "developer.log",
+        "title": "Command Log",
+        "location": "workbench"
+      },
+      {
+        "id": "developer.diff",
+        "title": "Diff",
+        "location": "workbench"
+      },
+      {
+        "id": "developer.validation",
+        "title": "Validation",
+        "location": "workbench"
+      }
     ]
   }
 }

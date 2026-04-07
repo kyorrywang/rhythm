@@ -73,7 +73,7 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
           <StatCard label="MCP" value={String(plugin.mcp_servers_count)} />
           <StatCard label="安装路径" value={plugin.path.split('\\').slice(-2).join('\\')} />
           <StatCard label="状态" value={plugin.status} />
-          <StatCard label="入口" value={plugin.entry || '未声明'} />
+          <StatCard label="入口" value={plugin.main || plugin.entry || '未声明'} />
           <StatCard label="运行时" value={runtime?.status || 'not_loaded'} />
         </div>
         {runtime?.error && (
@@ -121,6 +121,8 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
 
         <section className="mt-8 grid gap-4 lg:grid-cols-3">
           <InfoList title="依赖插件" items={Object.entries(plugin.requires.plugins).map(([name, range]) => `${name} ${range}`)} empty="无插件硬依赖" />
+          <InfoList title="依赖 Commands" items={plugin.requires.commands} empty="无 command 依赖" />
+          <InfoList title="依赖 Tools" items={plugin.requires.tools} empty="无 tool 依赖" />
           <InfoList title="需要能力" items={plugin.requires.capabilities} empty="无 capability 依赖" />
           <InfoList title="提供能力" items={plugin.provides.capabilities} empty="未声明 capability" />
         </section>
@@ -159,10 +161,13 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
           <div className="mb-4 text-sm font-semibold text-slate-800">Manifest 贡献点</div>
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
             <StatCard label="Activity" value={String(plugin.contributes.activity_bar.length)} />
+            <StatCard label="Views" value={String(plugin.contributes.views.length)} />
+            <StatCard label="Menus" value={String(plugin.contributes.menus.length)} />
             <StatCard label="Left Panel" value={String(plugin.contributes.left_panel_views.length)} />
             <StatCard label="Workbench" value={String(plugin.contributes.workbench_views.length)} />
             <StatCard label="Commands" value={String(plugin.contributes.commands.length)} />
-            <StatCard label="Agent Tools" value={String(plugin.contributes.agent_tools.length)} />
+            <StatCard label="Tools" value={String(plugin.contributes.agent_tools.length)} />
+            <StatCard label="Skills" value={String(plugin.contributes.skills.length)} />
           </div>
         </section>
 
@@ -181,6 +186,8 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
           </div>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <InfoList title="Views" items={[...registeredLeftPanels, ...registeredWorkbenchViews].map((view) => view.id)} empty="没有注册 UI view" />
+            <InfoList title="Manifest Commands" items={plugin.contributes.commands.map(formatContribution)} empty="没有声明 command" />
+            <InfoList title="Manifest Tools" items={plugin.contributes.agent_tools.map(formatContribution)} empty="没有声明 tool" />
             <InfoList title="Commands" items={registeredCommands.map((id) => {
               const metadata = usePluginHostStore.getState().commandHandlers[id]?.metadata;
               return metadata?.title ? `${id} · ${metadata.title}` : id;
@@ -256,4 +263,10 @@ function statusClassName(status: BackendPluginSummary['status']) {
     default:
       return 'bg-slate-100 text-slate-500';
   }
+}
+
+function formatContribution(contribution: { id?: string; title?: string; description?: string; [key: string]: unknown }) {
+  const id = contribution.id || contribution.title || 'unknown';
+  const suffix = contribution.description ? ` · ${contribution.description}` : '';
+  return `${id}${suffix}`;
 }

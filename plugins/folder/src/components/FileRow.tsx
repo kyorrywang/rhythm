@@ -9,12 +9,14 @@ export function FileRow({
   depth,
   onOpen,
   onCopyPath,
+  gitStatus,
 }: {
   entry: BackendWorkspaceDirEntry;
   active: boolean;
   depth: number;
   onOpen: () => void;
   onCopyPath: (path: string) => void;
+  gitStatus?: string;
 }) {
   return (
     <Button
@@ -29,6 +31,7 @@ export function FileRow({
       <span className="flex min-w-0 items-center gap-2 truncate">
         <FileText size={14} className="shrink-0" />
         <span className="truncate">{entry.name}</span>
+        {gitStatus && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">{gitStatus}</span>}
       </span>
       <ActionMenu path={entry.path} onCopyPath={onCopyPath} />
     </Button>

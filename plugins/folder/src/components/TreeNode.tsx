@@ -71,6 +71,7 @@ export function TreeNode({
         depth={depth}
         onOpen={() => actions.openFile(entry)}
         onCopyPath={(path) => void actions.copyPath(path)}
+        gitStatus={actions.gitStatusForPath(entry.path)}
       />
     );
   }

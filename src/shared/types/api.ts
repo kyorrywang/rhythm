@@ -60,22 +60,28 @@ export interface BackendPluginSummary {
   hooks_count: number;
   mcp_servers_count: number;
   path: string;
+  main?: string | null;
   entry?: string | null;
   permissions: string[];
   granted_permissions: string[];
   requires: {
     plugins: Record<string, string>;
     capabilities: string[];
+    commands: string[];
+    tools: string[];
   };
   provides: {
     capabilities: string[];
   };
   contributes: {
     activity_bar: BackendPluginContribution[];
+    views: BackendPluginContribution[];
+    menus: BackendPluginContribution[];
     left_panel_views: BackendPluginContribution[];
     workbench_views: BackendPluginContribution[];
     commands: BackendPluginContribution[];
     agent_tools: BackendPluginContribution[];
+    skills: BackendPluginContribution[];
     settings_sections: BackendPluginContribution[];
     message_actions: BackendPluginContribution[];
     tool_result_actions: BackendPluginContribution[];

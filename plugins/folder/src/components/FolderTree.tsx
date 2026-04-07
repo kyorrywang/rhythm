@@ -6,7 +6,7 @@ import { Button } from '../../../../src/shared/ui/Button';
 import { FOLDER_COMMANDS, FOLDER_VIEWS } from '../constants';
 import { useExpandedPaths } from '../hooks/useExpandedPaths';
 import { useOpenHistory } from '../hooks/useOpenHistory';
-import type { FilePreviewPayload, FolderListInput, FolderReadInput, FolderTreeFileActions } from '../types';
+import type { FilePreviewPayload, FolderGitStatusEntry, FolderListInput, FolderReadInput, FolderTreeFileActions } from '../types';
 import { fileStatusDescription, sortEntries } from '../utils';
 import { FileRow } from './FileRow';
 import { TreeNode } from './TreeNode';
@@ -17,6 +17,7 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gitStatuses, setGitStatuses] = useState<Map<string, string>>(new Map());
   const history = useOpenHistory(ctx);
   const { expandedPaths, toggle } = useExpandedPaths(ctx);
 
@@ -40,11 +41,34 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
     void loadRoot();
   }, [loadRoot]);
 
+  useEffect(() => {
+    const disposable = ctx.events.on('developer.gitStatusChanged', (payload) => {
+      const files = typeof payload === 'object' && payload && 'files' in payload
+        ? (payload as { files?: FolderGitStatusEntry[] }).files || []
+        : [];
+      setGitStatuses(new Map(files.map((entry) => [entry.path, entry.status])));
+    });
+    return () => disposable.dispose();
+  }, [ctx.events]);
+
   const openFile = useCallback(async (entry: BackendWorkspaceDirEntry) => {
     setActivePath(entry.path);
     setError(null);
     try {
-      const file = await ctx.commands.execute<FolderReadInput, FilePreviewPayload>(FOLDER_COMMANDS.read, { path: entry.path });
+      const result = await ctx.commands.execute<FolderReadInput, string | { output?: string }>(
+        FOLDER_COMMANDS.read,
+        { path: entry.path },
+      );
+      const content = typeof result === 'string' ? result : result.output || '';
+      const file: FilePreviewPayload = {
+        path: entry.path,
+        content,
+        size: content.length,
+        truncated: false,
+        is_binary: false,
+        encoding_error: null,
+        limit_bytes: content.length,
+      };
       await history.remember(file.path);
       ctx.ui.workbench.open({
         viewId: FOLDER_VIEWS.filePreview,
@@ -62,8 +86,12 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
   }, []);
 
   const actions = useMemo<FolderTreeFileActions>(
-    () => ({ openFile: (entry) => void openFile(entry), copyPath }),
-    [copyPath, openFile],
+    () => ({
+      openFile: (entry) => void openFile(entry),
+      copyPath,
+      gitStatusForPath: (path) => gitStatuses.get(path),
+    }),
+    [copyPath, gitStatuses, openFile],
   );
 
   return (
@@ -127,6 +155,7 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
                   depth={0}
                   onOpen={() => void openFile(entry)}
                   onCopyPath={(path) => void copyPath(path)}
+                  gitStatus={gitStatuses.get(entry.path)}
                 />
               ))}
             </div>

@@ -228,6 +228,20 @@ fn blocked_reason_for(
         }
     }
 
+    let commands = available_commands(plugins);
+    for command in &plugin.manifest.requires.commands {
+        if !commands.contains(command) {
+            return Some(format!("缺少 command：{}", command));
+        }
+    }
+
+    let tools = available_tools(plugins);
+    for tool in &plugin.manifest.requires.tools {
+        if !tools.contains(tool) {
+            return Some(format!("缺少 tool：{}", tool));
+        }
+    }
+
     None
 }
 
@@ -244,6 +258,51 @@ fn available_capabilities(plugins: &[LoadedPlugin]) -> HashSet<String> {
     }
 
     capabilities
+}
+
+fn available_commands(plugins: &[LoadedPlugin]) -> HashSet<String> {
+    let mut commands: HashSet<String> = core_commands().into_iter().map(str::to_string).collect();
+    for plugin in plugins {
+        if plugin.configured_enabled && plugin.status != PluginStatus::Blocked {
+            for command in &plugin.manifest.contributes.commands {
+                if let Some(id) = command.get("id").and_then(|value| value.as_str()) {
+                    commands.insert(id.to_string());
+                }
+            }
+        }
+    }
+    commands
+}
+
+fn available_tools(plugins: &[LoadedPlugin]) -> HashSet<String> {
+    let mut tools: HashSet<String> = core_tools().into_iter().map(str::to_string).collect();
+    for plugin in plugins {
+        if plugin.configured_enabled && plugin.status != PluginStatus::Blocked {
+            for tool in &plugin.manifest.contributes.agent_tools {
+                if let Some(id) = tool.get("id").and_then(|value| value.as_str()) {
+                    tools.insert(id.to_string());
+                }
+            }
+        }
+    }
+    tools
+}
+
+fn core_commands() -> Vec<&'static str> {
+    vec![
+        "tool.list_dir",
+        "tool.read_file",
+        "tool.write_file",
+        "tool.edit_file",
+        "tool.delete_file",
+        "tool.shell",
+    ]
+}
+
+fn core_tools() -> Vec<&'static str> {
+    vec![
+        "list_dir", "read", "write", "edit", "delete", "shell", "ask", "plan", "subagent", "skill",
+    ]
 }
 
 fn core_capabilities() -> Vec<&'static str> {

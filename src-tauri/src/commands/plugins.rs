@@ -2,7 +2,6 @@ use crate::infrastructure::config;
 use crate::infrastructure::paths;
 use crate::plugins::PluginStatus;
 use crate::plugins::{self, PluginSummary};
-use serde_json::json;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct PluginCommandRequest {
@@ -138,7 +137,6 @@ pub async fn plugin_runtime_info(
     })
 }
 
-/// Minimal command dispatch entrypoint. Real handlers are registered in later phases.
 #[tauri::command]
 pub async fn plugin_invoke_command(
     request: PluginCommandRequest,
@@ -146,46 +144,22 @@ pub async fn plugin_invoke_command(
     let cwd_path = crate::commands::workspace::resolve_workspace_path(Some(&request.cwd))?;
     let settings = config::load_settings();
     let loaded = plugins::load_plugins(&settings, &cwd_path);
-    let plugin = loaded
-        .iter()
-        .find(|entry| entry.name() == request.plugin_name)
-        .ok_or_else(|| format!("Plugin '{}' is not installed", request.plugin_name))?;
-
-    if !plugin.enabled {
-        return Err(plugin
-            .blocked_reason
-            .clone()
-            .unwrap_or_else(|| format!("Plugin '{}' is not enabled", plugin.name())));
-    }
-
-    let command_declared = plugin.manifest.contributes.commands.iter().any(|command| {
-        command
-            .get("id")
-            .and_then(|value| value.as_str())
-            .map(|id| id == request.command_id)
-            .unwrap_or(false)
-    });
-    if !command_declared {
-        return Err(format!(
-            "Plugin '{}' does not declare command '{}'",
-            plugin.name(),
-            request.command_id
-        ));
-    }
-
-    let storage_path = paths::get_workspace_plugin_data_dir(&cwd_path, plugin.name());
-    paths::ensure_dir(&storage_path).map_err(|e| e.to_string())?;
+    let registry = plugins::PluginCommandRegistry::from_plugins(&loaded);
+    let execution = registry
+        .execute(
+            &loaded,
+            &request.plugin_name,
+            &request.command_id,
+            request.input,
+            &cwd_path,
+        )
+        .await?;
 
     Ok(PluginCommandResponse {
-        plugin_name: plugin.name().to_string(),
-        command_id: request.command_id,
-        handled: false,
-        result: json!({
-            "status": "registered",
-            "message": "Command dispatch is wired. Concrete plugin handlers are not implemented yet.",
-            "input": request.input,
-            "storagePath": storage_path.to_string_lossy().to_string(),
-        }),
+        plugin_name: execution.plugin_name,
+        command_id: execution.command_id,
+        handled: execution.handled,
+        result: execution.result,
     })
 }
 

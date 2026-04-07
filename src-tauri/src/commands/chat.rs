@@ -78,7 +78,11 @@ pub async fn chat_stream(
             Some(Arc::new(Mutex::new(manager)))
         };
 
-        let tool_registry = Arc::new(ToolRegistry::create_with_mcp(mcp_manager.clone()));
+        let loaded_plugins = crate::plugins::load_plugins(&settings, &cwd_path);
+        let tool_registry = Arc::new(ToolRegistry::create_with_plugins_and_mcp(
+            &loaded_plugins,
+            mcp_manager.clone(),
+        ));
         let permission_mode_override = permission_mode.as_deref().map(PermissionMode::from_str);
         let permission_checker = Arc::new(PermissionChecker::new_with_mode(
             &settings.permission,

@@ -44,13 +44,14 @@ export function PluginHostRuntime() {
               ? 'load_error'
               : plugin.status,
           source: 'manifest',
-          entry: plugin.entry || undefined,
+          entry: plugin.main || plugin.entry || undefined,
         });
         if (plugin.status !== 'enabled') {
           continue;
         }
 
         const candidatePaths = [
+          plugin.main ? `../../plugins/${plugin.name}/${plugin.main}` : null,
           plugin.entry ? `../../plugins/${plugin.name}/${plugin.entry}` : null,
           `../../plugins/${plugin.name}/src/main.tsx`,
           `../../plugins/${plugin.name}/dist/main.js`,
@@ -60,8 +61,8 @@ export function PluginHostRuntime() {
         if (!loader) {
           host.setPluginRuntime(plugin.name, {
             status: 'load_error',
-            source: plugin.entry?.startsWith('dist/') ? 'external' : 'dev',
-            entry: plugin.entry || 'src/main.tsx',
+            source: (plugin.main || plugin.entry)?.startsWith('dist/') ? 'external' : 'dev',
+            entry: plugin.main || plugin.entry || 'src/main.tsx',
             error: '插件入口不存在或未被 Vite dev loader 发现',
           });
           continue;
@@ -74,7 +75,7 @@ export function PluginHostRuntime() {
           }
           const activated = await activatePlugin(plugin.name, mod.default, {
             source: loaderPath?.includes('/dist/') ? 'external' : 'dev',
-            entry: plugin.entry || loaderPath,
+            entry: plugin.main || plugin.entry || loaderPath,
             trackDisposable: (disposable) => disposablesRef.current.push(disposable),
           });
           if (activated && generationRef.current === generation) {
@@ -84,7 +85,7 @@ export function PluginHostRuntime() {
           host.setPluginRuntime(plugin.name, {
             status: 'load_error',
             source: loaderPath?.includes('/dist/') ? 'external' : 'dev',
-            entry: plugin.entry || loaderPath,
+            entry: plugin.main || plugin.entry || loaderPath,
             error: error instanceof Error ? error.message : String(error),
           });
         }

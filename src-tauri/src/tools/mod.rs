@@ -8,6 +8,7 @@ pub mod ask;
 pub mod context;
 pub mod delete_file;
 pub mod edit_file;
+pub mod list_dir;
 pub mod plan;
 pub mod read_file;
 pub mod shell;
@@ -130,16 +131,39 @@ impl ToolRegistry {
     }
 
     pub fn create_with_mcp(mcp_manager: Option<Arc<Mutex<crate::mcp::McpClientManager>>>) -> Self {
+        Self::create_with_plugins_and_mcp(&[], mcp_manager)
+    }
+
+    pub fn create_with_plugins_and_mcp(
+        plugins: &[crate::plugins::LoadedPlugin],
+        mcp_manager: Option<Arc<Mutex<crate::mcp::McpClientManager>>>,
+    ) -> Self {
         let mut registry = Self::new();
         registry.register(Box::new(shell::ShellTool));
         registry.register(Box::new(read_file::ReadFileTool));
         registry.register(Box::new(write_file::WriteFileTool));
         registry.register(Box::new(edit_file::EditFileTool));
         registry.register(Box::new(delete_file::DeleteFileTool));
+        registry.register(Box::new(list_dir::ListDirTool));
         registry.register(Box::new(ask::AskTool));
         registry.register(Box::new(plan::PlanTool));
         registry.register(Box::new(subagent::SubagentTool));
         registry.register(Box::new(skill::SkillTool));
+
+        for plugin in plugins {
+            if !plugin.enabled {
+                continue;
+            }
+            for declaration in &plugin.manifest.contributes.agent_tools {
+                if let Some(tool) = crate::plugins::PluginToolAdapter::from_manifest(
+                    plugin.name(),
+                    plugin.path.clone(),
+                    declaration,
+                ) {
+                    registry.register(Box::new(tool));
+                }
+            }
+        }
 
         if let Some(manager) = mcp_manager {
             let tool_infos = {
@@ -163,6 +187,16 @@ impl ToolRegistry {
         disallowed_tools: Option<&[String]>,
     ) -> Self {
         Self::create_with_mcp(mcp_manager).filter_for_agent(allowed_tools, disallowed_tools)
+    }
+
+    pub fn create_for_agent_with_plugins(
+        plugins: &[crate::plugins::LoadedPlugin],
+        mcp_manager: Option<Arc<Mutex<crate::mcp::McpClientManager>>>,
+        allowed_tools: Option<&[String]>,
+        disallowed_tools: Option<&[String]>,
+    ) -> Self {
+        Self::create_with_plugins_and_mcp(plugins, mcp_manager)
+            .filter_for_agent(allowed_tools, disallowed_tools)
     }
 }
 

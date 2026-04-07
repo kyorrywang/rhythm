@@ -1,6 +1,10 @@
 export const FOLDER_COMMANDS = {
-  list: 'folder.list',
-  read: 'folder.read',
+  list: 'tool.list_dir',
+  read: 'tool.read_file',
+  createDir: 'folder.createDir',
+  rename: 'folder.rename',
+  reveal: 'folder.reveal',
+  openFile: 'folder.openFile',
 } as const;
 
 export const FOLDER_VIEWS = {

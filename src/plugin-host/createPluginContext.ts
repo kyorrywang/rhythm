@@ -1,6 +1,7 @@
 import {
   deletePluginStorageValue,
   getPluginStorageValue,
+  invokePluginCommand,
   listWorkspaceDir,
   listPluginStorageFiles,
   readWorkspaceTextFile,
@@ -96,9 +97,13 @@ export function createPluginContext(pluginId: string, trackDisposable?: (disposa
       register: (id, handler, metadata): Disposable =>
         tracked(usePluginHostStore.getState().registerCommand(pluginId, id, handler as never, metadata)),
       execute: async (id, input) => {
-          const command = usePluginHostStore.getState().commandHandlers[id];
+        const command = usePluginHostStore.getState().commandHandlers[id];
         if (!command) {
-          throw new Error(`Plugin command '${id}' is not registered`);
+          const uiCommand = findManifestCommand(id);
+          if (uiCommand?.implementation === 'ui') {
+            throw new Error(`Command '${id}' is declared as UI command but no handler was registered`);
+          }
+          return executeBackendCommand(pluginId, id, input);
         }
         const startedAt = Date.now();
         const inputValidationError = validateSchema(command.metadata?.inputSchema, input);
@@ -247,6 +252,58 @@ function hasPluginPermission(pluginId: string, capability: string) {
   const requested = plugin.permissions.includes('*') || plugin.permissions.includes(capability);
   const granted = plugin.granted_permissions.includes('*') || plugin.granted_permissions.includes(capability);
   return requested && granted;
+}
+
+function findManifestCommand(commandId: string): { implementation?: string } | null {
+  for (const plugin of usePluginStore.getState().plugins) {
+    for (const command of plugin.contributes.commands) {
+      if (command.id === commandId) return command as { implementation?: string };
+    }
+  }
+  return null;
+}
+
+async function executeBackendCommand<TOutput>(callerPluginId: string, commandId: string, input: unknown): Promise<TOutput> {
+  const startedAt = Date.now();
+  usePluginHostStore.getState().recordCommandInvocation({
+    id: `backend-command-${startedAt}-${Math.random().toString(36).slice(2, 8)}`,
+    pluginId: callerPluginId,
+    type: 'command',
+    name: commandId,
+    status: 'started',
+    message: summarizePayload(input),
+    createdAt: startedAt,
+  });
+  try {
+    const response = await invokePluginCommand({
+      cwd: getActiveWorkspacePath(),
+      plugin_name: callerPluginId,
+      command_id: commandId,
+      input,
+    });
+    usePluginHostStore.getState().recordCommandInvocation({
+      id: `backend-command-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      pluginId: response.plugin_name || callerPluginId,
+      type: 'command',
+      name: commandId,
+      status: 'completed',
+      message: summarizePayload(response.result),
+      createdAt: Date.now(),
+    });
+    return response.result as TOutput;
+  } catch (error) {
+    usePluginHostStore.getState().reportPluginError(callerPluginId, error);
+    usePluginHostStore.getState().recordCommandInvocation({
+      id: `backend-command-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      pluginId: callerPluginId,
+      type: 'command',
+      name: commandId,
+      status: 'error',
+      message: error instanceof Error ? error.message : String(error),
+      createdAt: Date.now(),
+    });
+    throw error;
+  }
 }
 
 function summarizePayload(payload: unknown) {

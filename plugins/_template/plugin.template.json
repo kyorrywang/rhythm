@@ -2,13 +2,36 @@
   "name": "my-plugin",
   "version": "0.1.0",
   "description": "A Rhythm JS plugin template.",
-  "entry": "src/main.tsx",
+  "main": "dist/main.js",
+  "dev": {
+    "main": "src/main.tsx"
+  },
   "enabledByDefault": false,
   "permissions": [],
   "requires": {
-    "capabilities": []
+    "plugins": {},
+    "commands": [],
+    "tools": []
   },
-  "provides": {
-    "capabilities": []
+  "contributes": {
+    "commands": [
+      {
+        "id": "my-plugin.hello",
+        "description": "Return a simple greeting.",
+        "implementation": "ui"
+      }
+    ],
+    "views": [
+      {
+        "id": "my-plugin.panel",
+        "title": "My Plugin",
+        "location": "leftPanel"
+      },
+      {
+        "id": "my-plugin.preview",
+        "title": "My Plugin Preview",
+        "location": "workbench"
+      }
+    ]
   }
 }
