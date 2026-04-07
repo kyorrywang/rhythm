@@ -42,13 +42,14 @@ const findLiveThinking = (segments: MessageSegment[]): { index: number; segment:
 
 const appendText = (message: InternalMessage, text: string): InternalMessage => {
   const segments = [...(message.segments || [])];
+  const content = (message.content || '') + text;
 
   if (message._liveTextIndex !== undefined) {
     const idx = message._liveTextIndex;
     if (idx < segments.length && segments[idx].type === 'text') {
       const seg = segments[idx];
       segments[idx] = { ...seg, content: seg.content + text };
-      return { ...message, segments };
+      return { ...message, content, segments };
     }
   }
 
@@ -56,12 +57,12 @@ const appendText = (message: InternalMessage, text: string): InternalMessage => 
   if (lastIdx >= 0 && segments[lastIdx].type === 'text') {
     const seg = segments[lastIdx];
     segments[lastIdx] = { ...seg, content: seg.content + text };
-    return { ...message, segments, _liveTextIndex: lastIdx };
+    return { ...message, content, segments, _liveTextIndex: lastIdx };
   }
 
   const newIdx = segments.length;
   segments.push({ type: 'text', content: text });
-  return { ...message, segments, _liveTextIndex: newIdx };
+  return { ...message, content, segments, _liveTextIndex: newIdx };
 };
 
 const applyTextDelta = (
@@ -289,6 +290,10 @@ const applyChunkToMessage = (
     };
   }
 
+  if (chunk.type === 'usage_update') {
+    return message;
+  }
+
   if (chunk.type === 'task_update') {
     return message;
   }
@@ -391,6 +396,15 @@ export const reduceSessionChunk = (
             createdAt: Date.now(),
           },
         ],
+      };
+    } else if (chunk.type === 'usage_update') {
+      nextSession = {
+        ...nextSession,
+        usage: {
+          inputTokens: chunk.inputTokens,
+          outputTokens: chunk.outputTokens,
+        },
+        tokenCount: chunk.inputTokens + chunk.outputTokens,
       };
     } else if (chunk.type === 'cron_job_triggered') {
       nextSession = {

@@ -15,6 +15,7 @@ const EVENT_TYPE_MAP: Record<ServerEventChunk['type'], InternalEventType> = {
   done: 'DONE',
   interrupted: 'INTERRUPTED',
   permission_request: 'PERMISSION_REQUEST',
+  usage_update: 'USAGE_UPDATE',
   context_compacted: 'CONTEXT_COMPACTED',
   cron_job_triggered: 'CRON_JOB_TRIGGERED',
   cron_job_completed: 'CRON_JOB_COMPLETED',
@@ -32,7 +33,7 @@ export function mapServerEventToInternal(chunk: ServerEventChunk): InternalEvent
 }
 
 export function isUserFacingEvent(eventType: InternalEventType): boolean {
-  const silentEvents: InternalEventType[] = ['TASK_UPDATE', 'CONTEXT_COMPACTED'];
+  const silentEvents: InternalEventType[] = ['TASK_UPDATE', 'USAGE_UPDATE', 'CONTEXT_COMPACTED'];
   return !silentEvents.includes(eventType);
 }
 

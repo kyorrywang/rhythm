@@ -133,6 +133,14 @@ pub enum EventPayload {
     #[serde(rename = "interrupted")]
     Interrupted,
 
+    #[serde(rename = "usage_update")]
+    UsageUpdate {
+        #[serde(rename = "inputTokens")]
+        input_tokens: u64,
+        #[serde(rename = "outputTokens")]
+        output_tokens: u64,
+    },
+
     #[serde(rename = "context_compacted")]
     ContextCompacted {
         #[serde(rename = "compactType")]

@@ -239,10 +239,19 @@ async fn run_query_inner(
                 }
                 Ok(LlmResponse::Done) => {
                     ended_with_done = true;
-                    usage.add(&super::stream_events::UsageSnapshot::from_estimate(
+                    let usage_snapshot = super::stream_events::UsageSnapshot::from_estimate(
                         input_chars,
                         output_chars_this_turn,
-                    ));
+                    );
+                    usage.add(&usage_snapshot);
+                    event_bus::emit(
+                        &context.agent_id,
+                        &context.session_id,
+                        EventPayload::UsageUpdate {
+                            input_tokens: usage.total.input_tokens,
+                            output_tokens: usage.total.output_tokens,
+                        },
+                    );
                     if !pending_tool_calls.is_empty() {
                         let result =
                             execute_tools(context, std::mem::take(&mut pending_tool_calls)).await;

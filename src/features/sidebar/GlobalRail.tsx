@@ -46,10 +46,10 @@ export const GlobalRail = ({
           title={isCollapsed ? '展开工作区' : '收起工作区'}
           style={{ backgroundColor: workspaceBackgroundColor }}
           className={cn(
-            'relative flex h-10 w-10 items-center justify-center rounded-2xl border text-sm font-semibold transition-all',
+            'relative flex h-10 w-10 items-center justify-center rounded-2xl border-[2px] text-sm font-bold transition-all duration-200',
             activeMode === 'sessions'
-              ? 'border-amber-300 bg-white text-amber-900 shadow-[0_10px_24px_rgba(146,93,24,0.12)]'
-              : 'border-transparent bg-white/70 text-slate-500 hover:border-amber-200 hover:text-slate-800',
+              ? 'border-white ring-1 ring-black/15 text-slate-800 shadow-[0_8px_16px_rgba(0,0,0,0.1)]'
+              : 'border-transparent text-slate-500 hover:border-white/60 hover:text-slate-700 hover:shadow-sm',
           )}
         >
           R

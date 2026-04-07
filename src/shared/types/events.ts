@@ -12,6 +12,7 @@ export type InternalEventType =
   | 'DONE'
   | 'INTERRUPTED'
   | 'PERMISSION_REQUEST'
+  | 'USAGE_UPDATE'
   | 'CONTEXT_COMPACTED'
   | 'CRON_JOB_TRIGGERED'
   | 'CRON_JOB_COMPLETED';
@@ -109,6 +110,11 @@ export interface ContextCompactedEvent extends InternalEvent {
   payload: { compactType: 'micro' | 'full'; tokensSaved?: number };
 }
 
+export interface UsageUpdateEvent extends InternalEvent {
+  type: 'USAGE_UPDATE';
+  payload: { inputTokens: number; outputTokens: number };
+}
+
 export interface CronJobTriggeredEvent extends InternalEvent {
   type: 'CRON_JOB_TRIGGERED';
   payload: { jobId: string; name: string };
@@ -133,6 +139,7 @@ export type InternalEventUnion =
   | DoneEvent
   | InterruptedEvent
   | PermissionRequestEventInternal
+  | UsageUpdateEvent
   | ContextCompactedEvent
   | CronJobTriggeredEvent
   | CronJobCompletedEvent;

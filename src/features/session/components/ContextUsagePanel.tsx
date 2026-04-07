@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { Session } from '@/shared/types/schema';
+import { Message, MessageSegment, Session } from '@/shared/types/schema';
 import { formatTokenCount, formatPercentage } from '@/shared/lib/formatters';
+import { DEFAULT_MAX_TOKENS } from '@/shared/lib/constants';
 import { Button } from '@/shared/ui/Button';
 
 interface ContextUsagePanelProps {
@@ -17,24 +18,22 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
   const userMessages = messages.filter(m => m.role === 'user').length;
   const assistantMessages = messages.filter(m => m.role === 'assistant').length;
   const usage = session.usage;
+  const estimatedUsage = estimateUsageFromMessages(messages);
+  const isEstimatedUsage = !usage;
 
-  const totalTokens = (usage?.inputTokens || 0) + (usage?.outputTokens || 0);
-  const contextLimit = 1048576;
+  const inputTokens = usage?.inputTokens ?? estimatedUsage.inputTokens;
+  const outputTokens = usage?.outputTokens ?? estimatedUsage.outputTokens;
+  const totalTokens = inputTokens + outputTokens;
+  const contextLimit = DEFAULT_MAX_TOKENS;
 
-  const toolCallSegments = messages.flatMap(m => m.segments || []).filter(s => s.type === 'tool');
-  const toolCallCount = toolCallSegments.length;
-
-  const estimatedTextTokens = messages.reduce((acc, m) => {
-    if (m.role === 'user' && m.content) return acc + Math.ceil(m.content.length / 4);
-    return acc;
-  }, 0);
-
-  const otherTokens = Math.max(0, totalTokens - estimatedTextTokens - (usage?.outputTokens || 0) - toolCallCount * 50);
+  const toolCallCount = estimatedUsage.toolCallCount;
+  const toolTokens = estimatedUsage.toolTokens;
+  const otherTokens = Math.max(0, totalTokens - estimatedUsage.userTokens - estimatedUsage.assistantTokens - toolTokens);
 
   const contextBreakdown = [
-    { label: '用户', percent: totalTokens > 0 ? (estimatedTextTokens / totalTokens) * 100 : 0, color: 'bg-green-600' },
-    { label: '助手', percent: totalTokens > 0 ? ((usage?.outputTokens || 0) / totalTokens) * 100 : 0, color: 'bg-[#8b5cf6]' },
-    { label: '工具调用', percent: totalTokens > 0 ? (toolCallCount * 50 / totalTokens) * 100 : 0, color: 'bg-[#b45309]' },
+    { label: '用户', percent: totalTokens > 0 ? (estimatedUsage.userTokens / totalTokens) * 100 : 0, color: 'bg-green-600' },
+    { label: '助手', percent: totalTokens > 0 ? (estimatedUsage.assistantTokens / totalTokens) * 100 : 0, color: 'bg-[#8b5cf6]' },
+    { label: '工具调用', percent: totalTokens > 0 ? (toolTokens / totalTokens) * 100 : 0, color: 'bg-[#b45309]' },
     { label: '其他', percent: totalTokens > 0 ? (otherTokens / totalTokens) * 100 : 0, color: 'bg-[#71717a]' },
   ];
 
@@ -63,32 +62,27 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
 
           <div className="grid grid-cols-2 gap-3">
             <MetricCard label="消息数" value={String(messages.length)} />
-            <MetricCard label="总 token" value={totalTokens > 0 ? formatTokenCount(totalTokens) : '—'} />
+            <MetricCard label={isEstimatedUsage ? '总 token 估算' : '总 token'} value={totalTokens > 0 ? formatTokenCount(totalTokens) : '—'} />
             <MetricCard label="用户消息" value={String(userMessages)} />
             <MetricCard label="助手消息" value={String(assistantMessages)} />
             <MetricCard label="工具调用" value={String(toolCallCount)} />
             <MetricCard label="上下文上限" value={formatTokenCount(contextLimit)} />
           </div>
 
-          {usage && (
-            <>
-              <div className="space-y-1">
-                <div className="text-zinc-500">使用率</div>
-                <div>{formatPercentage(totalTokens, contextLimit)} ({formatTokenCount(totalTokens)} / {formatTokenCount(contextLimit)})</div>
-              </div>
+          <div className="space-y-1">
+            <div className="text-zinc-500">使用率{isEstimatedUsage ? '（估算）' : ''}</div>
+            <div>{formatPercentage(totalTokens, contextLimit)} ({formatTokenCount(totalTokens)} / {formatTokenCount(contextLimit)})</div>
+          </div>
 
-              <div className="space-y-1">
-                <div className="text-zinc-500">输入 token</div>
-                <div>{formatTokenCount(usage.inputTokens)}</div>
-              </div>
+          <div className="space-y-1">
+            <div className="text-zinc-500">输入 token{isEstimatedUsage ? '（估算）' : ''}</div>
+            <div>{formatTokenCount(inputTokens)}</div>
+          </div>
 
-              <div className="space-y-1">
-                <div className="text-zinc-500">输出 token</div>
-                <div>{formatTokenCount(usage.outputTokens)}</div>
-              </div>
-
-            </>
-          )}
+          <div className="space-y-1">
+            <div className="text-zinc-500">输出 token{isEstimatedUsage ? '（估算）' : ''}</div>
+            <div>{formatTokenCount(outputTokens)}</div>
+          </div>
 
           <div className="space-y-2">
             <div className="text-zinc-500">上下文拆分</div>
@@ -140,7 +134,7 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
                         {JSON.stringify({
                           id: msg.id,
                           role: msg.role,
-                          content: msg.content?.substring(0, 200),
+                          content: getMessageText(msg).substring(0, 200),
                           segments: msg.segments?.length || 0,
                           status: msg.status,
                           totalTimeMs: msg.totalTimeMs,
@@ -164,3 +158,71 @@ const MetricCard = ({ label, value }: { label: string; value: string }) => (
     <div className="mt-2 text-sm font-medium text-zinc-900">{value}</div>
   </div>
 );
+
+function estimateUsageFromMessages(messages: Message[]) {
+  let userTokens = 0;
+  let assistantTokens = 0;
+  let toolTokens = 0;
+  let toolCallCount = 0;
+
+  for (const message of messages) {
+    const textTokens = estimateTokens(getMessageText(message));
+    if (message.role === 'assistant') {
+      assistantTokens += textTokens;
+    } else {
+      userTokens += textTokens;
+    }
+
+    for (const segment of message.segments || []) {
+      if (segment.type === 'tool') {
+        toolCallCount += 1;
+        toolTokens += estimateToolTokens(segment);
+      }
+    }
+  }
+
+  return {
+    userTokens,
+    assistantTokens,
+    toolTokens,
+    toolCallCount,
+    inputTokens: userTokens + toolTokens,
+    outputTokens: assistantTokens,
+  };
+}
+
+function getMessageText(message: Message) {
+  if (message.content?.trim()) return message.content;
+  return (message.segments || [])
+    .filter((segment): segment is MessageSegment & { type: 'text' | 'thinking' } => segment.type === 'text' || segment.type === 'thinking')
+    .map((segment) => segment.content)
+    .join('\n\n');
+}
+
+function estimateToolTokens(segment: MessageSegment & { type: 'tool' }) {
+  const payload = [
+    segment.tool.name,
+    JSON.stringify(segment.tool.arguments ?? {}),
+    ...(segment.tool.logs || []),
+    segment.tool.result || '',
+  ].join('\n');
+  return Math.max(16, estimateTokens(payload));
+}
+
+function estimateTokens(text: string) {
+  if (!text.trim()) return 0;
+  let tokens = 0;
+  let asciiRunLength = 0;
+
+  for (const char of text) {
+    if (/[\u4e00-\u9fff]/.test(char)) {
+      tokens += Math.ceil(asciiRunLength / 4);
+      asciiRunLength = 0;
+      tokens += 1;
+    } else {
+      asciiRunLength += 1;
+    }
+  }
+
+  return tokens + Math.ceil(asciiRunLength / 4);
+}
