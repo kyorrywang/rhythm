@@ -159,6 +159,7 @@ impl ToolRegistry {
                     plugin.name(),
                     plugin.path.clone(),
                     declaration,
+                    plugins,
                 ) {
                     registry.register(Box::new(tool));
                 }

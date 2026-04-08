@@ -8,7 +8,7 @@ import { GlobalRail } from './GlobalRail';
 import { LeftPanel } from './LeftPanel';
 import { DEFAULT_WORKSPACE_PATH, useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
 import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
-import type { ActivityBarContribution } from '@/plugin/host/types';
+import type { ActivityBarContribution } from '@/plugin/sdk';
 
 const DEFAULT_LEFT_PANEL_WIDTH = 320;
 const MIN_LEFT_PANEL_WIDTH = 240;

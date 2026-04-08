@@ -296,6 +296,7 @@ fn core_commands() -> Vec<&'static str> {
         "tool.edit_file",
         "tool.delete_file",
         "tool.shell",
+        "core.llm.complete",
     ]
 }
 

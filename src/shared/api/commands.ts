@@ -7,6 +7,7 @@ import type {
   BackendWorkspaceShellResult,
   BackendWorkspaceTextFile,
   BackendPluginSummary,
+  BackendPluginInstallPreview,
   BackendPluginRuntimeInfo,
   BackendCronJobConfig,
   ChatStreamRequest,
@@ -18,6 +19,7 @@ import type {
   PluginCommandResponse,
   PluginCommandStartResponse,
   PluginCommandCancelRequest,
+  PluginUninstallStoragePolicy,
   PluginStorageFileRequest,
   PluginStorageGetRequest,
   PluginStorageSetRequest,
@@ -90,8 +92,12 @@ export function installPlugin(sourcePath: string): Promise<BackendPluginSummary>
   return client.invoke('install_plugin_cmd', { sourcePath } as never);
 }
 
-export function uninstallPlugin(name: string): Promise<boolean> {
-  return client.invoke('uninstall_plugin_cmd', { name } as never);
+export function previewInstallPlugin(sourcePath: string): Promise<BackendPluginInstallPreview> {
+  return client.invoke('preview_install_plugin_cmd', { sourcePath } as never);
+}
+
+export function uninstallPlugin(name: string, storagePolicy: PluginUninstallStoragePolicy = 'keep'): Promise<boolean> {
+  return client.invoke('uninstall_plugin_cmd', { name, storagePolicy } as never);
 }
 
 export function grantPluginPermission(name: string, permission: string, cwd?: string): Promise<void> {

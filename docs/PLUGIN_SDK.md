@@ -269,6 +269,89 @@ Current manifest sections:
 }
 ```
 
+### Backend Runtime Host Bridge
+
+Node and Python runtime commands/tools receive their call payload in `RHYTHM_PLUGIN_CALL`.
+
+When backend code needs host capabilities, do not import app internals or access the workspace directly. Use the runtime JSON-RPC bridge over stdio:
+
+```json
+{
+  "id": "rpc_1",
+  "method": "command.execute",
+  "params": {
+    "commandId": "tool.shell",
+    "input": {
+      "command": "git status --short"
+    }
+  }
+}
+```
+
+The host responds on stdin with:
+
+```json
+{
+  "id": "rpc_1",
+  "ok": true,
+  "data": {}
+}
+```
+
+Use the template helpers as a starting point:
+
+- [runtimeRpc.js](/C:/Users/Administrator/Documents/dev/rhythm/plugins/_template/src/commands/runtimeRpc.js)
+- [main.js](/C:/Users/Administrator/Documents/dev/rhythm/plugins/_template/src/commands/main.js)
+- [runtime_rpc.py](/C:/Users/Administrator/Documents/dev/rhythm/plugins/_template/src/commands/runtime_rpc.py)
+- [main.py](/C:/Users/Administrator/Documents/dev/rhythm/plugins/_template/src/commands/main.py)
+
+Available host command examples:
+
+```ts
+await executeCommand('tool.shell', { command: 'npm run build' });
+await executeCommand('tool.read_file', { path: 'README.md' });
+await executeCommand('core.llm.complete', { prompt: 'Summarize this output.' });
+```
+
+For dynamic command execution, the plugin must request and be granted `plugin.command.invoke`.
+
+### LLM Command
+
+`core.llm.complete` is a thin host command over the configured LLM provider:
+
+```ts
+const result = await ctx.commands.execute<{ prompt: string }, { text: string }>(
+  'core.llm.complete',
+  { prompt: 'Summarize the latest validation output.' },
+);
+```
+
+It is a host capability, not a Workflow-specific API.
+
+### Workflow Node Extension
+
+Workflow owns its own secondary node extension point. It is not a core contribution point.
+
+To contribute a command-backed node from another UI plugin, emit the Workflow event when Workflow is ready:
+
+```ts
+ctx.events.on('workflow.ready', () => {
+  ctx.events.emit('workflow.nodeType.register', {
+    id: 'my-plugin.validation',
+    title: 'Run Validation',
+    description: 'Run a validation command.',
+    sourcePlugin: 'my-plugin',
+    commandId: 'my-plugin.runValidation',
+    defaultConfig: {
+      commandId: 'my-plugin.runValidation',
+      inputJson: '{ "command": "npm run typecheck" }',
+    },
+  });
+});
+```
+
+If this node must also run from Agent-facing `workflow.run`, the target command must have a backend implementation or forward to a backend tool. UI-only commands can run from the Workflow UI runtime but not from the Agent backend runtime.
+
 ## Deprecated APIs
 
 Do not use:

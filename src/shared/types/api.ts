@@ -100,6 +100,23 @@ export interface BackendPluginRuntimeInfo {
   commands: BackendPluginContribution[];
 }
 
+export interface BackendPluginInstallPreview {
+  name: string;
+  version: string;
+  description: string;
+  source_path: string;
+  destination_path: string;
+  will_overwrite: boolean;
+  main?: string | null;
+  dev_main?: string | null;
+  permissions: string[];
+  requires: BackendPluginSummary['requires'];
+  contributes: BackendPluginSummary['contributes'];
+  warnings: string[];
+}
+
+export type PluginUninstallStoragePolicy = 'keep' | 'delete';
+
 export interface PluginInstallRequest {
   source_path: string;
 }
@@ -343,14 +360,18 @@ export interface TauriCommands {
     request: { name: string };
     response: void;
   };
-  install_plugin_cmd: {
-    request: { sourcePath: string };
-    response: BackendPluginSummary;
-  };
-  uninstall_plugin_cmd: {
-    request: { name: string };
-    response: boolean;
-  };
+    install_plugin_cmd: {
+      request: { sourcePath: string };
+      response: BackendPluginSummary;
+    };
+    preview_install_plugin_cmd: {
+      request: { sourcePath: string };
+      response: BackendPluginInstallPreview;
+    };
+    uninstall_plugin_cmd: {
+      request: { name: string; storagePolicy?: PluginUninstallStoragePolicy };
+      response: boolean;
+    };
   grant_plugin_permission: {
     request: { name: string; permission: string; cwd?: string };
     response: void;

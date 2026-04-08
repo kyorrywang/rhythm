@@ -55,8 +55,11 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
   };
 
   const handleUninstall = async () => {
+    const shouldDeleteStorage = window.confirm(`卸载插件“${plugin.name}”时是否同时删除所有 workspace 下的插件 storage？\n\n确定：删除插件 storage\n取消：保留插件 storage`);
+    const confirmed = window.confirm(`确认卸载插件“${plugin.name}”？\n\n插件文件会被移除。Storage 策略：${shouldDeleteStorage ? '删除 storage' : '保留 storage'}。`);
+    if (!confirmed) return;
     try {
-      const removed = await uninstallPluginByName(workspace.path, plugin.name);
+      const removed = await uninstallPluginByName(workspace.path, plugin.name, shouldDeleteStorage ? 'delete' : 'keep');
       if (removed) {
         success(`${plugin.name} 已卸载`);
       } else {

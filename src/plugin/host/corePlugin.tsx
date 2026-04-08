@@ -7,9 +7,9 @@ import { useToast } from '@/shared/hooks/useToast';
 import { Button } from '@/shared/ui/Button';
 import { PluginWorkbench } from '@/features/workbench/PluginWorkbench';
 import { SettingsWorkbench, type SettingsSection } from '@/features/workbench/SettingsWorkbench';
+import { llmComplete } from '@/shared/api/commands';
 import { createPluginContext } from './createPluginContext';
-import { definePlugin } from './types';
-import type { LeftPanelProps, WorkbenchProps } from '../sdk';
+import { definePlugin, type LeftPanelProps, type WorkbenchProps } from '../sdk';
 import { PluginErrorBoundary } from './PluginErrorBoundary';
 import { usePluginHostStore } from './usePluginHostStore';
 
@@ -28,6 +28,44 @@ const settingItems = [
 
 export const corePlugin = definePlugin({
   activate(ctx) {
+    ctx.commands.register(
+      'core.llm.complete',
+      async (input: {
+        prompt?: string;
+        systemPrompt?: string;
+        providerId?: string;
+        model?: string;
+        timeoutSecs?: number;
+      }) => {
+        const messages = [
+          ...(input.systemPrompt ? [{ role: 'system' as const, content: input.systemPrompt }] : []),
+          { role: 'user' as const, content: input.prompt || '' },
+        ];
+        const text = await llmComplete({
+          messages,
+          providerId: input.providerId,
+          model: input.model,
+          timeoutSecs: input.timeoutSecs,
+        });
+        return { text };
+      },
+      {
+        title: 'LLM Complete',
+        description: 'Generate text using the active LLM configuration.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            prompt: { type: 'string' },
+            systemPrompt: { type: 'string' },
+            providerId: { type: 'string' },
+            model: { type: 'string' },
+            timeoutSecs: { type: 'number' },
+          },
+          required: ['prompt'],
+        },
+      },
+    );
+
     ctx.ui.activityBar.register({
       id: 'core.plugins.activity',
       title: '插件',
@@ -79,6 +117,7 @@ function CorePluginsPanel({ ctx, width }: LeftPanelProps) {
   const plugins = usePluginStore((state) => state.plugins);
   const pluginsLoading = usePluginStore((state) => state.isLoading);
   const fetchPlugins = usePluginStore((state) => state.fetchPlugins);
+  const previewInstallFromPath = usePluginStore((state) => state.previewInstallFromPath);
   const installPluginFromPath = usePluginStore((state) => state.installPluginFromPath);
   const workspace = useActiveWorkspace();
   const { success, error } = useToast();
@@ -111,6 +150,21 @@ function CorePluginsPanel({ ctx, width }: LeftPanelProps) {
     });
     if (typeof selectedPath !== 'string') return;
     try {
+      const preview = await previewInstallFromPath(selectedPath);
+      const confirmed = window.confirm([
+        `确认安装插件“${preview.name}”？`,
+        '',
+        `版本：${preview.version}`,
+        `描述：${preview.description || '暂无描述'}`,
+        `来源：${preview.source_path}`,
+        `目标：${preview.destination_path}`,
+        preview.will_overwrite ? '注意：将覆盖已有同名插件。' : '将作为新插件安装。',
+        preview.permissions.length > 0 ? `权限：${preview.permissions.join(', ')}` : '权限：无',
+        preview.requires.commands.length > 0 ? `依赖 Commands：${preview.requires.commands.join(', ')}` : '依赖 Commands：无',
+        preview.requires.tools.length > 0 ? `依赖 Tools：${preview.requires.tools.join(', ')}` : '依赖 Tools：无',
+        preview.warnings.length > 0 ? `警告：${preview.warnings.join('; ')}` : '',
+      ].filter(Boolean).join('\n'));
+      if (!confirmed) return;
       const installed = await installPluginFromPath(workspace.path, selectedPath);
       success(`已安装插件：${installed.name}`);
       openPluginDetail(installed.name);
@@ -163,7 +217,7 @@ function CorePluginsPanel({ ctx, width }: LeftPanelProps) {
               <span className="text-sm font-medium text-slate-800">{plugin.name}</span>
               <div className="flex items-center gap-2">
                 <span className={`rounded-full px-2 py-0.5 text-[11px] ${pluginStatusPillClass(plugin.status)}`}>
-                  {plugin.status}
+                  {statusLabel(plugin.status)}
                 </span>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{plugin.version}</span>
               </div>
@@ -230,6 +284,19 @@ function pluginStatusPillClass(status: 'enabled' | 'disabled' | 'blocked' | 'err
       return 'bg-rose-100 text-rose-700';
     default:
       return 'bg-slate-100 text-slate-600';
+  }
+}
+
+function statusLabel(status: 'enabled' | 'disabled' | 'blocked' | 'error') {
+  switch (status) {
+    case 'enabled':
+      return '已启用';
+    case 'blocked':
+      return '依赖阻塞';
+    case 'error':
+      return '加载错误';
+    default:
+      return '已禁用';
   }
 }
 

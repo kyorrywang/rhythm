@@ -8,11 +8,13 @@ import { TaskSummaryView } from './components/TaskSummaryView';
 import { ValidationView } from './components/ValidationView';
 import { DeveloperSettingsSection } from './components/DeveloperSettingsSection';
 import { registerDeveloperToolActions } from './toolActions';
+import { registerDeveloperWorkflowNodes } from './workflowNodes';
 import type { DeveloperTaskSummary, DiffPayload, LogPayload, ValidationPayload } from './types';
 
 export default definePlugin({
   activate(ctx) {
     registerDeveloperCommands(ctx);
+    registerDeveloperWorkflowNodes(ctx);
 
     ctx.ui.activityBar.register({
       id: 'developer.activity',

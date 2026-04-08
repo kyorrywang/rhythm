@@ -3,7 +3,9 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::tool_adapter::{run_plugin_runtime, PluginRuntimeCall, PluginRuntimeCallContext};
+use super::tool_adapter::{
+    run_plugin_runtime, PluginRuntimeCall, PluginRuntimeCallContext, PluginRuntimeHost,
+};
 use super::types::LoadedPlugin;
 use crate::tools::{ToolExecutionContext, ToolRegistry};
 
@@ -125,10 +127,12 @@ impl PluginCommandRegistry {
                 .clone()
                 .unwrap_or_else(|| format!("Calling plugin '{}' is not enabled", caller.name())));
         }
+        let can_dynamic_invoke = plugin_has_granted_permission(caller, "plugin.command.invoke");
         if command.plugin_name != "core.tools"
             && provider
                 .map(|provider| caller.name() != provider.name())
                 .unwrap_or(command.plugin_name != "core.tools")
+            && !can_dynamic_invoke
             && !caller
                 .manifest
                 .requires
@@ -176,6 +180,10 @@ impl PluginCommandRegistry {
             .await;
         }
 
+        if resolved.definition.id == "core.llm.complete" {
+            return execute_llm_complete_command(&resolved.definition.id, input).await;
+        }
+
         match resolved.definition.implementation.as_deref() {
             Some("ui") => Err(format!(
                 "Command '{}' is implemented by UI but no UI handler was registered",
@@ -192,10 +200,16 @@ impl PluginCommandRegistry {
                     ));
                 };
                 let Some(entry) = resolved.definition.entry.as_deref() else {
-                    return Err(format!("Command '{}' is missing entry", resolved.definition.id));
+                    return Err(format!(
+                        "Command '{}' is missing entry",
+                        resolved.definition.id
+                    ));
                 };
                 let Some(handler) = resolved.definition.handler.as_deref() else {
-                    return Err(format!("Command '{}' is missing handler", resolved.definition.id));
+                    return Err(format!(
+                        "Command '{}' is missing handler",
+                        resolved.definition.id
+                    ));
                 };
                 let call = PluginRuntimeCall {
                     id: resolved.definition.id.clone(),
@@ -207,6 +221,13 @@ impl PluginCommandRegistry {
                         cwd: cwd.to_string_lossy().to_string(),
                         session_id: None,
                         tool_call_id: None,
+                        plugin_storage_path:
+                            crate::infrastructure::paths::get_workspace_plugin_data_dir(
+                                cwd,
+                                provider.name(),
+                            )
+                            .to_string_lossy()
+                            .to_string(),
                     },
                 };
                 let result = run_plugin_runtime(
@@ -219,6 +240,11 @@ impl PluginCommandRegistry {
                     entry,
                     handler,
                     &call,
+                    Some(PluginRuntimeHost {
+                        plugins,
+                        caller_plugin: provider.name(),
+                        cwd,
+                    }),
                 )
                 .await?;
                 Ok(PluginCommandExecution {
@@ -245,6 +271,21 @@ impl PluginCommandRegistry {
             }),
         }
     }
+}
+
+fn plugin_has_granted_permission(plugin: &LoadedPlugin, permission: &str) -> bool {
+    let requested = plugin.manifest.permissions.iter().any(|entry| entry == "*")
+        || plugin
+            .manifest
+            .permissions
+            .iter()
+            .any(|entry| entry == permission);
+    let granted = plugin.granted_permissions.iter().any(|entry| entry == "*")
+        || plugin
+            .granted_permissions
+            .iter()
+            .any(|entry| entry == permission);
+    requested && granted
 }
 
 async fn execute_tool_command(
@@ -282,6 +323,35 @@ async fn execute_tool_command(
 }
 
 fn register_builtin_tool_commands(commands: &mut HashMap<String, PluginCommandDefinition>) {
+    commands.insert(
+        "core.llm.complete".to_string(),
+        PluginCommandDefinition {
+            id: "core.llm.complete".to_string(),
+            plugin_name: "core.tools".to_string(),
+            tool: None,
+            implementation: Some("builtin".to_string()),
+            entry: None,
+            handler: None,
+            permissions: Vec::new(),
+            parameters: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string" },
+                    "systemPrompt": { "type": "string" },
+                    "providerId": { "type": "string" },
+                    "model": { "type": "string" },
+                    "timeoutSecs": { "type": "number" }
+                },
+                "required": ["prompt"]
+            })),
+            declaration: serde_json::json!({
+                "id": "core.llm.complete",
+                "implementation": "builtin",
+                "readOnly": false
+            }),
+        },
+    );
+
     for (command_id, tool_name, read_only, permissions) in [
         ("tool.read_file", "read", true, vec!["workspace.files.read"]),
         (
@@ -334,6 +404,52 @@ fn register_builtin_tool_commands(commands: &mut HashMap<String, PluginCommandDe
             },
         );
     }
+}
+
+async fn execute_llm_complete_command(
+    command_id: &str,
+    input: Value,
+) -> Result<PluginCommandExecution, String> {
+    let prompt = input
+        .get("prompt")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    if prompt.trim().is_empty() {
+        return Err("core.llm.complete requires a non-empty prompt".to_string());
+    }
+    let system_prompt = input
+        .get("systemPrompt")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let provider_id = input
+        .get("providerId")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let model = input
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let timeout_secs = input.get("timeoutSecs").and_then(Value::as_u64);
+    let mut messages = Vec::new();
+    if let Some(system_prompt) = system_prompt.filter(|value| !value.trim().is_empty()) {
+        messages.push(crate::commands::llm::LlmCompleteMessage {
+            role: "system".to_string(),
+            content: system_prompt,
+        });
+    }
+    messages.push(crate::commands::llm::LlmCompleteMessage {
+        role: "user".to_string(),
+        content: prompt,
+    });
+    let text =
+        crate::commands::llm::llm_complete(messages, provider_id, model, timeout_secs).await?;
+    Ok(PluginCommandExecution {
+        plugin_name: "core.tools".to_string(),
+        command_id: command_id.to_string(),
+        handled: true,
+        result: serde_json::json!({ "text": text }),
+    })
 }
 
 pub fn resolve_builtin_tool_alias(tool_name: &str) -> &str {

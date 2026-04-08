@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { getToolPresentation } from '@/features/session/toolPresentation';
 import { createPluginContext } from '@/plugin/host/createPluginContext';
-import type { MessageActionContribution, ToolResultActionContribution } from '@/plugin/host/types';
+import type { MessageActionContribution, ToolResultActionContribution } from '@/plugin/sdk';
 import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
 import { useDisplayStore } from '@/shared/state/useDisplayStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';

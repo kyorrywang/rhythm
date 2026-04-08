@@ -4,11 +4,8 @@ import {
   deletePluginStorageValue,
   getPluginStorageValue,
   invokePluginCommand,
-  listWorkspaceDir,
   listPluginStorageFiles,
-  readWorkspaceTextFile,
   readPluginStorageTextFile,
-  runWorkspaceShell,
   startPluginCommand,
   setPluginStorageValue,
   writePluginStorageTextFile,
@@ -31,28 +28,6 @@ export function createPluginContext(pluginId: string, trackDisposable?: (disposa
 
   return {
     id: pluginId,
-    workspace: {
-      cwd: getActiveWorkspacePath,
-      listDir: (path) => {
-        assertPermission(pluginId, 'workspace.files.read');
-        return listWorkspaceDir(getActiveWorkspacePath(), path);
-      },
-      readTextFile: (path) => {
-        assertPermission(pluginId, 'workspace.files.read');
-        return readWorkspaceTextFile(getActiveWorkspacePath(), path);
-      },
-    },
-    shell: {
-      run: (command, options) => {
-        assertPermission(pluginId, 'terminal.run');
-        return runWorkspaceShell({
-          cwd: getActiveWorkspacePath(),
-          command,
-          timeout_ms: options?.timeoutMs,
-          max_output_bytes: options?.maxOutputBytes,
-        });
-      },
-    },
     storage: {
       get: (key) => getPluginStorageValue({
         cwd: getActiveWorkspacePath(),
@@ -106,7 +81,21 @@ export function createPluginContext(pluginId: string, trackDisposable?: (disposa
         if (!command) {
           const uiCommand = findManifestCommand(id);
           if (uiCommand?.implementation === 'ui') {
-            throw new Error(`Command '${id}' is declared as UI command but no handler was registered`);
+            const provider = uiCommand.pluginName ? ` by plugin '${uiCommand.pluginName}'` : '';
+            const handler = uiCommand.handler ? ` handler '${uiCommand.handler}'` : ' no handler metadata';
+            const entry = uiCommand.entry ? ` at '${uiCommand.entry}'` : '';
+            const error = new Error(`Command '${id}' is declared as a UI command${provider}, but no runtime handler was registered (${handler}${entry}). Check that the plugin calls ctx.commands.register('${id}', ...).`);
+            usePluginHostStore.getState().reportPluginError(uiCommand.pluginName || pluginId, error);
+            usePluginHostStore.getState().recordCommandInvocation({
+              id: `command-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              pluginId: uiCommand.pluginName || pluginId,
+              type: 'command',
+              name: id,
+              status: 'error',
+              message: error.message,
+              createdAt: Date.now(),
+            });
+            throw error;
           }
           return executeBackendCommand(pluginId, id, input);
         }
@@ -172,7 +161,10 @@ export function createPluginContext(pluginId: string, trackDisposable?: (disposa
         }
         const uiCommand = findManifestCommand(id);
         if (uiCommand?.implementation === 'ui') {
-          throw new Error(`Command '${id}' is declared as UI command but no handler was registered`);
+          const provider = uiCommand.pluginName ? ` by plugin '${uiCommand.pluginName}'` : '';
+          const error = new Error(`Command '${id}' is declared as a UI command${provider}, but no runtime handler was registered. Streaming can only start after the UI handler is registered.`);
+          usePluginHostStore.getState().reportPluginError(uiCommand.pluginName || pluginId, error);
+          throw error;
         }
         return startBackendCommand(pluginId, id, input, listener);
       },
@@ -246,22 +238,6 @@ function getActiveWorkspacePath() {
   );
 }
 
-function assertPermission(pluginId: string, capability: string) {
-  if (!hasPluginPermission(pluginId, capability)) {
-    const error = new Error(`Plugin '${pluginId}' is missing permission '${capability}'`);
-    usePluginHostStore.getState().recordCommandInvocation({
-      id: `permission-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      pluginId,
-      type: 'command',
-      name: `permission:${capability}`,
-      status: 'error',
-      message: error.message,
-      createdAt: Date.now(),
-    });
-    throw error;
-  }
-}
-
 function hasPluginPermission(pluginId: string, capability: string) {
   if (pluginId === 'core') return true;
   const plugin = usePluginStore.getState().plugins.find((candidate) => candidate.name === pluginId);
@@ -271,10 +247,15 @@ function hasPluginPermission(pluginId: string, capability: string) {
   return requested && granted;
 }
 
-function findManifestCommand(commandId: string): { implementation?: string } | null {
+function findManifestCommand(commandId: string): { implementation?: string; pluginName?: string; entry?: string; handler?: string } | null {
   for (const plugin of usePluginStore.getState().plugins) {
     for (const command of plugin.contributes.commands) {
-      if (command.id === commandId) return command as { implementation?: string };
+      if (command.id === commandId) {
+        return {
+          ...(command as { implementation?: string; entry?: string; handler?: string }),
+          pluginName: plugin.name,
+        };
+      }
     }
   }
   return null;

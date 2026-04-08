@@ -55,9 +55,9 @@
           "type": "object",
           "properties": {}
         },
-        "implementation": "ui",
-        "entry": "dist/main.js",
-        "handler": "developer.gitDiff"
+        "implementation": "node",
+        "entry": "src/commands/main.js",
+        "handler": "gitDiff"
       },
       {
         "id": "developer.gitDiffFile",
@@ -136,9 +136,9 @@
           },
           "required": ["command"]
         },
-        "implementation": "ui",
-        "entry": "dist/main.js",
-        "handler": "developer.runValidation"
+        "implementation": "node",
+        "entry": "src/commands/main.js",
+        "handler": "runValidation"
       },
       {
         "id": "developer.detectValidationCommands",

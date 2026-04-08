@@ -46,6 +46,8 @@ Examples:
 - A UI package provides `main` plus views and commands.
 - A tool package provides `contributes.tools`.
 - A product package like `developer` may provide UI, commands, tools, and skills.
+- A product package like `workflow` may provide UI, commands, settings, and its own plugin-level runtime without adding workflow concepts to core.
+- Workflow currently validates Workbench as a complex plugin view host with a lightweight graph canvas and JSON import/export.
 
 ## Manifest Shape
 
@@ -111,6 +113,9 @@ Current rule:
 
 - `main` must be `dist/main.js`
 - `dev.main` must be `src/main.tsx`
+- Official plugins currently keep `dist/main.js` checked in. This keeps validation and non-dev loading deterministic while the plugin package format is still local-first.
+- Local plugin install previews manifest metadata, permissions, dependencies, destination path, overwrite status, and warnings before copying files.
+- Uninstall currently supports keeping or deleting workspace-scoped plugin storage.
 
 ## Contributions
 
@@ -396,6 +401,50 @@ Examples:
 
 This can be migrated gradually. It should not block the three main product plugins.
 
+## Backend Runtime Bridge
+
+Node/Python plugin commands and tools run out-of-process. They receive the initial call payload through `RHYTHM_PLUGIN_CALL`.
+
+If they need host capabilities, they should use the runtime JSON-RPC bridge over stdio rather than directly reaching into app internals.
+
+Currently supported method:
+
+```json
+{
+  "method": "command.execute",
+  "params": {
+    "commandId": "tool.shell",
+    "input": {
+      "command": "git status --short"
+    }
+  }
+}
+```
+
+This keeps backend plugin runtimes aligned with the same command permission and diagnostics path as UI plugins.
+
+Dynamic command execution requires the caller plugin to request and be granted `plugin.command.invoke`.
+
+## Workflow Node Executors
+
+Workflow owns its node system as a secondary extension layer.
+
+The core framework does not know workflow nodes. Workflow runtime is responsible for:
+
+- graph scheduling
+- node run state
+- executor lookup
+- run trace persistence
+
+Concrete node behavior is implemented by registered executors. Built-in Workflow executors currently include:
+
+- `manual`
+- `shell`
+- `command`
+- `workflow.llm`
+
+Other plugins can contribute command-backed node types through Workflow's event/command protocol. Agent-facing Workflow runs can execute contributed nodes only when their backing command is available to the backend runtime.
+
 ## Three Target Plugins
 
 ### Folder
@@ -413,9 +462,9 @@ Provides:
 
 - UI views: dev panel, diff view, validation view, logs.
 - Commands: git diff, git status, run validation.
-- Tools: agent-facing git/diff/test helpers.
 - Skills: coding, review, debugging guidance.
-- Dependencies: folder plugin and relevant folder commands/tools.
+- Workflow node contributions: validation and git diff nodes through Workflow's secondary extension point.
+- Dependencies: folder plugin and relevant built-in commands/tools.
 
 ### Workflow
 
@@ -424,9 +473,10 @@ Provides:
 - UI views: workflow list, graph editor, run view.
 - Commands: create workflow, run workflow, cancel run.
 - Tools: agent-facing workflow operations.
-- Its own secondary extension point for workflow nodes.
+- Its own secondary extension point for workflow node executors.
+- Built-in node executors: manual, shell, command, and LLM.
 
-Workflow node extensions should be owned by Workflow, not by core.
+Workflow node extensions should be owned by Workflow, not by core. The Workflow runtime should schedule nodes and dispatch to registered node executors; it should not branch on concrete node types such as shell, command, or LLM.
 
 ## Current Status
 
@@ -452,6 +502,8 @@ The following are already in place:
    - plugin settings aggregation
    - settings overview and search
 9. Streaming shell command support via `ctx.commands.start(...)`.
+10. Workflow node executor registry and built-in `workflow.llm` node through the thin host command `core.llm.complete`.
+11. Backend plugin runtime host command bridge, so Agent-facing Workflow tools can execute command-backed and LLM nodes without adding node-type branches to core.
 
 ## Non-Goals For Now
 

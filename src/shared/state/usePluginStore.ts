@@ -5,10 +5,11 @@ import {
   grantPluginPermission,
   installPlugin,
   listPlugins,
+  previewInstallPlugin,
   revokePluginPermission,
   uninstallPlugin,
 } from '@/shared/api/commands';
-import type { BackendPluginSummary } from '@/shared/types/api';
+import type { BackendPluginInstallPreview, BackendPluginSummary, PluginUninstallStoragePolicy } from '@/shared/types/api';
 
 interface PluginState {
   plugins: BackendPluginSummary[];
@@ -17,8 +18,9 @@ interface PluginState {
   fetchPlugins: (cwd: string) => Promise<void>;
   togglePlugin: (cwd: string, name: string, enabled: boolean) => Promise<void>;
   setPluginPermission: (cwd: string, name: string, permission: string, granted: boolean) => Promise<void>;
+  previewInstallFromPath: (sourcePath: string) => Promise<BackendPluginInstallPreview>;
   installPluginFromPath: (cwd: string, sourcePath: string) => Promise<BackendPluginSummary>;
-  uninstallPluginByName: (cwd: string, name: string) => Promise<boolean>;
+  uninstallPluginByName: (cwd: string, name: string, storagePolicy?: PluginUninstallStoragePolicy) => Promise<boolean>;
 }
 
 export const usePluginStore = create<PluginState>((set) => ({
@@ -56,6 +58,8 @@ export const usePluginStore = create<PluginState>((set) => ({
     set({ plugins });
   },
 
+  previewInstallFromPath: async (sourcePath) => previewInstallPlugin(sourcePath),
+
   installPluginFromPath: async (cwd, sourcePath) => {
     const installed = await installPlugin(sourcePath);
     const plugins = await listPlugins(cwd);
@@ -63,8 +67,8 @@ export const usePluginStore = create<PluginState>((set) => ({
     return installed;
   },
 
-  uninstallPluginByName: async (cwd, name) => {
-    const removed = await uninstallPlugin(name);
+  uninstallPluginByName: async (cwd, name, storagePolicy = 'keep') => {
+    const removed = await uninstallPlugin(name, storagePolicy);
     const plugins = await listPlugins(cwd);
     set({ plugins });
     return removed;

@@ -172,10 +172,25 @@ pub async fn install_plugin_cmd(source_path: String) -> Result<PluginSummary, St
     plugins::install_plugin(std::path::Path::new(&source_path)).map_err(|e| e.to_string())
 }
 
+/// Preview a plugin install without copying files.
+#[tauri::command]
+pub async fn preview_install_plugin_cmd(
+    source_path: String,
+) -> Result<plugins::PluginInstallPreview, String> {
+    plugins::preview_install_plugin(std::path::Path::new(&source_path)).map_err(|e| e.to_string())
+}
+
 /// Uninstall a plugin by name.
 #[tauri::command]
-pub async fn uninstall_plugin_cmd(name: String) -> Result<bool, String> {
-    plugins::uninstall_plugin(&name).map_err(|e| e.to_string())
+pub async fn uninstall_plugin_cmd(
+    name: String,
+    storage_policy: Option<plugins::PluginUninstallStoragePolicy>,
+) -> Result<bool, String> {
+    plugins::uninstall_plugin(
+        &name,
+        storage_policy.unwrap_or(plugins::PluginUninstallStoragePolicy::Keep),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Return workspace-scoped runtime information for one enabled plugin.
@@ -293,7 +308,10 @@ pub async fn plugin_start_command(
     }
 
     tokio::spawn(async move {
-        match registry.execute_resolved(&loaded, &resolved, request.input, &cwd_path).await {
+        match registry
+            .execute_resolved(&loaded, &resolved, request.input, &cwd_path)
+            .await
+        {
             Ok(execution) => {
                 let _ = on_event.send(PluginCommandEvent::Completed {
                     run_id,

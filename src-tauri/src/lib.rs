@@ -67,6 +67,7 @@ pub fn run() {
             commands::plugins::disable_plugin,
             commands::plugins::grant_plugin_permission,
             commands::plugins::revoke_plugin_permission,
+            commands::plugins::preview_install_plugin_cmd,
             commands::plugins::install_plugin_cmd,
             commands::plugins::uninstall_plugin_cmd,
             commands::plugins::plugin_runtime_info,
