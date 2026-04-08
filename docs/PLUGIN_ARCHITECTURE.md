@@ -344,6 +344,71 @@ Core only hosts the slot and renders registered components. It does not know wha
 
 Official and local plugins should import from `src/plugin/sdk`, never from `src/plugin/host`.
 
+## Main Stage
+
+The app shell now separates three concerns:
+
+- `ActivityRail` for activity navigation
+- `LeftPanelHost` for the active left panel view
+- `MainStage` for the main content layout
+
+`MainStage` is the only place that decides how chat session content and Workbench content coexist.
+
+Current Workbench layout modes:
+
+- `split`: show Session and Workbench side by side
+- `replace`: Workbench replaces the Session area
+
+Sidebar does not control whether Session is visible. That is a `MainStage` responsibility.
+
+## Workbench Host
+
+Workbench is intentionally small:
+
+- it hosts one active Workbench view
+- it supports `split` and `replace`
+- it does not own tabs
+
+If a plugin wants tabs, it should render them inside its own Workbench view.
+
+This keeps core from turning into a full editor manager.
+
+## Overlay Host
+
+Overlay is separate from Workbench.
+
+Current overlay shell types:
+
+- `drawer`
+- `modal`
+
+Overlay is intended for temporary or secondary surfaces such as inspectors, side sheets, and future workflow node property panels.
+
+Workbench should stay focused on primary main-stage content. Overlay should handle temporary layered UI.
+
+## Activity Rail
+
+The left rail follows a VS Code-style downgraded workspace model:
+
+- Top group: workspace-scoped activities for the active workspace.
+- Bottom group: global activities such as plugin management and settings.
+
+Activity contributions support `scope`:
+
+```ts
+ctx.ui.activityBar.register({
+  id: 'folder.activity',
+  title: 'Files',
+  icon: 'folder',
+  scope: 'workspace',
+  opens: 'folder.tree',
+});
+```
+
+If `scope` is omitted, the activity is treated as `workspace`.
+
+Core provides `core.sessions.activity` / `core.sessions.panel` as a workspace-scoped activity. Sessions are therefore a normal left panel view, not a hardcoded Sidebar mode.
+
 ## Menus
 
 Menus should be contribution points, not hardcoded UI.

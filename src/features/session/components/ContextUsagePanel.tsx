@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { Message, MessageSegment, Session } from '@/shared/types/schema';
 import { formatTokenCount, formatPercentage } from '@/shared/lib/formatters';
 import { DEFAULT_MAX_TOKENS } from '@/shared/lib/constants';
+import { themeRecipes } from '@/shared/theme/recipes';
 import { Button } from '@/shared/ui/Button';
 
 interface ContextUsagePanelProps {
@@ -31,10 +32,10 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
   const otherTokens = Math.max(0, totalTokens - estimatedUsage.userTokens - estimatedUsage.assistantTokens - toolTokens);
 
   const contextBreakdown = [
-    { label: '用户', percent: totalTokens > 0 ? (estimatedUsage.userTokens / totalTokens) * 100 : 0, color: 'bg-green-600' },
-    { label: '助手', percent: totalTokens > 0 ? (estimatedUsage.assistantTokens / totalTokens) * 100 : 0, color: 'bg-[#8b5cf6]' },
-    { label: '工具调用', percent: totalTokens > 0 ? (toolTokens / totalTokens) * 100 : 0, color: 'bg-[#b45309]' },
-    { label: '其他', percent: totalTokens > 0 ? (otherTokens / totalTokens) * 100 : 0, color: 'bg-[#71717a]' },
+    { label: '用户', percent: totalTokens > 0 ? (estimatedUsage.userTokens / totalTokens) * 100 : 0, color: 'bg-[var(--theme-success-text)]' },
+    { label: '助手', percent: totalTokens > 0 ? (estimatedUsage.assistantTokens / totalTokens) * 100 : 0, color: 'bg-[var(--theme-accent)]' },
+    { label: '工具调用', percent: totalTokens > 0 ? (toolTokens / totalTokens) * 100 : 0, color: 'bg-[var(--theme-warning-text)]' },
+    { label: '其他', percent: totalTokens > 0 ? (otherTokens / totalTokens) * 100 : 0, color: 'bg-[var(--theme-text-muted)]' },
   ];
 
   return (
@@ -46,16 +47,16 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
         />
       )}
       <div
-        className={`absolute top-0 right-0 bottom-0 w-[440px] bg-white border-l border-zinc-200 z-50 transform transition-transform duration-300 ease-in-out shadow-[-10px_0_30px_rgba(0,0,0,0.05)] overflow-y-auto ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`absolute top-0 right-0 bottom-0 z-50 w-[440px] transform overflow-y-auto border-l-[var(--theme-border-width)] border-[var(--theme-border)] bg-[var(--theme-surface)] transition-transform duration-300 ease-in-out shadow-[var(--theme-shadow-strong)] ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
-        <div className="p-6 text-[13px] text-zinc-800 space-y-6">
+        <div className="space-y-[var(--theme-section-gap)] p-[var(--theme-panel-padding-x)] text-[length:var(--theme-body-size)] text-[var(--theme-text-primary)]">
           <div className="flex items-start justify-between">
             <div className="space-y-1">
-              <div className="text-zinc-500">会话</div>
-              <div className="text-lg font-medium text-zinc-900">{session.title || 'Untitled'}</div>
-              <div className="text-xs text-zinc-400">最近更新 {new Date(session.updatedAt).toLocaleString('zh-CN')}</div>
+              <div className={themeRecipes.eyebrow()}>会话</div>
+              <div className={themeRecipes.title()}>{session.title || 'Untitled'}</div>
+              <div className={`text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>最近更新 {new Date(session.updatedAt).toLocaleString('zh-CN')}</div>
             </div>
-            <Button variant="unstyled" size="none" onClick={onClose} className="rounded-xl p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">
+            <Button variant="ghost" size="icon" onClick={onClose} className="text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)]">
               <X size={16} />
             </Button>
           </div>
@@ -70,22 +71,22 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
           </div>
 
           <div className="space-y-1">
-            <div className="text-zinc-500">使用率{isEstimatedUsage ? '（估算）' : ''}</div>
+            <div className={themeRecipes.eyebrow()}>使用率{isEstimatedUsage ? '（估算）' : ''}</div>
             <div>{formatPercentage(totalTokens, contextLimit)} ({formatTokenCount(totalTokens)} / {formatTokenCount(contextLimit)})</div>
           </div>
 
           <div className="space-y-1">
-            <div className="text-zinc-500">输入 token{isEstimatedUsage ? '（估算）' : ''}</div>
+            <div className={themeRecipes.eyebrow()}>输入 token{isEstimatedUsage ? '（估算）' : ''}</div>
             <div>{formatTokenCount(inputTokens)}</div>
           </div>
 
           <div className="space-y-1">
-            <div className="text-zinc-500">输出 token{isEstimatedUsage ? '（估算）' : ''}</div>
+            <div className={themeRecipes.eyebrow()}>输出 token{isEstimatedUsage ? '（估算）' : ''}</div>
             <div>{formatTokenCount(outputTokens)}</div>
           </div>
 
           <div className="space-y-2">
-            <div className="text-zinc-500">上下文拆分</div>
+            <div className={themeRecipes.eyebrow()}>上下文拆分</div>
             {totalTokens > 0 ? (
               <>
                 <div className="flex h-2 w-full rounded-full overflow-hidden">
@@ -107,30 +108,30 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
                 </div>
               </>
             ) : (
-              <div className="text-xs text-zinc-400">暂无 token 数据</div>
+              <div className={`text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>暂无 token 数据</div>
             )}
           </div>
 
-          <div className="space-y-2 pb-6">
-            <div className="text-zinc-500 mb-2">原始消息</div>
-            <div className="border border-zinc-200 rounded-md overflow-hidden bg-white">
+          <div className="space-y-[var(--theme-toolbar-gap)] pb-6">
+            <div className={themeRecipes.eyebrow()}>原始消息</div>
+            <div className="overflow-hidden rounded-[var(--theme-radius-card)] border-[var(--theme-border-width)] border-[var(--theme-border)] bg-[var(--theme-surface)]">
               {messages.map((msg) => (
-                <div key={msg.id} className="border-b border-zinc-100 last:border-b-0">
+                <div key={msg.id} className="border-b-[var(--theme-divider-width)] border-[var(--theme-border)] last:border-b-0">
                   <div
-                    className="px-3 py-2.5 flex items-center justify-between hover:bg-zinc-50 cursor-pointer text-xs"
+                    className="flex cursor-pointer items-center justify-between px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*0.9)] text-[length:var(--theme-meta-size)] hover:bg-[var(--theme-surface-muted)]"
                     onClick={() => setExpandedMsgId(expandedMsgId === msg.id ? null : msg.id)}
                   >
-                    <div className="flex items-center gap-1.5 truncate">
+                    <div className="flex items-center gap-[var(--theme-toolbar-gap)] truncate">
                       <span className="font-medium">{msg.role}</span>
-                      <span className="text-zinc-400">• {msg.id.substring(0, 16)}...</span>
+                      <span className="text-[var(--theme-text-muted)]">• {msg.id.substring(0, 16)}...</span>
                     </div>
-                    <span className="text-zinc-400 whitespace-nowrap ml-2">
+                    <span className="ml-2 whitespace-nowrap text-[var(--theme-text-muted)]">
                       {new Date(msg.createdAt).toLocaleTimeString('zh-CN')}
                     </span>
                   </div>
                   {expandedMsgId === msg.id && (
-                    <div className="px-3 py-3 bg-white border-t border-zinc-100 text-[12px] overflow-x-auto">
-                      <pre className="text-teal-600 font-mono leading-relaxed">
+                    <div className="overflow-x-auto border-t-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[var(--theme-surface)] px-[var(--theme-control-padding-x-sm)] py-[var(--theme-card-padding-y)] text-[length:var(--theme-meta-size)]">
+                      <pre className="font-mono leading-relaxed text-[var(--theme-accent)]">
                         {JSON.stringify({
                           id: msg.id,
                           role: msg.role,
@@ -153,9 +154,9 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
 };
 
 const MetricCard = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-    <div className="text-[11px] uppercase tracking-[0.14em] text-zinc-400">{label}</div>
-    <div className="mt-2 text-sm font-medium text-zinc-900">{value}</div>
+  <div className={`${themeRecipes.mutedCard()} px-[var(--theme-card-padding-x)] py-[var(--theme-card-padding-y)]`}>
+    <div className={themeRecipes.eyebrow()}>{label}</div>
+    <div className={`mt-[var(--theme-toolbar-gap)] ${themeRecipes.sectionTitle()}`}>{value}</div>
   </div>
 );
 

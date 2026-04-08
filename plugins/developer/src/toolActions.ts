@@ -1,60 +1,9 @@
 import type { LeftPanelProps } from '../../../src/plugin/sdk';
 import type { ToolCall } from '../../../src/shared/types/schema';
-import { DEVELOPER_STORAGE_KEYS, DEVELOPER_VIEWS } from './constants';
-import type { DeveloperTaskSummary, DiffPayload, LogPayload, ValidationPayload } from './types';
+import { DEVELOPER_VIEWS } from './constants';
+import type { LogPayload } from './types';
 
 export function registerDeveloperToolActions(ctx: LeftPanelProps['ctx']) {
-  ctx.ui.messageActions.register({
-    id: 'developer.openLatestDiff',
-    title: 'Open Latest Diff',
-    description: 'Open the latest Developer diff snapshot.',
-    order: 20,
-    run: async ({ ctx }) => {
-      const payload = await ctx.storage.get<DiffPayload>(DEVELOPER_STORAGE_KEYS.latestDiff);
-      if (!payload) return;
-      ctx.ui.workbench.open({
-        viewId: DEVELOPER_VIEWS.diff,
-        title: payload.title,
-        description: `${payload.files.length} changed file(s)`,
-        payload,
-      });
-    },
-  });
-
-  ctx.ui.messageActions.register({
-    id: 'developer.openLatestValidation',
-    title: 'Open Latest Validation',
-    description: 'Open the latest Developer validation snapshot.',
-    order: 21,
-    run: async ({ ctx }) => {
-      const payload = await ctx.storage.get<ValidationPayload>(DEVELOPER_STORAGE_KEYS.latestValidation);
-      if (!payload) return;
-      ctx.ui.workbench.open({
-        viewId: DEVELOPER_VIEWS.validation,
-        title: `Validation: ${payload.command}`,
-        description: payload.success ? 'Validation passed' : `${payload.issues.length} issue(s) detected`,
-        payload,
-      });
-    },
-  });
-
-  ctx.ui.messageActions.register({
-    id: 'developer.openLatestTaskSummary',
-    title: 'Open Task Summary',
-    description: 'Open the latest Developer task summary.',
-    order: 22,
-    run: async ({ ctx }) => {
-      const payload = await ctx.storage.get<DeveloperTaskSummary>(DEVELOPER_STORAGE_KEYS.latestTaskSummary);
-      if (!payload) return;
-      ctx.ui.workbench.open({
-        viewId: DEVELOPER_VIEWS.taskSummary,
-        title: payload.title,
-        description: 'Latest Developer task summary',
-        payload,
-      });
-    },
-  });
-
   ctx.ui.toolResultActions.register({
     id: 'developer.openShellLog',
     title: 'Open Log',

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Play, Plus, RefreshCw, Workflow } from 'lucide-react';
 import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import { Button } from '../../../../src/shared/ui/Button';
+import { SidebarPage } from '../../../../src/shared/ui/SidebarPage';
 import { WORKFLOW_COMMANDS, WORKFLOW_EVENTS, WORKFLOW_VIEWS } from '../constants';
 import { listRuns, listWorkflows } from '../storage';
 import type { WorkflowDefinition, WorkflowRun } from '../types';
@@ -73,7 +74,7 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
   };
 
   return (
-    <div className="flex h-full shrink-0 flex-col bg-[#f8f7f3]" style={{ width }}>
+    <SidebarPage width={width}>
       <div className="px-4 pb-4 pt-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-slate-400">
@@ -167,6 +168,6 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
           {runs.length === 0 && <div className="text-sm text-slate-500">暂无运行记录</div>}
         </section>
       </div>
-    </div>
+    </SidebarPage>
   );
 }

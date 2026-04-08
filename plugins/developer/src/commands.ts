@@ -101,7 +101,7 @@ export function registerDeveloperCommands(ctx: LeftPanelProps['ctx']) {
   );
 }
 
-async function detectValidationCommands(ctx: LeftPanelProps['ctx']) {
+export async function detectValidationCommands(ctx: LeftPanelProps['ctx']) {
   const suggestions = new Map<string, ValidationPreset>();
   try {
     const result = await ctx.commands.execute<unknown, { entries?: Array<{ name: string; kind: string }> }>('tool.list_dir', {});

@@ -3,6 +3,8 @@ import { X, Monitor, Moon, Sun, Type, Shield, RotateCcw } from 'lucide-react';
 import { useSettingsStore, type AppSettings } from '@/shared/state/useSettingsStore';
 import { useDisplayStore } from '@/shared/state/useDisplayStore';
 import { Button } from '@/shared/ui/Button';
+import { Select } from '@/shared/ui/Select';
+import { themeRecipes } from '@/shared/theme/recipes';
 
 interface SettingsPageProps {
   onClose: () => void;
@@ -20,18 +22,18 @@ export const SettingsPage = ({ onClose }: SettingsPageProps) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-[640px] max-w-[90vw] max-h-[80vh] overflow-hidden flex flex-col">
+      <div className={`flex max-h-[80vh] w-[640px] max-w-[90vw] flex-col overflow-hidden ${themeRecipes.workbenchSurface()}`}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-medium text-gray-800">设置</h2>
-          <Button variant="unstyled" size="none" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+        <div className="flex items-center justify-between border-b-[var(--theme-divider-width)] border-[var(--theme-border)] px-[var(--theme-panel-padding-x)] py-[var(--theme-panel-padding-y)]">
+          <h2 className={themeRecipes.title()}>设置</h2>
+          <Button variant="unstyled" size="none" onClick={onClose} className="text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)]">
             <X size={20} />
           </Button>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
           {/* Sidebar */}
-          <div className="w-40 border-r border-gray-100 bg-gray-50 py-4">
+          <div className="w-40 border-r-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[var(--theme-panel-bg)] py-4">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -40,10 +42,10 @@ export const SettingsPage = ({ onClose }: SettingsPageProps) => {
                   size="none"
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm transition-colors ${
+                  className={`flex w-full items-center gap-[var(--theme-toolbar-gap)] px-4 py-2.5 text-sm transition-colors ${
                     activeTab === tab.id
-                      ? 'bg-white text-gray-800 font-medium border-r-2 border-gray-800'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                      ? 'border-r-2 border-[var(--theme-accent)] bg-[var(--theme-surface)] font-medium text-[var(--theme-text-primary)]'
+                      : 'text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-secondary)]'
                   }`}
                 >
                   <Icon size={16} />
@@ -55,7 +57,7 @@ export const SettingsPage = ({ onClose }: SettingsPageProps) => {
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6">
-            <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="mb-6 rounded-[var(--theme-radius-card)] border-[var(--theme-border-width)] border-[var(--theme-warning-border)] bg-[var(--theme-warning-surface)] px-4 py-3 text-sm text-[var(--theme-warning-text)]">
               这里当前只管理前端偏好和显示行为。模型、权限和后端运行配置仍由后端配置文件控制，尚未从这个面板写回。
             </div>
             {activeTab === 'general' && <GeneralSettings settings={settings} onUpdate={updateSettings} onReset={resetSettings} />}
@@ -161,25 +163,23 @@ function DisplaySettings({ preferences, onUpdate, onReset }: { preferences: Disp
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">运行时</label>
-                  <select
+                  <Select
                     value={preferences[seg.key].whileRunning}
                     onChange={(e) => onUpdate(seg.key, { ...preferences[seg.key], whileRunning: e.target.value as 'expand' | 'collapse' })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-300"
                   >
                     <option value="expand">展开</option>
                     <option value="collapse">折叠</option>
-                  </select>
+                  </Select>
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">完成后</label>
-                  <select
+                  <Select
                     value={preferences[seg.key].whenDone}
                     onChange={(e) => onUpdate(seg.key, { ...preferences[seg.key], whenDone: e.target.value as 'expand' | 'collapse' })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-300"
                   >
                     <option value="expand">展开</option>
                     <option value="collapse">折叠</option>
-                  </select>
+                  </Select>
                 </div>
               </div>
             </div>

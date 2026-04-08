@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, CircleSlash2, MessageSquareQuote } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
+import { themeRecipes } from '@/shared/theme/recipes';
 import { Button } from '@/shared/ui/Button';
 import type { AskQuestion } from '@/shared/types/schema';
 import type { AskDockProps } from '../types';
@@ -101,37 +102,37 @@ export const AskDock = ({
 
   return (
     <div className="relative z-20 mx-auto w-full max-w-[868px] px-6 pb-6 pointer-events-auto">
-      <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
-        <div className="border-b border-slate-100 bg-[linear-gradient(180deg,#fffdfa_0%,#f8f4ee_100%)] px-5 py-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 text-[13px] font-medium text-slate-800">
-              <MessageSquareQuote size={15} className="text-amber-700" />
+      <div className={`overflow-hidden ${themeRecipes.workbenchSurface()}`}>
+        <div className="border-b-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-surface)_0%,var(--theme-panel-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[var(--theme-panel-padding-y)]">
+          <div className="flex items-center justify-between gap-[var(--theme-section-gap)]">
+            <div className={`flex items-center gap-[var(--theme-toolbar-gap)] ${themeRecipes.sectionTitle()}`}>
+              <MessageSquareQuote size={15} className="text-[var(--theme-warning-text)]" />
               <span>{title}</span>
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">
+              <span className={themeRecipes.badge('warning')}>
                 第 {currentIndex + 1} / {questions.length} 题
               </span>
             </div>
-            <div className="text-[12px] text-slate-500">
+            <div className={`text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>
               {isSingle ? '单选 + 补充输入' : '多选 + 补充输入'}
             </div>
           </div>
-          <div className="mt-3 flex gap-1.5">
+          <div className="mt-[var(--theme-toolbar-gap)] flex gap-[calc(var(--theme-toolbar-gap)*0.5)]">
             {questions.map((_, index) => (
               <div
                 key={index}
                 className={cn(
                   'h-1.5 flex-1 rounded-full transition-colors',
-                  index <= currentIndex ? 'bg-amber-500' : 'bg-slate-200',
+                  index <= currentIndex ? 'bg-[var(--theme-warning-text)]' : 'bg-[var(--theme-border)]',
                 )}
               />
             ))}
           </div>
         </div>
 
-        <div className="px-5 py-5">
-          <h3 className="text-[16px] font-medium leading-7 text-slate-900">{currentQuestion.question}</h3>
+        <div className="px-[var(--theme-panel-padding-x)] py-[var(--theme-panel-padding-y)]">
+          <h3 className={`${themeRecipes.title()} leading-7`}>{currentQuestion.question}</h3>
 
-          <div className="mt-4 grid gap-2">
+          <div className="mt-[var(--theme-section-gap)] grid gap-[var(--theme-toolbar-gap)]">
             {currentQuestion.options.map((option) => {
               const selected = currentAnswer.options.includes(option);
               return (
@@ -141,24 +142,24 @@ export const AskDock = ({
                   key={option}
                   onClick={() => handleOptionClick(option)}
                   className={cn(
-                    'flex items-center gap-3 rounded-2xl border px-4 py-3 text-left text-[14px] transition-colors',
+                    'flex min-h-[var(--theme-control-height-lg)] items-center gap-[var(--theme-toolbar-gap)] rounded-[var(--theme-radius-card)] border-[var(--theme-border-width)] px-[var(--theme-control-padding-x-md)] text-left text-[length:var(--theme-body-size)] transition-colors',
                     selected
-                      ? 'border-amber-400 bg-amber-50 text-amber-900'
-                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
+                      ? 'border-[var(--theme-warning-border)] bg-[var(--theme-warning-surface)] text-[var(--theme-warning-text)]'
+                      : 'border-[var(--theme-border)] bg-[var(--theme-surface)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-muted)]',
                   )}
                 >
                   <span
                     className={cn(
                       'flex h-4 w-4 shrink-0 items-center justify-center border transition-colors',
-                      isSingle ? 'rounded-full' : 'rounded-[5px]',
-                      selected ? 'border-amber-500 bg-amber-500' : 'border-slate-300 bg-white',
+                      isSingle ? 'rounded-full' : 'rounded-[calc(var(--theme-radius-control)*0.45)]',
+                      selected ? 'border-[var(--theme-warning-text)] bg-[var(--theme-warning-text)]' : 'border-[var(--theme-border-strong)] bg-[var(--theme-surface)]',
                     )}
                   >
                     {selected && (
                       <span
                         className={cn(
-                          'bg-white',
-                          isSingle ? 'h-1.5 w-1.5 rounded-full' : 'h-2 w-2 rounded-[2px]',
+                          'bg-[var(--theme-surface)]',
+                          isSingle ? 'h-1.5 w-1.5 rounded-full' : 'h-2 w-2 rounded-[calc(var(--theme-radius-control)*0.2)]',
                         )}
                       />
                     )}
@@ -173,28 +174,27 @@ export const AskDock = ({
             value={currentAnswer.text}
             onChange={(event) => setCurrentAnswer({ ...currentAnswer, text: event.target.value })}
             placeholder="可补充说明，也可以只选择选项。"
-            className="mt-4 min-h-[92px] w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[14px] leading-7 text-slate-800 outline-none transition-colors focus:border-amber-300 focus:bg-white"
+            className={`mt-[var(--theme-section-gap)] w-full resize-none ${themeRecipes.fieldMuted()} ${themeRecipes.textarea()} leading-7 focus:border-[var(--theme-warning-border)] focus:bg-[var(--theme-surface)]`}
           />
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-100 bg-[#fbfaf8] px-5 py-4">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between border-t-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-panel-bg)_0%,var(--theme-shell-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[calc(var(--theme-panel-padding-y)*0.8)]">
+          <div className={themeRecipes.toolbar()}>
             <Button
-              variant="unstyled"
-              size="none"
+              variant="secondary"
+              size="sm"
               onClick={handlePrevious}
               disabled={currentIndex === 0}
-              className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[13px] text-slate-500 transition-colors hover:bg-white hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ArrowLeft size={13} />
               上一步
             </Button>
             {onIgnore && (
               <Button
-                variant="unstyled"
-                size="none"
+                variant="ghost"
+                size="sm"
                 onClick={onIgnore}
-                className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[13px] text-slate-400 transition-colors hover:bg-white hover:text-red-500"
+                className="text-[var(--theme-danger-text)] hover:text-[var(--theme-danger)]"
               >
                 <CircleSlash2 size={13} />
                 忽略
@@ -203,11 +203,10 @@ export const AskDock = ({
           </div>
 
           <Button
-            variant="unstyled"
-            size="none"
+            variant="primary"
+            size="md"
             onClick={handleNext}
             disabled={isDisabled}
-            className="inline-flex items-center gap-1 rounded-full bg-slate-950 px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {isLast ? '提交答案' : '下一题'}
             <ArrowRight size={13} />

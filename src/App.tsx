@@ -1,6 +1,6 @@
 import { Sidebar } from '@/features/sidebar/Sidebar';
-import { SessionContainer } from '@/features/session/SessionContainer';
-import { WorkbenchPanel } from '@/features/workbench/WorkbenchPanel';
+import { MainStage } from '@/features/layout/MainStage';
+import { OverlayHost } from '@/features/layout/OverlayHost';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import { ToastContainer } from '@/shared/ui/Toast';
 import { useSettingsStore } from '@/shared/state/useSettingsStore';
@@ -9,14 +9,18 @@ import { useSessionStore } from '@/shared/state/useSessionStore';
 import { useActiveWorkspace } from '@/shared/state/useWorkspaceStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
+import { ThemeProvider } from '@/shared/theme/provider';
+import { themeRecipes } from '@/shared/theme/recipes';
 import { useEffect } from 'react';
 import { getSessions } from '@/shared/api/commands';
 import { PluginHostRuntime } from '@/plugin/host/PluginHostRuntime';
 
 export function App() {
   const workbench = useSessionStore((s) => s.workbench);
-  const setLeftPanelMode = useSessionStore((s) => s.setLeftPanelMode);
+  const overlay = useSessionStore((s) => s.overlay);
+  const setActiveLeftPanelView = useSessionStore((s) => s.setActiveLeftPanelView);
   const closeWorkbench = useSessionStore((s) => s.closeWorkbench);
+  const closeOverlay = useSessionStore((s) => s.closeOverlay);
   const setComposerControls = useSessionStore((s) => s.setComposerControls);
   const setSessions = useSessionStore((s) => s.setSessions);
   const hydrateFromBackend = useSettingsStore((s) => s.hydrateFromBackend);
@@ -68,8 +72,12 @@ export function App() {
   }, [settings, setComposerControls, setPermissionConfig]);
 
   useKeyboardShortcuts({
-    'ctrl+,': () => setLeftPanelMode('plugin:core.settings.panel'),
+    'ctrl+,': () => setActiveLeftPanelView('core.settings.panel'),
     escape: () => {
+      if (overlay) {
+        closeOverlay();
+        return;
+      }
       if (workbench) {
         closeWorkbench();
       }
@@ -78,12 +86,14 @@ export function App() {
 
   return (
     <ErrorBoundary>
-      <div className="flex h-screen w-full font-sans antialiased bg-[#f3efe7] text-gray-800">
-        <PluginHostRuntime />
-        <Sidebar />
-        {workbench && <WorkbenchPanel />}
-        <SessionContainer />
-      </div>
+      <ThemeProvider>
+        <div className={`flex h-screen w-full font-sans antialiased ${themeRecipes.appShell()}`}>
+          <PluginHostRuntime />
+          <Sidebar />
+          <MainStage />
+          <OverlayHost />
+        </div>
+      </ThemeProvider>
       <ToastContainer />
     </ErrorBoundary>
   );

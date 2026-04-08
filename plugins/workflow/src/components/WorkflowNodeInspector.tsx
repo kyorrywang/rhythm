@@ -1,7 +1,7 @@
-import type { WorkbenchProps } from '../../../../src/plugin/sdk';
+import type { OverlayProps } from '../../../../src/plugin/sdk';
 import type { WorkflowNodeInspectorPayload } from '../types';
 
-export function WorkflowNodeInspector({ payload }: WorkbenchProps<WorkflowNodeInspectorPayload>) {
+export function WorkflowNodeInspector({ payload }: OverlayProps<WorkflowNodeInspectorPayload>) {
   return (
     <div className="h-full overflow-y-auto bg-[#fbfaf7] p-6">
       <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Node Inspector</div>

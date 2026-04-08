@@ -13,6 +13,7 @@ export interface ActivityBarContribution {
   title: string;
   icon?: string;
   opens: string;
+  scope?: 'workspace' | 'global';
   pluginId?: string;
 }
 
@@ -50,6 +51,22 @@ export interface WorkbenchContribution<TPayload = unknown> {
   id: string;
   title: string;
   component: WorkbenchComponent<TPayload>;
+  pluginId?: string;
+}
+
+export interface OverlayProps<TPayload = unknown> {
+  ctx: PluginContext;
+  title: string;
+  description?: string;
+  payload: TPayload;
+}
+
+export type OverlayComponent<TPayload = unknown> = React.ComponentType<OverlayProps<TPayload>>;
+
+export interface OverlayContribution<TPayload = unknown> {
+  id: string;
+  title: string;
+  component: OverlayComponent<TPayload>;
   pluginId?: string;
 }
 
@@ -108,6 +125,16 @@ export interface OpenWorkbenchInput<TPayload = unknown> {
   description?: string;
   payload: TPayload;
   lifecycle?: 'snapshot' | 'live';
+  layoutMode?: 'split' | 'replace';
+}
+
+export interface OpenOverlayInput<TPayload = unknown> {
+  id?: string;
+  viewId: string;
+  title: string;
+  description?: string;
+  payload: TPayload;
+  kind?: 'drawer' | 'modal';
 }
 
 export interface StorageApi {
@@ -207,6 +234,11 @@ export interface PluginUiApi {
   workbench: {
     register: <TPayload = unknown>(view: WorkbenchContribution<TPayload>) => Disposable;
     open: <TPayload = unknown>(input: OpenWorkbenchInput<TPayload>) => void;
+  };
+  overlay: {
+    register: <TPayload = unknown>(view: OverlayContribution<TPayload>) => Disposable;
+    open: <TPayload = unknown>(input: OpenOverlayInput<TPayload>) => void;
+    close: () => void;
   };
   messageActions: {
     register: (action: MessageActionContribution) => Disposable;

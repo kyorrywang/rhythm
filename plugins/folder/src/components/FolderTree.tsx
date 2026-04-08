@@ -1,24 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FilePlus2, Folder, FolderPlus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { FilePlus2, Folder, FolderPlus, RefreshCw } from 'lucide-react';
 import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import type { BackendWorkspaceDirEntry } from '../../../../src/shared/types/api';
-import { Button } from '../../../../src/shared/ui/Button';
+import { Badge, Button, EmptyState, IconButton, NavSectionLabel, SidebarFooter, SidebarHeader, SidebarPage } from '../../../../src/shared/ui';
 import { FOLDER_COMMANDS, FOLDER_VIEWS } from '../constants';
 import { useExpandedPaths } from '../hooks/useExpandedPaths';
-import { useOpenHistory } from '../hooks/useOpenHistory';
+import { readPreviewFile } from '../preview';
 import type { FilePreviewPayload, FolderGitStatusEntry, FolderListInput, FolderReadInput, FolderTreeFileActions } from '../types';
 import { basename, dirname, fileStatusDescription, joinPath, sortEntries } from '../utils';
-import { FileRow } from './FileRow';
 import { TreeNode } from './TreeNode';
 
 export function FolderTree({ ctx, width }: LeftPanelProps) {
   const [rootEntries, setRootEntries] = useState<BackendWorkspaceDirEntry[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
+  const [query, _setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gitStatuses, setGitStatuses] = useState<Map<string, string>>(new Map());
-  const history = useOpenHistory(ctx);
   const { expandedPaths, toggle } = useExpandedPaths(ctx);
 
   const loadRoot = useCallback(async () => {
@@ -55,31 +53,18 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
     setActivePath(entry.path);
     setError(null);
     try {
-      const result = await ctx.commands.execute<FolderReadInput, string | { output?: string }>(
-        FOLDER_COMMANDS.read,
-        { path: entry.path },
-      );
-      const content = typeof result === 'string' ? result : result.output || '';
-      const file: FilePreviewPayload = {
-        path: entry.path,
-        content,
-        size: content.length,
-        truncated: false,
-        is_binary: false,
-        encoding_error: null,
-        limit_bytes: content.length,
-      };
-      await history.remember(file.path);
+      const file = await readPreviewFile(entry.path);
       ctx.ui.workbench.open({
         viewId: FOLDER_VIEWS.filePreview,
         title: file.path,
         description: fileStatusDescription(file),
         payload: file,
+        layoutMode: 'replace',
       });
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error || '无法读取文件'));
     }
-  }, [ctx.commands, ctx.ui.workbench, history]);
+  }, [ctx.ui.workbench]);
 
   const copyPath = useCallback(async (path: string) => {
     await navigator.clipboard.writeText(path);
@@ -184,104 +169,57 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
   );
 
   return (
-    <div className="flex h-full shrink-0 flex-col bg-[#f8f7f3]" style={{ width }}>
-      <div className="px-4 pb-4 pt-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-slate-400">
-            <Folder size={16} />
-            <span>Files</span>
-          </div>
-          <Button
-            variant="unstyled"
-            size="none"
-            onClick={() => void loadRoot()}
-            className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-white hover:text-slate-700"
-            title="刷新工作区目录"
-          >
+    <SidebarPage width={width}>
+      <SidebarHeader
+        icon={<Folder size={16} />}
+        title="Files"
+        subtitle="浏览目录并快速打开文件。"
+        actions={(
+          <IconButton onClick={() => void loadRoot()} title="刷新工作区目录">
             <RefreshCw size={15} />
-          </Button>
-        </div>
-        <h2 className="mt-3 text-[20px] font-semibold text-slate-900">Files</h2>
-        <p className="mt-1 truncate text-sm leading-6 text-slate-500">当前工作区</p>
-        <div className="mt-3 flex items-center gap-2">
+          </IconButton>
+        )}
+      />
+      <div className="flex flex-col gap-3 px-4 pb-4">
+        <div className="flex items-center gap-2">
           <Button
-            variant="secondary"
+            variant="primary"
             size="sm"
             onClick={() => void createFile()}
-            className="rounded-xl"
+            className="flex-1 shadow-sm"
           >
             <FilePlus2 size={14} className="mr-1.5" />
             新建文件
           </Button>
-          <Button
-            variant="secondary"
-            size="sm"
+          <IconButton
             onClick={() => void createDir()}
-            className="rounded-xl"
+            title="新建目录"
+            className="border border-[var(--theme-border)] bg-[var(--theme-surface)]"
           >
-            <FolderPlus size={14} className="mr-1.5" />
-            新建目录
-          </Button>
+            <FolderPlus size={14} />
+          </IconButton>
         </div>
-        <label className="mt-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 focus-within:border-amber-300">
-          <Search size={15} className="text-slate-400" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="过滤已展开的文件"
-            className="w-full bg-transparent outline-none placeholder:text-slate-400"
-          />
-        </label>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 pb-4">
+      <div className="flex-1 overflow-y-auto px-2 pb-4">
         {error && (
-          <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-700">
-            {error}
+          <div className="px-2">
+            <EmptyState title="目录读取失败" description={error} icon={<Folder size={18} />} className="mb-3 py-4" />
           </div>
         )}
 
-        {history.entries.length > 0 && (
-          <section className="mb-4">
-            <div className="mb-2 flex items-center justify-between px-2">
-              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Recent</span>
-              <Button
-                variant="unstyled"
-                size="none"
-                onClick={() => void history.clear()}
-                className="rounded-lg p-1 text-slate-300 hover:bg-white hover:text-slate-600"
-                title="清空最近文件"
-              >
-                <Trash2 size={12} />
-              </Button>
-            </div>
-            <div className="space-y-1">
-              {history.entries.map((entry) => (
-                <FileRow
-                  key={entry.path}
-                  entry={entry}
-                  active={activePath === entry.path}
-                  depth={0}
-                  onOpen={() => void openFile(entry)}
-                  onRename={() => void renamePath(entry)}
-                  onDelete={() => void deletePath(entry)}
-                  onReveal={() => void revealPath(entry.path)}
-                  onCopyPath={(path) => void copyPath(path)}
-                  gitStatus={gitStatuses.get(entry.path)}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
         <section>
-          <div className="mb-2 px-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">Workspace</div>
-          {isLoading && (
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-500">
-              正在读取目录...
+          <div className="mb-1.5 flex items-center justify-between px-2">
+            <NavSectionLabel className="px-0 pt-0 text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-muted)]">Workspace</NavSectionLabel>
+            <Badge tone="muted" className="h-4 px-1 text-[9px]">{rootEntries.length}</Badge>
+          </div>
+          {isLoading && rootEntries.length === 0 && (
+            <div className="py-8 text-center">
+              <RefreshCw size={18} className="mx-auto mb-2 animate-spin text-[var(--theme-text-muted)]" />
+              <div className="text-xs text-[var(--theme-text-muted)]">加载中...</div>
             </div>
           )}
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {rootEntries.map((entry) => (
               <TreeNode
                 key={entry.path}
@@ -298,12 +236,12 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
             ))}
           </div>
           {!isLoading && rootEntries.length === 0 && !error && (
-            <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
-              该目录为空
+            <div className="px-2">
+              <EmptyState title="空工作区" description="开始创建文件以构建项目。" icon={<Folder size={18} />} className="py-8" />
             </div>
           )}
         </section>
       </div>
-    </div>
+    </SidebarPage>
   );
 }

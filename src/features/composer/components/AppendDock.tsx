@@ -1,5 +1,6 @@
 import { Maximize2, Trash2, CornerDownRight, ArrowRight, Loader2, ShieldAlert } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
+import { themeRecipes } from '@/shared/theme/recipes';
 import { Button } from '@/shared/ui/Button';
 import { AppendDockProps } from '../types';
 
@@ -9,56 +10,56 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
   if (isMinimized) {
     return (
       <div
-        className="border-b border-slate-100 bg-[#fbfbfb] px-4 py-2 rounded-t-[28px] transition-all cursor-pointer hover:bg-slate-100 flex items-center justify-between"
+        className="border-b-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-surface)_0%,var(--theme-panel-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[calc(var(--theme-panel-padding-y)*0.6)] transition-all cursor-pointer hover:bg-[var(--theme-surface-muted)] flex items-center justify-between"
         onClick={onToggleMinimize}
       >
-        <div className="flex items-center gap-2 text-[12px] text-gray-600">
-          <CornerDownRight size={13} className="text-gray-400" />
+        <div className={`flex items-center gap-[var(--theme-toolbar-gap)] text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>
+          <CornerDownRight size={13} className="text-[var(--theme-text-muted)]" />
           <span>{queueLength} 条消息等待</span>
         </div>
-        <Maximize2 size={13} className="text-gray-400" />
+        <Maximize2 size={13} className="text-[var(--theme-text-muted)]" />
       </div>
     );
   }
 
   return (
-    <div className="border-b border-slate-100 bg-[#fbfbfb] px-4 py-3 rounded-t-[28px] transition-all">
-      <div className="mb-2 flex items-center justify-between text-[12px] font-medium text-slate-800">
-        <div className="flex items-center gap-2">
+    <div className="border-b-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-surface)_0%,var(--theme-panel-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[calc(var(--theme-panel-padding-y)*0.75)] transition-all">
+      <div className={`mb-[var(--theme-toolbar-gap)] flex items-center justify-between ${themeRecipes.sectionTitle()}`}>
+        <div className="flex items-center gap-[var(--theme-toolbar-gap)]">
           <span>队列中有 {queueLength} 条消息</span>
           {phase === 'waiting_for_permission' && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700">
+            <span className={`${themeRecipes.badge('warning')} gap-1`}>
               <ShieldAlert size={10} />
               等待权限
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className={themeRecipes.toolbar()}>
           {isInterrupting && (
-            <span className="text-amber-600 text-[11px]">正在中断...</span>
+            <span className="text-[length:var(--theme-meta-size)] text-[var(--theme-warning-text)]">正在中断...</span>
           )}
-          <Button variant="unstyled" size="none" onClick={onCancelAll} className="text-gray-400 hover:text-red-500 transition-colors">
+          <Button variant="ghost" size="icon" onClick={onCancelAll} className="text-[var(--theme-text-muted)] hover:text-[var(--theme-danger-text)]">
             <Trash2 size={12} />
           </Button>
         </div>
       </div>
 
       {queuedMessages.length > 0 && (
-        <div className="space-y-1.5 mb-2">
+        <div className="mb-[var(--theme-toolbar-gap)] space-y-[calc(var(--theme-toolbar-gap)*0.5)]">
           {queuedMessages.map((item) => (
-            <div key={item.id} className="flex items-center gap-2 text-[12px] group rounded-xl px-2 py-1.5 hover:bg-white">
+            <div key={item.id} className="group flex items-center gap-[var(--theme-toolbar-gap)] rounded-[var(--theme-radius-control)] px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*0.7)] text-[length:var(--theme-meta-size)] hover:bg-[var(--theme-surface)]">
               <CornerDownRight size={12} className={cn(
                 "shrink-0",
-                item.priority === 'urgent' ? "text-amber-500" : "text-gray-400"
+                item.priority === 'urgent' ? "text-[var(--theme-warning-text)]" : "text-[var(--theme-text-muted)]"
               )} />
               <span className={cn(
                 "truncate flex-1",
-                item.priority === 'urgent' ? "text-amber-700 font-medium" : "text-gray-600"
+                item.priority === 'urgent' ? "font-medium text-[var(--theme-warning-text)]" : "text-[var(--theme-text-secondary)]"
               )}>
                 {item.message.content}
               </span>
               {item.priority === 'urgent' && (
-                <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium shrink-0">
+                <span className={`${themeRecipes.badge('warning')} shrink-0`}>
                   引导
                 </span>
               )}
@@ -66,7 +67,7 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
                 variant="unstyled"
                 size="none"
                 onClick={() => onRemoveItem(item.id)}
-                className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                className="opacity-0 transition-all group-hover:opacity-100 shrink-0 text-[var(--theme-text-muted)] hover:text-[var(--theme-danger-text)]"
               >
                 <Trash2 size={11} />
               </Button>
@@ -75,32 +76,27 @@ export const AppendDock = ({ queuedMessages, queueLength, onRemoveItem, onCancel
         </div>
       )}
 
-      <div className="flex items-center justify-between text-[12px] text-gray-500">
-        <div className="flex items-center gap-2">
+      <div className={`flex items-center justify-between text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>
+        <div className="flex items-center gap-[var(--theme-toolbar-gap)]">
           {isInterrupting ? (
             <>
-              <Loader2 size={12} className="animate-spin text-amber-500" />
+              <Loader2 size={12} className="animate-spin text-[var(--theme-warning-text)]" />
               <span>正在请求中断</span>
             </>
           ) : (
             <>
-              <CornerDownRight size={12} className="text-gray-400" />
+              <CornerDownRight size={12} className="text-[var(--theme-text-muted)]" />
               <span>运行结束后会自动消费队列</span>
             </>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className={themeRecipes.toolbar()}>
           <Button
-            variant="unstyled"
-            size="none"
+            variant="secondary"
+            size="sm"
             onClick={onInterrupt}
             disabled={isInterrupting}
-            className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-colors",
-              isInterrupting
-                ? "bg-amber-100 text-amber-600 cursor-wait"
-                : "bg-amber-50 text-amber-700 hover:bg-amber-100"
-            )}
+            className={cn(isInterrupting ? "cursor-wait text-[var(--theme-warning-text)]" : "text-[var(--theme-warning-text)]")}
           >
             <ArrowRight size={11} /> 立即引导
           </Button>

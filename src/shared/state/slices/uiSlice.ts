@@ -12,15 +12,36 @@ interface WorkbenchItem {
   lifecycle?: 'snapshot' | 'live';
 }
 
+interface OverlayItem {
+  id: string;
+  pluginId: string;
+  viewType: string;
+  title: string;
+  description?: string;
+  payload?: unknown;
+  kind: 'drawer' | 'modal';
+}
+
+type WorkbenchLayoutMode = 'split' | 'replace';
+type OpenWorkbenchInput = Omit<WorkbenchItem, 'id'> & {
+  id?: string;
+  layoutMode?: WorkbenchLayoutMode;
+};
+type OpenOverlayInput = Omit<OverlayItem, 'id' | 'kind'> & {
+  id?: string;
+  kind?: OverlayItem['kind'];
+};
+
 interface UiSliceState {
   isContextPanelOpen: boolean;
   leftSidebarCollapsed: boolean;
-  leftPanelMode: 'sessions' | `plugin:${string}`;
+  activeLeftPanelViewId: string;
+  workbenchSplitWidth: number;
   workbench: {
-    items: WorkbenchItem[];
-    activeItemId: string | null;
-    layoutMode: 'split' | 'focus';
+    item: WorkbenchItem;
+    layoutMode: WorkbenchLayoutMode;
   } | null;
+  overlay: OverlayItem | null;
   composerControls: {
     mode: MessageMode;
     providerId: string;
@@ -35,27 +56,34 @@ interface UiSliceActions {
   setContextPanelOpen: (open: boolean) => void;
   setLeftSidebarCollapsed: (collapsed: boolean) => void;
   toggleLeftSidebarCollapsed: () => void;
-  setLeftPanelMode: (mode: UiSliceState['leftPanelMode']) => void;
-  openWorkbench: (workbench: Omit<WorkbenchItem, 'id'> & { id?: string }) => void;
+  setActiveLeftPanelView: (viewId: string) => void;
+  setWorkbenchSplitWidth: (width: number) => void;
+  openWorkbench: (workbench: OpenWorkbenchInput) => void;
   closeWorkbench: () => void;
-  closeWorkbenchItem: (id: string) => void;
-  setActiveWorkbenchItem: (id: string) => void;
-  setWorkbenchLayoutMode: (mode: 'split' | 'focus') => void;
+  setWorkbenchLayoutMode: (mode: WorkbenchLayoutMode) => void;
+  openOverlay: (overlay: OpenOverlayInput) => void;
+  closeOverlay: () => void;
   setComposerControls: (updates: Partial<UiSliceState['composerControls']>) => void;
 }
 
 export type UiSlice = UiSliceState & UiSliceActions;
 
-const buildWorkbenchId = (workbench: Omit<WorkbenchItem, 'id'> & { id?: string }) =>
+const DEFAULT_WORKBENCH_SPLIT_WIDTH = 400;
+
+const buildWorkbenchId = (workbench: OpenWorkbenchInput) =>
   workbench.id || `${workbench.pluginId}:${workbench.viewType}:${workbench.title}`;
+const buildOverlayId = (overlay: OpenOverlayInput) =>
+  overlay.id || `${overlay.pluginId}:${overlay.viewType}:${overlay.title}`;
 
 export const createUiSlice = (
   set: (partial: Partial<UiSliceState> | ((state: UiSliceState) => Partial<UiSliceState>)) => void,
 ): UiSliceState & UiSliceActions => ({
   isContextPanelOpen: false,
   leftSidebarCollapsed: false,
-  leftPanelMode: 'sessions',
+  activeLeftPanelViewId: 'core.sessions.panel',
+  workbenchSplitWidth: DEFAULT_WORKBENCH_SPLIT_WIDTH,
   workbench: null,
+  overlay: null,
   composerControls: {
     mode: 'Chat',
     providerId: 'openai',
@@ -69,55 +97,39 @@ export const createUiSlice = (
   setLeftSidebarCollapsed: (collapsed) => set({ leftSidebarCollapsed: collapsed }),
   toggleLeftSidebarCollapsed: () =>
     set((state) => ({ leftSidebarCollapsed: !state.leftSidebarCollapsed })),
-  setLeftPanelMode: (mode) =>
+  setActiveLeftPanelView: (viewId) =>
     set({
-      leftPanelMode: mode,
-      workbench: mode === 'sessions' ? null : undefined,
+      activeLeftPanelViewId: viewId,
+    }),
+  setWorkbenchSplitWidth: (width) =>
+    set({
+      workbenchSplitWidth: width,
     }),
   openWorkbench: (workbench) =>
     set((state) => {
       const id = buildWorkbenchId(workbench);
       const nextItem: WorkbenchItem = { ...workbench, id, isOpen: true };
-      const existingItems = state.workbench?.items || [];
-      const existingIndex = existingItems.findIndex((item) => item.id === id);
-      const items = existingIndex >= 0
-        ? existingItems.map((item, index) => (index === existingIndex ? nextItem : item))
-        : [...existingItems, nextItem];
-
       return {
         workbench: {
-          items,
-          activeItemId: id,
-          layoutMode: state.workbench?.layoutMode || 'split',
+          item: nextItem,
+          layoutMode: workbench.layoutMode || state.workbench?.layoutMode || 'split',
         },
       };
     }),
   closeWorkbench: () => set({ workbench: null }),
-  closeWorkbenchItem: (id) =>
-    set((state) => {
-      const items = state.workbench?.items.filter((item) => item.id !== id) || [];
-      if (items.length === 0) {
-        return { workbench: null };
-      }
-      const activeItemId = state.workbench?.activeItemId === id ? items[items.length - 1].id : state.workbench?.activeItemId || items[0].id;
-      return {
-        workbench: {
-          items,
-          activeItemId,
-          layoutMode: state.workbench?.layoutMode || 'split',
-        },
-      };
-    }),
-  setActiveWorkbenchItem: (id) =>
-    set((state) => ({
-      workbench: state.workbench
-        ? { ...state.workbench, activeItemId: id }
-        : state.workbench,
-    })),
   setWorkbenchLayoutMode: (mode) =>
     set((state) => ({
       workbench: state.workbench ? { ...state.workbench, layoutMode: mode } : state.workbench,
     })),
+  openOverlay: (overlay) =>
+    set({
+      overlay: {
+        ...overlay,
+        id: buildOverlayId(overlay),
+        kind: overlay.kind || 'drawer',
+      },
+    }),
+  closeOverlay: () => set({ overlay: null }),
   setComposerControls: (updates) =>
     set((state) => ({
       composerControls: {

@@ -4,6 +4,7 @@ import type {
   CommandRegistrationMetadata,
   LeftPanelContribution,
   MessageActionContribution,
+  OverlayContribution,
   PluginRuntimeRecord,
   PluginRuntimeStatus,
   PluginTaskRecord,
@@ -26,6 +27,7 @@ interface PluginHostState {
   activityBarItems: ActivityBarContribution[];
   leftPanels: Record<string, LeftPanelContribution>;
   workbenchViews: Record<string, WorkbenchContribution>;
+  overlayViews: Record<string, OverlayContribution>;
   settingsSections: Record<string, SettingsSectionContribution>;
   commandHandlers: Record<string, CommandRegistration>;
   messageActions: MessageActionContribution[];
@@ -41,6 +43,7 @@ interface PluginHostState {
   registerActivityBar: (pluginId: string, item: ActivityBarContribution) => () => void;
   registerLeftPanel: (pluginId: string, view: LeftPanelContribution) => () => void;
   registerWorkbench: (pluginId: string, view: WorkbenchContribution) => () => void;
+  registerOverlay: (pluginId: string, view: OverlayContribution) => () => void;
   registerSettingsSection: (pluginId: string, section: SettingsSectionContribution) => () => void;
   registerCommand: (pluginId: string, id: string, handler: CommandHandler, metadata?: CommandRegistrationMetadata) => () => void;
   registerMessageAction: (pluginId: string, action: MessageActionContribution) => () => void;
@@ -66,6 +69,7 @@ export const usePluginHostStore = create<PluginHostState>((set) => ({
   activityBarItems: [],
   leftPanels: {},
   workbenchViews: {},
+  overlayViews: {},
   settingsSections: {},
   commandHandlers: {},
   messageActions: [],
@@ -81,6 +85,7 @@ export const usePluginHostStore = create<PluginHostState>((set) => ({
       activityBarItems: [],
       leftPanels: {},
       workbenchViews: {},
+      overlayViews: {},
       settingsSections: {},
       commandHandlers: {},
       messageActions: [],
@@ -169,6 +174,21 @@ export const usePluginHostStore = create<PluginHostState>((set) => ({
       set((state) => {
         const { [nextView.id]: _removed, ...workbenchViews } = state.workbenchViews;
         return { workbenchViews };
+      });
+  },
+
+  registerOverlay: (pluginId, view) => {
+    const nextView = { ...view, pluginId };
+    set((state) => ({
+      overlayViews: {
+        ...state.overlayViews,
+        [nextView.id]: nextView,
+      },
+    }));
+    return () =>
+      set((state) => {
+        const { [nextView.id]: _removed, ...overlayViews } = state.overlayViews;
+        return { overlayViews };
       });
   },
 

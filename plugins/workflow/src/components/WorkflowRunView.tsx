@@ -35,11 +35,12 @@ export function WorkflowRunView({ ctx, payload }: WorkbenchProps<WorkflowRunPayl
   const inspect = (nodeRun: WorkflowNodeRun) => {
     const node = current.workflow.nodes.find((item) => item.id === nodeRun.nodeId);
     if (!node) return;
-    ctx.ui.workbench.open({
+    ctx.ui.overlay.open({
       viewId: WORKFLOW_VIEWS.nodeInspector,
       title: node.title,
       description: `Node status: ${nodeRun.status}`,
       payload: { workflow: current.workflow, run: current.run, node, nodeRun },
+      kind: 'drawer',
     });
   };
 

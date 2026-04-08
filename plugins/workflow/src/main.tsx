@@ -38,7 +38,7 @@ export default definePlugin({
       component: WorkflowRunView,
     });
 
-    ctx.ui.workbench.register<WorkflowNodeInspectorPayload>({
+    ctx.ui.overlay.register<WorkflowNodeInspectorPayload>({
       id: WORKFLOW_VIEWS.nodeInspector,
       title: 'Node Inspector',
       component: WorkflowNodeInspector,

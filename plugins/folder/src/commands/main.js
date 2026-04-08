@@ -4,11 +4,14 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const handlers = {
+  readPreview,
   createDir,
   rename,
   deletePath,
   reveal,
 };
+
+const MAX_TEXT_PREVIEW_BYTES = 1_048_576;
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
@@ -24,6 +27,64 @@ async function main() {
   const call = JSON.parse(process.env.RHYTHM_PLUGIN_CALL || '{}');
   const result = await handler(call.input || {}, call);
   process.stdout.write(JSON.stringify(result));
+}
+
+async function readPreview(input, call) {
+  if (!input.path) throw new Error("'path' is required");
+  const cwd = workspaceCwd(call);
+  const target = resolveInsideWorkspace(cwd, input.path);
+  const stats = await fs.stat(target);
+  if (!stats.isFile()) {
+    throw new Error(`'${input.path}' is not a file`);
+  }
+
+  const limitBytes = MAX_TEXT_PREVIEW_BYTES;
+  const size = stats.size;
+  const truncated = size > limitBytes;
+  const handle = await fs.open(target, 'r');
+
+  try {
+    const buffer = Buffer.alloc(Math.min(size, limitBytes));
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const preview = buffer.subarray(0, bytesRead);
+    const isBinary = preview.includes(0);
+
+    if (isBinary) {
+      return {
+        path: toRelativePath(cwd, target),
+        content: null,
+        size,
+        truncated,
+        is_binary: true,
+        encoding_error: null,
+        limit_bytes: limitBytes,
+      };
+    }
+
+    try {
+      return {
+        path: toRelativePath(cwd, target),
+        content: preview.toString('utf8'),
+        size,
+        truncated,
+        is_binary: false,
+        encoding_error: null,
+        limit_bytes: limitBytes,
+      };
+    } catch (error) {
+      return {
+        path: toRelativePath(cwd, target),
+        content: null,
+        size,
+        truncated,
+        is_binary: false,
+        encoding_error: error instanceof Error ? error.message : String(error),
+        limit_bytes: limitBytes,
+      };
+    }
+  } finally {
+    await handle.close();
+  }
 }
 
 async function createDir(input, call) {

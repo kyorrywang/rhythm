@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { BellRing, Clock3, Scissors, TimerReset } from 'lucide-react';
+import { themeRecipes } from '@/shared/theme/recipes';
 import type { Message } from '@/shared/types/schema';
 
 export const SystemMessage = ({ message }: { message: Message }) => {
@@ -12,12 +13,12 @@ export const SystemMessage = ({ message }: { message: Message }) => {
       transition={{ duration: 0.25 }}
       className="mx-2 mb-6 mt-2"
     >
-      <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,#fffdfa_0%,#f7f3ec_100%)] px-5 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
-        <div className="flex items-center gap-3 text-xs uppercase tracking-[0.16em] text-slate-400">
+      <div className={`${themeRecipes.surfaceCard()} bg-[linear-gradient(180deg,var(--theme-surface)_0%,var(--theme-panel-bg)_100%)] px-[var(--theme-card-padding-x)] py-[var(--theme-card-padding-y)]`}>
+        <div className={`flex items-center gap-[var(--theme-toolbar-gap)] ${themeRecipes.eyebrow()}`}>
           {icon}
           <span>System Event</span>
         </div>
-        <p className="mt-3 text-sm leading-7 text-slate-700">{message.content}</p>
+        <p className={`mt-[var(--theme-panel-header-gap)] leading-7 ${themeRecipes.description()}`}>{message.content}</p>
       </div>
     </motion.div>
   );

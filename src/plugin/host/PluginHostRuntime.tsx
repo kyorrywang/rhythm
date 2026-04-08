@@ -2,12 +2,12 @@ import { useEffect, useRef } from 'react';
 import { usePluginStore } from '@/shared/state/usePluginStore';
 import { useActiveWorkspace } from '@/shared/state/useWorkspaceStore';
 import { createPluginContext } from './createPluginContext';
-import { corePlugin } from './corePlugin';
+import { corePlugin } from '@/plugin/core/corePlugin';
 import type { Disposable, RhythmPlugin } from './types';
 import { usePluginHostStore } from './usePluginHostStore';
 
-const localPluginModules = import.meta.glob('../../plugins/*/src/main.tsx');
-const externalPluginModules = import.meta.glob('../../plugins/*/dist/main.js');
+const localPluginModules = import.meta.glob('../../../plugins/*/src/main.tsx');
+const externalPluginModules = import.meta.glob('../../../plugins/*/dist/main.js');
 const useDevPluginEntry = import.meta.env.DEV;
 
 export function PluginHostRuntime() {
@@ -52,7 +52,7 @@ export function PluginHostRuntime() {
         }
 
         const entry = resolvePluginEntry(plugin);
-        const candidatePaths = entry ? [`../../plugins/${plugin.name}/${entry}`] : [];
+        const candidatePaths = entry ? [`../../../plugins/${plugin.name}/${entry}`] : [];
         const loaderPath = candidatePaths.find((path) => localPluginModules[path] || externalPluginModules[path]);
         const loader = loaderPath ? localPluginModules[loaderPath] || externalPluginModules[loaderPath] : null;
         if (!loader) {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle } from 'lucide-react';
 import { usePluginHostStore } from './usePluginHostStore';
+import { themeRecipes } from '@/shared/theme/recipes';
 
 interface PluginErrorBoundaryProps {
   pluginId: string;
@@ -38,15 +39,15 @@ export class PluginErrorBoundary extends React.Component<PluginErrorBoundaryProp
 
     return (
       <div className="h-full overflow-auto px-5 py-5">
-        <div className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-5 text-rose-800">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <AlertCircle size={16} />
+        <div className={themeRecipes.errorState()}>
+          <div className="flex items-center gap-2 text-sm font-semibold text-[var(--theme-danger-text)]">
+            <AlertCircle size={16} className="text-[var(--theme-danger-text)]" />
             <span>插件视图崩溃</span>
           </div>
-          <p className="mt-2 text-sm leading-6">
+          <p className="mt-2 text-sm leading-6 text-[color:color-mix(in_srgb,var(--theme-danger-text)_88%,transparent)]">
             `{this.props.pluginId}` 在 `{this.props.surface}` 渲染时出错，已上报到插件运行时状态。
           </p>
-          <pre className="mt-3 whitespace-pre-wrap rounded-2xl bg-white/70 px-3 py-3 text-xs leading-5">
+          <pre className="mt-3 whitespace-pre-wrap rounded-[var(--theme-radius-control)] bg-[var(--theme-surface)]/80 px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*0.9)] text-xs leading-5 text-[var(--theme-danger-text)]">
             {this.state.error.message}
           </pre>
         </div>

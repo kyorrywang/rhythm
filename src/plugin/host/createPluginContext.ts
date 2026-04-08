@@ -210,7 +210,27 @@ export function createPluginContext(pluginId: string, trackDisposable?: (disposa
             description: input.description,
             payload: input.payload,
             lifecycle: input.lifecycle || 'snapshot',
+            layoutMode: input.layoutMode,
           });
+        },
+      },
+      overlay: {
+        register: (view): Disposable =>
+          tracked(usePluginHostStore.getState().registerOverlay(pluginId, view as never)),
+        open: (input) => {
+          const view = usePluginHostStore.getState().overlayViews[input.viewId];
+          useSessionStore.getState().openOverlay({
+            id: input.id,
+            pluginId: view?.pluginId || pluginId,
+            viewType: input.viewId,
+            title: input.title,
+            description: input.description,
+            payload: input.payload,
+            kind: input.kind,
+          });
+        },
+        close: () => {
+          useSessionStore.getState().closeOverlay();
         },
       },
       messageActions: {

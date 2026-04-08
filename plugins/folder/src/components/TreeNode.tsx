@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Folder, RefreshCw } from 'lucide-react';
-import { Button } from '../../../../src/shared/ui/Button';
+import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw } from 'lucide-react';
+import { Button } from '../../../../src/shared/ui';
 import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import type { BackendWorkspaceDirEntry } from '../../../../src/shared/types/api';
 import { FOLDER_COMMANDS } from '../constants';
@@ -69,6 +69,7 @@ export function TreeNode({
         entry={entry}
         active={activePath === entry.path}
         depth={depth}
+        variant="tree"
         onOpen={() => actions.openFile(entry)}
         onRename={() => void actions.renamePath(entry)}
         onDelete={() => void actions.deletePath(entry)}
@@ -82,40 +83,47 @@ export function TreeNode({
   const isVisible = !query || matchesEntry(entry, query) || filteredChildren.length > 0;
   if (!isVisible) return null;
 
+  const active = activePath === entry.path;
+
   return (
     <div>
       <div
-        className="group flex w-full items-center justify-between rounded-2xl py-2 pr-2 text-sm text-slate-700 transition-colors hover:bg-white"
-        style={{ paddingLeft: 12 + depth * 14 }}
+        className={`group relative flex items-center justify-between gap-1 rounded-md py-1 pr-1 transition-colors ${
+          active ? 'bg-[var(--theme-surface-muted)]' : 'hover:bg-[var(--theme-surface-subtle)]'
+        }`}
+        style={{ paddingLeft: 12 + depth * 16 }}
       >
         <Button
           variant="unstyled"
           size="none"
           onClick={() => onToggle(entry.path)}
-          className="min-w-0 flex-1 text-left"
+          className="min-w-0 flex-1 justify-start text-left focus:ring-0"
         >
-          <span className="flex min-w-0 items-center gap-2 truncate">
-            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <Folder size={14} className="shrink-0" />
-            <span className="truncate">{entry.name}</span>
+          <span className="flex min-w-0 items-center gap-1.5 truncate">
+            <span className="flex w-4 shrink-0 items-center justify-center">
+              {expanded ? (
+                <ChevronDown size={14} className="text-[var(--theme-text-muted)]" />
+              ) : (
+                <ChevronRight size={14} className="text-[var(--theme-text-muted)]" />
+              )}
+            </span>
+            {expanded ? (
+              <FolderOpen
+                size={14}
+                className="shrink-0 text-[var(--theme-text-muted)]"
+              />
+            ) : (
+              <Folder
+                size={14}
+                className="shrink-0 text-[var(--theme-text-muted)]"
+              />
+            )}
+            <span className={`truncate text-sm ${active ? 'font-semibold text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'}`}>
+              {entry.name}
+            </span>
           </span>
         </Button>
-        <span className="flex items-center gap-1">
-          {expanded && (
-            <Button
-              variant="unstyled"
-              size="none"
-              onClick={(event) => {
-                event.stopPropagation();
-                void loadChildren(true);
-                void actions.refreshPath(entry.path);
-              }}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-300 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-700 group-hover:opacity-100"
-              title="刷新目录"
-            >
-              <RefreshCw size={13} />
-            </Button>
-          )}
+        <span className="flex items-center gap-0.5">
           <ActionMenu
             entry={entry}
             onCopyPath={(path) => void actions.copyPath(path)}
@@ -129,14 +137,14 @@ export function TreeNode({
         </span>
       </div>
       {expanded && (
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           {isLoading && (
-            <div className="py-1 text-xs text-slate-400" style={{ paddingLeft: 36 + depth * 14 }}>
+            <div className="py-1 text-[10px] text-[var(--theme-text-muted)]" style={{ paddingLeft: 32 + depth * 16 }}>
               正在展开...
             </div>
           )}
           {error && (
-            <div className="py-1 text-xs text-rose-600" style={{ paddingLeft: 36 + depth * 14 }}>
+            <div className="py-1 text-[10px] text-[var(--theme-danger)]" style={{ paddingLeft: 32 + depth * 16 }}>
               {error}
             </div>
           )}

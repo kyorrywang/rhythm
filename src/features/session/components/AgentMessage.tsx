@@ -13,12 +13,13 @@ import { getToolPresentation } from '@/features/session/toolPresentation';
 import { createPluginContext } from '@/plugin/host/createPluginContext';
 import type { MessageActionContribution, ToolResultActionContribution } from '@/plugin/sdk';
 import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
+import { themeRecipes } from '@/shared/theme/recipes';
 import { useDisplayStore } from '@/shared/state/useDisplayStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { approvePermission } from '@/shared/api/commands';
 import type { Message, MessageSegment, ToolCall } from '@/shared/types/schema';
-import { Button } from '@/shared/ui/Button';
+import { Badge, Button } from '@/shared/ui';
 import { CodeBlock } from '@/shared/ui/CodeBlock';
 
 interface AgentMessageProps {
@@ -70,8 +71,8 @@ const SegmentCard = ({
   }, [defaultExpanded]);
 
   return (
-    <div className="border-t border-slate-100 first:border-t-0">
-      <div className="flex items-baseline justify-between gap-3 py-3">
+    <div className="border-t-[var(--theme-divider-width)] border-[var(--theme-border)] first:border-t-0">
+      <div className="flex items-baseline justify-between gap-[var(--theme-toolbar-gap)] py-[var(--theme-toolbar-gap)]">
         <div
           onClick={() => canExpand && setIsExpanded((v) => !v)}
           onKeyDown={(event) => {
@@ -79,17 +80,17 @@ const SegmentCard = ({
             event.preventDefault();
             setIsExpanded((v) => !v);
           }}
-          className={`flex min-w-0 flex-1 items-baseline gap-1 text-left text-[13px] leading-6 ${canExpand ? 'cursor-pointer' : ''}`}
+          className={`flex min-w-0 flex-1 items-baseline gap-[calc(var(--theme-toolbar-gap)*0.5)] text-left text-[length:var(--theme-body-size)] leading-6 ${canExpand ? 'cursor-pointer' : ''}`}
           role={canExpand ? 'button' : undefined}
           tabIndex={canExpand ? 0 : undefined}
         >
-          <span className="shrink-0 font-semibold text-slate-900">{title}</span>
-          {summary && <span className="min-w-0 truncate text-slate-600">{summary}</span>}
-          <span className="shrink-0 text-[11px] text-slate-400">
+          <span className={`shrink-0 ${themeRecipes.sectionTitle()}`}>{title}</span>
+          {summary && <span className={`min-w-0 truncate ${themeRecipes.description()}`}>{summary}</span>}
+          <span className="shrink-0 text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">
             {timerStart !== undefined && <Timer isRunning={Boolean(running)} startTime={timerStart} finalMs={timerMs} />}
           </span>
           {canExpand && (
-            <span className="-ml-0.5 shrink-0 text-slate-400">
+            <span className="-ml-0.5 shrink-0 text-[var(--theme-text-muted)]">
               {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </span>
           )}
@@ -105,8 +106,8 @@ const SegmentCard = ({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="pb-4 pr-1">
-              <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
+            <div className="pb-[var(--theme-section-gap)] pr-1">
+              <div className={`${themeRecipes.mutedCard()} px-[var(--theme-card-padding-x)] py-[var(--theme-card-padding-y)]`}>
                 {children}
               </div>
             </div>
@@ -165,24 +166,26 @@ const ToolBlock = ({ tool, sessionId }: { tool: ToolCall; sessionId: string }) =
       defaultExpanded={defaultExpanded}
       action={<ToolActionButtons actions={toolResultActions} tool={tool} sessionId={sessionId} />}
     >
-      <div className="space-y-3">
-        <div className="grid gap-3 text-[12px] text-slate-500 md:grid-cols-3">
+      <div className="space-y-[var(--theme-toolbar-gap)]">
+        <div className="grid gap-[var(--theme-toolbar-gap)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-secondary)] md:grid-cols-3">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">状态</div>
-            <div className="mt-1 text-slate-700">
-              {tool.status === 'running' ? '执行中' : tool.status === 'completed' ? '已完成' : '失败'}
+            <div className={themeRecipes.eyebrow()}>状态</div>
+            <div className="mt-1">
+              <Badge tone={tool.status === 'running' ? 'warning' : tool.status === 'completed' ? 'success' : 'danger'}>
+                {tool.status === 'running' ? '执行中' : tool.status === 'completed' ? '已完成' : '失败'}
+              </Badge>
             </div>
           </div>
           <div className="md:col-span-2">
-            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">参数</div>
-            <pre className="mt-1 whitespace-pre-wrap rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
+            <div className={themeRecipes.eyebrow()}>参数</div>
+            <pre className="mt-1 whitespace-pre-wrap rounded-[var(--theme-radius-control)] bg-[var(--theme-surface)] px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*0.7)] text-[length:var(--theme-meta-size)] leading-5 text-[var(--theme-text-secondary)]">
               {JSON.stringify(tool.arguments, null, 2)}
             </pre>
           </div>
         </div>
         <div>
-          <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">输出</div>
-          <pre className="mt-1 max-h-[220px] overflow-auto whitespace-pre-wrap rounded-xl bg-slate-950 px-3 py-3 text-[11px] leading-6 text-slate-100">
+          <div className={themeRecipes.eyebrow()}>输出</div>
+          <pre className="mt-1 max-h-[220px] overflow-auto whitespace-pre-wrap rounded-[var(--theme-radius-control)] bg-[var(--theme-accent)] px-[var(--theme-control-padding-x-sm)] py-[var(--theme-card-padding-y)] text-[length:var(--theme-meta-size)] leading-6 text-[var(--theme-accent-contrast)]">
             {presentation.details || '暂无输出'}
           </pre>
         </div>
@@ -210,24 +213,19 @@ const AskSegment = ({ segment }: { segment: MessageSegment & { type: 'ask' } }) 
       running={isWaiting}
       defaultExpanded={defaultExpanded}
     >
-      <div className="space-y-4">
+      <div className="space-y-[var(--theme-section-gap)]">
         {qaList.map((q, qi) => (
-          <div key={qi} className={qi > 0 ? 'border-t border-slate-100 pt-4' : ''}>
-            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">问题 {qi + 1}</div>
-            <p className="mt-2 text-sm text-slate-800">{q.question}</p>
+          <div key={qi} className={qi > 0 ? 'border-t-[var(--theme-divider-width)] border-[var(--theme-border)] pt-[var(--theme-section-gap)]' : ''}>
+            <div className={themeRecipes.eyebrow()}>问题 {qi + 1}</div>
+            <p className={`mt-[var(--theme-toolbar-gap)] ${themeRecipes.description()}`}>{q.question}</p>
             {q.options.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-[var(--theme-toolbar-gap)] flex flex-wrap gap-[var(--theme-toolbar-gap)]">
                 {q.options.map((opt) => {
                   const selected = segment.answer?.selected.includes(opt);
                   return (
-                    <span
-                      key={opt}
-                      className={`rounded-full px-3 py-1 text-xs ${
-                        selected ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-500'
-                      }`}
-                    >
+                    <Badge key={opt} tone={selected ? 'success' : 'muted'}>
                       {opt}
-                    </span>
+                    </Badge>
                   );
                 })}
               </div>
@@ -253,7 +251,7 @@ const ThinkingSegment = ({ segment, isLive }: { segment: MessageSegment & { type
       timerMs={segment.timeCostMs}
       defaultExpanded={defaultExpanded}
     >
-      <div className="whitespace-pre-wrap text-[13px] leading-7 text-slate-600">
+      <div className={`whitespace-pre-wrap leading-7 ${themeRecipes.description()}`}>
         {segment.content || '...'}
       </div>
     </SegmentCard>
@@ -299,32 +297,31 @@ const PermissionSegment = ({
       running={isWaiting}
       defaultExpanded
     >
-      <div className="space-y-3 text-sm text-slate-700">
+      <div className={`space-y-[var(--theme-toolbar-gap)] ${themeRecipes.description()}`}>
         <div>
-          <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">工具</div>
+          <div className={themeRecipes.eyebrow()}>工具</div>
           <p className="mt-1">{segment.request.toolName}</p>
         </div>
         <div>
-          <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">原因</div>
+          <div className={themeRecipes.eyebrow()}>原因</div>
           <p className="mt-1 leading-6">{segment.request.reason}</p>
         </div>
         {isWaiting && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center justify-between gap-[var(--theme-toolbar-gap)] border-t-[var(--theme-divider-width)] border-[var(--theme-border)] pt-[var(--theme-toolbar-gap)]">
+            <label className="flex cursor-pointer items-center gap-[var(--theme-toolbar-gap)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-secondary)]">
               <input
                 type="checkbox"
                 checked={alwaysAllow}
                 onChange={(event) => setAlwaysAllow(event.target.checked)}
-                className="rounded border-slate-300"
+                className="rounded border-[var(--theme-border-strong)]"
               />
               本会话始终允许此工具
             </label>
-            <div className="flex items-center gap-2">
+            <div className={themeRecipes.toolbar()}>
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={() => void resolve(false)}
-                className="rounded-xl text-xs text-slate-500 hover:text-slate-800"
               >
                 拒绝
               </Button>
@@ -332,7 +329,7 @@ const PermissionSegment = ({
                 variant="primary"
                 size="sm"
                 onClick={() => void resolve(true)}
-                className="rounded-xl bg-amber-600 text-xs hover:bg-amber-700"
+                className="bg-[var(--theme-warning-text)] hover:bg-[color:color-mix(in_srgb,var(--theme-warning-text)_88%,black)]"
               >
                 允许
               </Button>
@@ -367,7 +364,7 @@ const ToolActionButtons = ({
   if (visibleActions.length === 0) return null;
 
   return (
-    <div className="flex shrink-0 items-center gap-1">
+    <div className={themeRecipes.toolbar()}>
       {visibleActions.map((action) => (
         <PluginActionButton
           key={action.id}
@@ -412,13 +409,13 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
       transition={{ duration: 0.3 }}
       className="group relative ml-2 flex flex-col pb-8 pt-2"
     >
-      <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-5 shadow-[0_16px_40px_rgba(15,23,42,0.04)]">
-        <div className="mb-3 flex items-center gap-3 text-xs text-slate-400">
-          <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-slate-900 text-white">
+      <div className={`${themeRecipes.workbenchSurface()} px-[var(--theme-panel-padding-x)] py-[var(--theme-panel-padding-y)]`}>
+        <div className={`mb-[var(--theme-toolbar-gap)] flex items-center gap-[var(--theme-toolbar-gap)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]`}>
+          <div className="flex h-8 w-8 items-center justify-center rounded-[var(--theme-radius-card)] bg-[var(--theme-accent)] text-[var(--theme-accent-contrast)]">
             <Sparkles size={15} />
           </div>
-          <span className="font-medium text-slate-700">Rhythm AI</span>
-          <span className="text-slate-300">•</span>
+          <span className="font-medium text-[var(--theme-text-secondary)]">Rhythm AI</span>
+          <span className="text-[var(--theme-border-strong)]">•</span>
           <span>{new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
         </div>
 
@@ -434,9 +431,9 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.3 }}
-                  className="border-t border-slate-100 first:border-t-0 py-4"
+                  className="border-t-[var(--theme-divider-width)] border-[var(--theme-border)] py-[var(--theme-section-gap)] first:border-t-0"
                 >
-                  <div className="prose prose-sm max-w-none text-slate-800">
+                  <div className="prose prose-sm max-w-none text-[var(--theme-text-primary)]">
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
@@ -454,7 +451,7 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
                               code={code}
                             />
                           ) : (
-                            <code className="rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[0.92em] text-fuchsia-700">
+                            <code className="rounded-md bg-[var(--theme-surface-muted)] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--theme-accent)]">
                               {children}
                             </code>
                           );
@@ -471,20 +468,20 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
         </div>
       </div>
 
-      <div className="mt-3 h-6 flex-col justify-center">
-        <div className="flex items-center text-[12px] text-slate-400">
+      <div className="mt-[var(--theme-toolbar-gap)] h-6 flex-col justify-center">
+        <div className="flex items-center text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">
           <Button
             variant="ghost"
             size="icon"
             onClick={handleCopy}
-            className="h-7 w-7 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]"
             title="Copy"
           >
-            {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+            {copied ? <Check size={14} className="text-[var(--theme-success-text)]" /> : <Copy size={14} />}
           </Button>
-          <span className="mx-2 text-slate-300">|</span>
+          <span className="mx-2 text-[var(--theme-border-strong)]">|</span>
           <span>{modelName}</span>
-          <span className="mx-2 text-slate-300">·</span>
+          <span className="mx-2 text-[var(--theme-border-strong)]">·</span>
           <Timer
             isRunning={isMessageRunning}
             startTime={message.createdAt}
@@ -521,7 +518,7 @@ const MessageActionButtons = ({
 
   return (
     <>
-      <span className="mx-2 text-slate-300">|</span>
+      <span className="mx-2 text-[var(--theme-border-strong)]">|</span>
       {visibleActions.map((action) => (
         <PluginActionButton
           key={action.id}
@@ -562,7 +559,7 @@ const PluginActionButton = ({
           })
           .finally(() => setIsRunning(false));
       }}
-      className={`h-7 px-2 text-[12px] ${danger ? 'text-rose-600' : 'text-slate-500'}`}
+      className={`${danger ? 'text-[var(--theme-danger-text)]' : 'text-[var(--theme-text-secondary)]'}`}
     >
       {isRunning ? 'Running...' : title}
     </Button>

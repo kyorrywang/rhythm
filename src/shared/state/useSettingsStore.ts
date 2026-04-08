@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getSettings as fetchBackendSettings, listCronJobs, saveSettings as persistBackendSettings } from '@/shared/api/commands';
 import type { BackendCronJobConfig, BackendSettings } from '@/shared/types/api';
+import type { ThemePresetName } from '@/shared/theme';
 
 export interface ProviderModel {
   id: string;
@@ -49,6 +50,7 @@ export interface CronJobConfig {
 
 export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
+  themePreset: ThemePresetName;
   autoSaveSessions: boolean;
   providers: ProviderConfig[];
   systemPrompt: string;
@@ -71,6 +73,7 @@ export interface AppSettings {
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system',
+  themePreset: 'grand',
   autoSaveSessions: true,
   providers: [
     {
@@ -136,6 +139,7 @@ interface SettingsState {
 function mapBackendSettings(input: BackendSettings, cronJobs: BackendCronJobConfig[]): AppSettings {
   return {
     theme: input.theme || 'system',
+    themePreset: useSettingsStore.getState().settings.themePreset || 'grand',
     autoSaveSessions: input.autoSaveSessions ?? true,
     providers: input.providers || [],
     systemPrompt: input.systemPrompt,

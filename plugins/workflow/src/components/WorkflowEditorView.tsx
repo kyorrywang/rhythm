@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, FileUp, Plus, Save, Trash2 } from 'lucide-react';
 import type { WorkbenchProps } from '../../../../src/plugin/sdk';
 import { Button } from '../../../../src/shared/ui/Button';
-import { WORKFLOW_EVENTS } from '../constants';
+import { WORKFLOW_EVENTS, WORKFLOW_VIEWS } from '../constants';
 import { listWorkflowNodeTypes } from '../nodeRegistry';
 import { saveWorkflow } from '../storage';
 import type { WorkflowDefinition, WorkflowEditorPayload, WorkflowNode, WorkflowNodeType } from '../types';
@@ -245,6 +245,7 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
         <aside className="overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
           {selectedNode ? (
             <NodeEditor
+              ctx={ctx}
               workflow={workflow}
               node={selectedNode}
               updateNode={updateNode}
@@ -264,6 +265,7 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
 }
 
 function NodeEditor({
+  ctx,
   workflow,
   node,
   updateNode,
@@ -273,6 +275,7 @@ function NodeEditor({
   removeEdge,
   edgeStartNodeId,
 }: {
+  ctx: WorkbenchProps<WorkflowEditorPayload>['ctx'];
   workflow: WorkflowDefinition;
   node: WorkflowNode;
   updateNode: (nodeId: string, patch: Partial<WorkflowNode>) => void;
@@ -284,6 +287,15 @@ function NodeEditor({
 }) {
   const connectedEdges = workflow.edges.filter((edge) => edge.from === node.id || edge.to === node.id);
   const nodeTitle = (nodeId: string) => workflow.nodes.find((item) => item.id === nodeId)?.title || nodeId;
+  const openInspector = () => {
+    ctx.ui.overlay.open({
+      viewId: WORKFLOW_VIEWS.nodeInspector,
+      title: node.title,
+      description: `Node type: ${node.type}`,
+      payload: { workflow, node },
+      kind: 'drawer',
+    });
+  };
 
   return (
     <div>
@@ -292,10 +304,15 @@ function NodeEditor({
           <div className="text-xs uppercase tracking-[0.14em] text-slate-400">{node.type}</div>
           <h3 className="mt-1 text-lg font-semibold text-slate-900">{node.title}</h3>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => removeNode(node.id)} disabled={workflow.nodes.length <= 1}>
-          <Trash2 size={14} className="mr-1.5" />
-          删除
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={openInspector}>
+            查看抽屉
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => removeNode(node.id)} disabled={workflow.nodes.length <= 1}>
+            <Trash2 size={14} className="mr-1.5" />
+            删除
+          </Button>
+        </div>
       </div>
       <label className="mt-4 block text-xs font-medium text-slate-500">
         标题

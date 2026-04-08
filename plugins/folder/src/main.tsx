@@ -2,6 +2,7 @@ import { definePlugin } from '../../../src/plugin/sdk';
 import { FOLDER_COMMANDS, FOLDER_VIEWS } from './constants';
 import { FolderTree } from './components/FolderTree';
 import { FilePreview } from './components/FilePreview';
+import { readPreviewFile } from './preview';
 import type { FilePreviewPayload, FolderOpenFileInput } from './types';
 
 export default definePlugin({
@@ -9,19 +10,9 @@ export default definePlugin({
     ctx.commands.register(
       FOLDER_COMMANDS.openFile,
       async ({ path, line, column }: FolderOpenFileInput) => {
-        const result = await ctx.commands.execute<{ path: string }, string | { output?: string }>(
-          FOLDER_COMMANDS.read,
-          { path },
-        );
-        const content = typeof result === 'string' ? result : result.output || '';
+        const file = await readPreviewFile(path);
         const payload: FilePreviewPayload = {
-          path,
-          content,
-          size: content.length,
-          truncated: false,
-          is_binary: false,
-          encoding_error: null,
-          limit_bytes: content.length,
+          ...file,
           line,
           column,
         };
@@ -30,6 +21,7 @@ export default definePlugin({
           title: path,
           description: line ? `Line ${line}${column ? `:${column}` : ''}` : undefined,
           payload,
+          layoutMode: 'replace',
         });
         return payload;
       },

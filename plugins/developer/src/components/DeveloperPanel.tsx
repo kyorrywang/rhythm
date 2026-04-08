@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Code2 } from 'lucide-react';
 import type { LeftPanelProps, RunningCommand } from '../../../../src/plugin/sdk';
+import { detectValidationCommands } from '../commands';
 import { DEVELOPER_COMMANDS, DEVELOPER_STORAGE_KEYS, DEVELOPER_VIEWS, DEFAULT_VALIDATION_COMMANDS } from '../constants';
 import { useCommandHistory } from '../hooks/useCommandHistory';
 import { useDeveloperSettings } from '../hooks/useDeveloperSettings';
 import { useValidationHistory } from '../hooks/useValidationHistory';
 import type { DeveloperTaskSummary, DiffPayload, GitStatusEntry, LogPayload, RunCommandInput, ShellCommandResult, ValidationPreset } from '../types';
 import { createTaskSummary, createValidationPayload, parseGitStatus } from '../utils';
+import { SidebarPage } from '../../../../src/shared/ui/SidebarPage';
 import { CommandRunner } from './CommandRunner';
 import { GitPanel } from './GitPanel';
 import { RecentLogs } from './RecentLogs';
@@ -38,13 +40,17 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
 
   useEffect(() => {
     let cancelled = false;
-    void ctx.commands.execute<unknown, ValidationPreset[]>(DEVELOPER_COMMANDS.detectValidationCommands, {}).then((items) => {
+    void detectValidationCommands(ctx).then((items) => {
       if (!cancelled && items.length > 0) setValidationCommands(items);
+    }).catch((nextError) => {
+      if (!cancelled) {
+        setError(nextError instanceof Error ? nextError.message : String(nextError || '检测校验命令失败'));
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [ctx.commands]);
+  }, [ctx]);
 
   useEffect(() => {
     if (settings.validationPresets.length > 0) {
@@ -293,7 +299,7 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
   };
 
   return (
-    <div className="flex h-full shrink-0 flex-col bg-[#f8f7f3]" style={{ width }}>
+    <SidebarPage width={width}>
       <div className="px-4 pb-4 pt-5">
         <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-slate-400">
           <Code2 size={16} />
@@ -335,7 +341,7 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
 
         <RecentLogs entries={history.entries} onOpen={(entry) => openLog(ctx, entry)} onClear={() => void history.clear()} />
       </div>
-    </div>
+    </SidebarPage>
   );
 }
 

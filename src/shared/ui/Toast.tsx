@@ -3,19 +3,13 @@ import { useToastStore, type Toast, type ToastPosition, type ToastType } from '@
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle, AlertCircle, X, Info, AlertTriangle } from 'lucide-react';
 import { Button } from '@/shared/ui/Button';
+import { themeRecipes } from '@/shared/theme/recipes';
 
 const ICON_MAP: Record<ToastType, React.ReactNode> = {
-  success: <CheckCircle size={16} className="text-green-500" />,
-  error: <AlertCircle size={16} className="text-red-500" />,
-  warning: <AlertTriangle size={16} className="text-amber-500" />,
-  info: <Info size={16} className="text-blue-500" />,
-};
-
-const BORDER_MAP: Record<ToastType, string> = {
-  success: 'border-green-200',
-  error: 'border-red-200',
-  warning: 'border-amber-200',
-  info: 'border-blue-200',
+  success: <CheckCircle size={16} className="text-[var(--theme-success-text)]" />,
+  error: <AlertCircle size={16} className="text-[var(--theme-danger-text)]" />,
+  warning: <AlertTriangle size={16} className="text-[var(--theme-warning-text)]" />,
+  info: <Info size={16} className="text-[var(--theme-info-text)]" />,
 };
 
 const TOAST_POSITIONS: ToastPosition[] = [
@@ -83,6 +77,7 @@ function ToastItem({
   }, [toast.autoClose, toast.duration, onDismiss]);
 
   const offset = motionOffset(position);
+  const tone = toast.type === 'info' ? 'muted' : toast.type === 'error' ? 'danger' : toast.type;
 
   return (
     <motion.div
@@ -90,11 +85,11 @@ function ToastItem({
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, ...offset, scale: 0.95 }}
       transition={{ duration: 0.2 }}
-      className={`flex items-start gap-3 p-3 bg-white border ${BORDER_MAP[toast.type]} rounded-lg shadow-lg`}
+      className={`flex items-start gap-3 ${themeRecipes.card(tone)} shadow-[var(--theme-shadow-strong)]`}
     >
       <span className="mt-0.5 shrink-0">{ICON_MAP[toast.type]}</span>
       <div className="flex-1">
-        <p className="text-sm text-gray-700">{toast.message}</p>
+        <p className="text-sm text-[var(--theme-text-secondary)]">{toast.message}</p>
         {toast.onAction && (
           <Button
             variant="link"
@@ -109,7 +104,7 @@ function ToastItem({
           </Button>
         )}
       </div>
-      <Button variant="ghost" size="icon" onClick={onDismiss} className="h-6 w-6 shrink-0 text-gray-400 hover:text-gray-600">
+      <Button variant="ghost" size="icon" onClick={onDismiss} className="h-6 w-6 shrink-0 text-[var(--theme-text-muted)] hover:text-[var(--theme-text-primary)]">
         <X size={14} />
       </Button>
     </motion.div>

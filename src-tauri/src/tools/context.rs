@@ -22,8 +22,9 @@ pub struct ToolExecutionContext {
 /// Returns an error string if the resolved path escapes the working directory
 /// (path traversal attempt).
 pub fn resolve_and_validate_path(cwd: &PathBuf, candidate: &str) -> Result<PathBuf, String> {
-    let raw = if PathBuf::from(candidate).is_absolute() {
-        PathBuf::from(candidate)
+    let candidate_path = PathBuf::from(candidate);
+    let raw = if candidate_path.is_absolute() {
+        candidate_path.clone()
     } else {
         cwd.join(candidate)
     };
@@ -37,8 +38,10 @@ pub fn resolve_and_validate_path(cwd: &PathBuf, candidate: &str) -> Result<PathB
     let canonical_target = if raw.exists() {
         raw.canonicalize()
             .map_err(|e| format!("Cannot resolve path: {}", e))?
-    } else {
+    } else if candidate_path.is_absolute() {
         normalize_path(&raw)
+    } else {
+        normalize_path(&canonical_cwd.join(candidate))
     };
 
     if !canonical_target.starts_with(&canonical_cwd) {
@@ -52,8 +55,9 @@ pub fn resolve_and_validate_path(cwd: &PathBuf, candidate: &str) -> Result<PathB
 }
 
 pub fn resolve_permission_path(cwd: &PathBuf, candidate: &str) -> Result<String, String> {
-    let raw = if PathBuf::from(candidate).is_absolute() {
-        PathBuf::from(candidate)
+    let candidate_path = PathBuf::from(candidate);
+    let raw = if candidate_path.is_absolute() {
+        candidate_path.clone()
     } else {
         cwd.join(candidate)
     };
@@ -65,8 +69,10 @@ pub fn resolve_permission_path(cwd: &PathBuf, candidate: &str) -> Result<String,
     let normalized = if raw.exists() {
         raw.canonicalize()
             .map_err(|e| format!("Cannot resolve path: {}", e))?
-    } else {
+    } else if candidate_path.is_absolute() {
         normalize_path(&raw)
+    } else {
+        normalize_path(&canonical_cwd.join(candidate))
     };
 
     if !normalized.starts_with(&canonical_cwd) {
@@ -93,4 +99,27 @@ fn normalize_path(path: &PathBuf) -> PathBuf {
     }
 
     normalized
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_and_validate_path;
+    use std::fs;
+
+    #[test]
+    fn allows_relative_path_for_new_file_inside_existing_cwd() {
+        let base = std::env::temp_dir().join(format!(
+            "rhythm-context-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time before unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&base).expect("create temp cwd");
+
+        let resolved = resolve_and_validate_path(&base, "runs.json").expect("resolve child path");
+        assert_eq!(resolved, base.join("runs.json"));
+
+        fs::remove_dir_all(&base).expect("cleanup temp cwd");
+    }
 }

@@ -86,7 +86,19 @@ pub async fn delete_session(cwd: &Path, session_id: &str) -> Result<bool, String
     let pool = open_pool(cwd).await?;
     ensure_schema(&pool).await?;
 
-    let result = sqlx::query("DELETE FROM sessions WHERE id = ?")
+    let result = sqlx::query(
+        r#"
+        WITH RECURSIVE descendants(id) AS (
+            SELECT id FROM sessions WHERE id = ?
+            UNION ALL
+            SELECT sessions.id
+            FROM sessions
+            INNER JOIN descendants ON sessions.parent_id = descendants.id
+        )
+        DELETE FROM sessions
+        WHERE id IN (SELECT id FROM descendants)
+        "#,
+    )
         .bind(session_id)
         .execute(&pool)
         .await
@@ -124,6 +136,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC)")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_parent_id ON sessions(parent_id)")
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;

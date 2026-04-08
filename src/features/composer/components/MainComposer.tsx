@@ -1,8 +1,8 @@
-import * as Popover from '@radix-ui/react-popover';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, ArrowUp, Shield, ChevronDown, Square, Sparkles, Bot, BrainCircuit, FileText, Image as ImageIcon, X } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
-import { Button } from '@/shared/ui/Button';
+import { themeRecipes } from '@/shared/theme/recipes';
+import { Button, PopoverArrow, PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from '@/shared/ui';
 import type { ComposerModelSelection, MainComposerProps, DockType } from '../types';
 import type { Attachment } from '@/shared/types/schema';
 
@@ -159,11 +159,11 @@ export const MainComposer = ({
 
   return (
     <div className="relative z-20 mx-auto w-full max-w-[868px] px-6 pb-3">
-      <div className="bg-white border text-left border-slate-200 rounded-[28px] shadow-[0_18px_45px_rgba(15,23,42,0.08)] focus-within:ring-4 focus-within:ring-amber-100/70 focus-within:border-amber-300 transition-all flex flex-col pointer-events-auto relative overflow-hidden">
+      <div className={`text-left ${themeRecipes.workbenchSurface()} focus-within:border-[var(--theme-accent)] focus-within:ring-4 focus-within:ring-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] transition-all flex flex-col pointer-events-auto relative overflow-hidden`}>
         {headerContent}
 
         <div
-          className="cursor-text px-4 pb-2 pt-3"
+          className="cursor-text px-[var(--theme-panel-padding-x)] pb-[calc(var(--theme-panel-padding-y)*0.4)] pt-[calc(var(--theme-panel-padding-y)*0.5)]"
           onClick={(event) => {
             const target = event.target as HTMLElement;
             if (target.closest('button,input,[role="button"]')) return;
@@ -171,25 +171,25 @@ export const MainComposer = ({
           }}
         >
           {attachments.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-2">
+            <div className="mb-[calc(var(--theme-toolbar-gap)*0.5)] flex flex-wrap gap-[var(--theme-toolbar-gap)]">
               {attachments.map((attachment) => (
-                <div key={attachment.id} className="group relative flex max-w-[220px] items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
+                <div key={attachment.id} className={`group relative flex max-w-[220px] items-center gap-[var(--theme-toolbar-gap)] ${themeRecipes.mutedCard()} px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*0.75)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-secondary)]`}>
                   {attachment.kind === 'image' && attachment.previewUrl ? (
                     <img src={attachment.previewUrl} alt={attachment.name} className="h-9 w-9 shrink-0 rounded-xl object-cover" />
                   ) : (
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-slate-400">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--theme-radius-control)] bg-[var(--theme-surface)] text-[var(--theme-text-muted)]">
                       <FileText size={15} />
                     </span>
                   )}
                   <span className="min-w-0">
-                    <span className="block truncate font-medium text-slate-700">{attachment.name}</span>
-                    <span className="mt-0.5 block text-[10px] text-slate-400">{formatFileSize(attachment.size)}</span>
+                    <span className={`block truncate ${themeRecipes.sectionTitle()}`}>{attachment.name}</span>
+                    <span className="mt-0.5 block text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">{formatFileSize(attachment.size)}</span>
                   </span>
                   <Button
                     variant="unstyled"
                     size="none"
                     onClick={() => onRemoveAttachment(attachment.id)}
-                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--theme-accent)] text-[var(--theme-accent-contrast)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
                     title="移除附件"
                   >
                     <X size={11} />
@@ -202,7 +202,7 @@ export const MainComposer = ({
             ref={textareaRef}
             value={text}
             rows={1}
-            className="max-h-[180px] min-h-7 w-full resize-none overflow-y-auto bg-transparent px-1 text-[14px] leading-7 text-slate-800 outline-none placeholder:text-slate-400"
+            className="max-h-[180px] min-h-7 w-full resize-none overflow-y-auto bg-transparent px-1 text-[length:var(--theme-body-size)] leading-7 text-[var(--theme-text-primary)] outline-none placeholder:text-[var(--theme-text-muted)]"
             placeholder={PLACEHOLDER_MAP[dockType]}
             onChange={(e) => onTextChange(e.target.value)}
             onPaste={(e) => {
@@ -220,13 +220,13 @@ export const MainComposer = ({
               }
             }}
           />
-          <div className="mt-3 flex items-center justify-between">
-            <div className="flex items-center gap-1">
+          <div className="mt-[calc(var(--theme-toolbar-gap)*0.4)] flex items-center justify-between">
+            <div className={themeRecipes.toolbar()}>
               <Button
                 variant="unstyled"
                 size="none"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex h-9 w-9 items-center justify-center rounded-2xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                className={themeRecipes.iconButton()}
                 title="上传文本文件"
               >
                 <Plus size={18} />
@@ -235,7 +235,7 @@ export const MainComposer = ({
                 variant="unstyled"
                 size="none"
                 onClick={() => imageInputRef.current?.click()}
-                className="flex h-9 w-9 items-center justify-center rounded-2xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                className={themeRecipes.iconButton()}
                 title="上传图片"
               >
                 <ImageIcon size={17} />
@@ -273,11 +273,11 @@ export const MainComposer = ({
               onClick={isBusy ? onInterrupt : onSend}
               disabled={!isBusy && !canSubmit}
               className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-full transition-colors",
+                "flex h-[var(--theme-icon-button-size)] w-[var(--theme-icon-button-size)] items-center justify-center rounded-full transition-colors",
                 canSubmit || isBusy
-                  ? "bg-slate-950 text-white shadow-[0_10px_24px_rgba(15,23,42,0.22)] hover:bg-slate-800"
-                  : "cursor-not-allowed bg-slate-200 text-white",
-                isBusy ? 'ring-2 ring-amber-100' : '',
+                  ? "bg-[var(--theme-accent)] text-[var(--theme-accent-contrast)] shadow-[var(--theme-shadow-soft)] hover:bg-[var(--theme-accent-hover)]"
+                  : "cursor-not-allowed bg-[var(--theme-border)] text-[var(--theme-accent-contrast)]",
+                isBusy ? 'ring-2 ring-[color:color-mix(in_srgb,var(--theme-accent)_15%,transparent)]' : '',
               )}
             >
               {isBusy ? <Square size={13} fill="currentColor" strokeWidth={0} /> : SUBMIT_ICON_MAP[dockType]}
@@ -285,7 +285,7 @@ export const MainComposer = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-[linear-gradient(180deg,#fbfaf8_0%,#f6f3ee_100%)] px-4 py-3 rounded-b-[28px] text-[12px] text-slate-500">
+        <div className="flex flex-wrap items-center gap-[var(--theme-toolbar-gap)] border-t-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-panel-bg)_0%,var(--theme-shell-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[calc(var(--theme-panel-padding-y)*0.45)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-secondary)]">
           <ControlPopover
             icon={<Sparkles size={13} />}
             label={controls.mode}
@@ -316,10 +316,10 @@ export const MainComposer = ({
             size="none"
             onClick={onToggleFullAuto}
             className={cn(
-              'inline-flex items-center gap-2 rounded-full px-3 py-1.5 transition-colors',
+              'inline-flex min-h-[var(--theme-control-height-sm)] items-center gap-[var(--theme-toolbar-gap)] rounded-full px-[var(--theme-control-padding-x-sm)] transition-colors',
               controls.fullAuto
-                ? 'bg-emerald-100 text-emerald-700'
-                : 'bg-white text-slate-500 hover:bg-slate-50',
+                ? 'bg-[var(--theme-success-surface)] text-[var(--theme-success-text)]'
+                : 'bg-[var(--theme-surface)] text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]',
             )}
             title="切换权限模式"
           >
@@ -346,61 +346,70 @@ const ControlPopover = <T extends string>({
   options: Array<{ value: T; label: string; description: string }>;
   value: T;
   onSelect: (value: T) => void;
-}) => (
-  <Popover.Root>
-    <Popover.Trigger asChild>
-      <Button
-        variant="unstyled"
-        size="none"
-        className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[12px] text-slate-600 shadow-[0_1px_0_rgba(15,23,42,0.04)] transition-colors hover:bg-slate-50 hover:text-slate-800 data-[state=open]:bg-slate-950 data-[state=open]:text-white"
-      >
-        {icon}
-        <span>{label}</span>
-        <ChevronDown size={12} className="transition-transform data-[state=open]:rotate-180" />
-      </Button>
-    </Popover.Trigger>
-    <Popover.Portal>
-      <Popover.Content
-        align="start"
-        side="top"
-        sideOffset={10}
-        collisionPadding={16}
-        className="z-50 w-[260px] origin-[--radix-popover-content-transform-origin] rounded-3xl border border-slate-200 bg-white/95 p-2 text-slate-800 shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur-xl outline-none data-[state=closed]:animate-[composer-popover-out_120ms_ease-in_forwards] data-[state=open]:animate-[composer-popover-in_180ms_cubic-bezier(0.16,1,0.3,1)_forwards]"
-      >
-        <div className="px-3 pb-2 pt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-          {title}
-        </div>
-        <div className="space-y-1">
-          {options.map((option) => {
-            const selected = option.value === value;
-            return (
-              <Popover.Close asChild key={option.value}>
-                <Button
-                  variant="unstyled"
-                  size="none"
-                  onClick={() => onSelect(option.value)}
-                  className={cn(
-                    'flex w-full items-start justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors',
-                    selected ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-slate-100',
-                  )}
-                >
-                  <span>
-                    <span className="block text-[13px] font-semibold">{option.label}</span>
-                    <span className={cn('mt-0.5 block text-[11px] leading-5', selected ? 'text-slate-300' : 'text-slate-400')}>
-                      {option.description}
+}) => {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  return (
+    <PopoverRoot
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          triggerRef.current?.blur();
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          ref={triggerRef}
+          variant="unstyled"
+          size="none"
+          className={cn(themeRecipes.chipToggle(), 'focus:ring-0')}
+        >
+          {icon}
+          <span>{label}</span>
+          <ChevronDown size={12} className="transition-transform data-[state=open]:rotate-180" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverPortal>
+        <PopoverContent
+          align="start"
+          side="top"
+          sideOffset={10}
+          collisionPadding={16}
+          className="w-[var(--theme-popover-width-sm)]"
+        >
+          <div className={themeRecipes.floatingHeader()}>
+            <div className={themeRecipes.eyebrow()}>{title}</div>
+          </div>
+          <div className="space-y-[var(--theme-floating-item-gap)]">
+            {options.map((option) => {
+              const selected = option.value === value;
+              return (
+                <PopoverClose asChild key={option.value}>
+                  <Button
+                    variant="unstyled"
+                    size="none"
+                    onClick={() => onSelect(option.value)}
+                    className={themeRecipes.selectionRow(selected)}
+                  >
+                    <span>
+                      <span className={themeRecipes.selectionTitle()}>{option.label}</span>
+                      <span className={themeRecipes.selectionDescription(selected)}>{option.description}</span>
                     </span>
-                  </span>
-                  {selected && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-400" />}
-                </Button>
-              </Popover.Close>
-            );
-          })}
-        </div>
-        <Popover.Arrow className="fill-white" />
-      </Popover.Content>
-    </Popover.Portal>
-  </Popover.Root>
-);
+                    {selected && <span className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', themeRecipes.selectionIndicator(true))} />}
+                  </Button>
+                </PopoverClose>
+              );
+            })}
+          </div>
+          <PopoverArrow />
+        </PopoverContent>
+      </PopoverPortal>
+    </PopoverRoot>
+  );
+};
 
 const ModelPopover = ({
   icon,
@@ -416,70 +425,81 @@ const ModelPopover = ({
   groups: MainComposerProps['modelGroups'];
   value: ComposerModelSelection;
   onSelect: (value: ComposerModelSelection) => void;
-}) => (
-  <Popover.Root>
-    <Popover.Trigger asChild>
-      <Button
-        variant="unstyled"
-        size="none"
-        disabled={groups.length === 0}
-        className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[12px] text-slate-600 shadow-[0_1px_0_rgba(15,23,42,0.04)] transition-colors hover:bg-slate-50 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 data-[state=open]:bg-slate-950 data-[state=open]:text-white"
-      >
-        {icon}
-        <span>{label}</span>
-        <ChevronDown size={12} className="transition-transform data-[state=open]:rotate-180" />
-      </Button>
-    </Popover.Trigger>
-    <Popover.Portal>
-      <Popover.Content
-        align="start"
-        side="top"
-        sideOffset={10}
-        collisionPadding={16}
-        className="z-50 w-[300px] origin-[--radix-popover-content-transform-origin] rounded-3xl border border-slate-200 bg-white/95 p-2 text-slate-800 shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur-xl outline-none data-[state=closed]:animate-[composer-popover-out_120ms_ease-in_forwards] data-[state=open]:animate-[composer-popover-in_180ms_cubic-bezier(0.16,1,0.3,1)_forwards]"
-      >
-        <div className="px-3 pb-2 pt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-          {title}
-        </div>
-        <div className="space-y-2">
-          {groups.map((group) => (
-            <div key={group.providerId}>
-              <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                {group.providerName}
+}) => {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  return (
+    <PopoverRoot
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          triggerRef.current?.blur();
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          ref={triggerRef}
+          variant="unstyled"
+          size="none"
+          disabled={groups.length === 0}
+          className={cn(themeRecipes.chipToggle(), 'focus:ring-0')}
+        >
+          {icon}
+          <span>{label}</span>
+          <ChevronDown size={12} className="transition-transform data-[state=open]:rotate-180" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverPortal>
+        <PopoverContent
+          align="start"
+          side="top"
+          sideOffset={10}
+          collisionPadding={16}
+          className="w-[var(--theme-popover-width-md)]"
+        >
+          <div className={themeRecipes.floatingHeader()}>
+            <div className={themeRecipes.eyebrow()}>{title}</div>
+          </div>
+          <div className="space-y-2">
+            {groups.map((group) => (
+              <div key={group.providerId}>
+                <div className={themeRecipes.floatingGroupLabel()}>
+                  {group.providerName}
+                </div>
+                <div className="space-y-[var(--theme-floating-item-gap)]">
+                  {group.models.map((model) => {
+                    const selected = group.providerId === value.providerId && model.id === value.modelId;
+                    return (
+                      <PopoverClose asChild key={`${group.providerId}:${model.id}`}>
+                        <Button
+                          variant="unstyled"
+                          size="none"
+                          onClick={() => onSelect({ providerId: group.providerId, modelId: model.id, modelName: model.name })}
+                          className={themeRecipes.selectionRow(selected)}
+                        >
+                          <span>
+                            <span className={themeRecipes.selectionTitle()}>{model.name}</span>
+                            {(model.note || model.isDefault) && (
+                              <span className={themeRecipes.selectionDescription(selected)}>
+                                {model.isDefault ? '默认模型' : model.note}
+                              </span>
+                            )}
+                          </span>
+                          {selected && <span className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', themeRecipes.selectionIndicator(true))} />}
+                        </Button>
+                      </PopoverClose>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="space-y-1">
-                {group.models.map((model) => {
-                  const selected = group.providerId === value.providerId && model.id === value.modelId;
-                  return (
-                    <Popover.Close asChild key={`${group.providerId}:${model.id}`}>
-                      <Button
-                        variant="unstyled"
-                        size="none"
-                        onClick={() => onSelect({ providerId: group.providerId, modelId: model.id, modelName: model.name })}
-                        className={cn(
-                          'flex w-full items-start justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors',
-                          selected ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-slate-100',
-                        )}
-                      >
-                        <span>
-                          <span className="block text-[13px] font-semibold">{model.name}</span>
-                          {(model.note || model.isDefault) && (
-                            <span className={cn('mt-0.5 block text-[11px] leading-5', selected ? 'text-slate-300' : 'text-slate-400')}>
-                              {model.isDefault ? '默认模型' : model.note}
-                            </span>
-                          )}
-                        </span>
-                        {selected && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-400" />}
-                      </Button>
-                    </Popover.Close>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-        <Popover.Arrow className="fill-white" />
-      </Popover.Content>
-    </Popover.Portal>
-  </Popover.Root>
-);
+            ))}
+          </div>
+          <PopoverArrow />
+        </PopoverContent>
+      </PopoverPortal>
+    </PopoverRoot>
+  );
+};

@@ -1,5 +1,6 @@
 import { cn } from '@/shared/lib/utils';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { themeRecipes } from '@/shared/theme/recipes';
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'link' | 'unstyled';
 type ButtonSize = 'sm' | 'md' | 'lg' | 'icon' | 'none';
@@ -11,31 +12,22 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   isLoading?: boolean;
 }
 
-const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: 'bg-black text-white hover:bg-gray-800 disabled:bg-gray-300',
-  secondary: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 disabled:bg-gray-100',
-  ghost: 'text-gray-600 hover:bg-gray-100 hover:text-gray-800 disabled:text-gray-300',
-  danger: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300',
-  link: 'px-0 py-0 text-sky-700 underline-offset-2 hover:text-sky-900 hover:underline disabled:text-gray-300',
-  unstyled: '',
-};
-
 const SIZE_CLASSES: Record<ButtonSize, string> = {
-  sm: 'px-2.5 py-1.5 text-xs',
-  md: 'px-4 py-2 text-sm',
-  lg: 'px-6 py-3 text-base',
-  icon: 'h-7 w-7 p-0',
+  sm: themeRecipes.buttonSize('sm'),
+  md: themeRecipes.buttonSize('md'),
+  lg: themeRecipes.buttonSize('lg'),
+  icon: themeRecipes.buttonSize('icon'),
   none: '',
 };
 
 const LINK_SIZE_CLASSES: Record<Exclude<ButtonSize, 'icon'>, string> = {
-  sm: 'text-xs',
-  md: 'text-sm',
-  lg: 'text-base',
+  sm: 'text-[length:var(--theme-meta-size)]',
+  md: 'text-[length:var(--theme-body-size)]',
+  lg: 'text-[length:var(--theme-title-size)]',
   none: '',
 };
 
-export const Button = ({
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({
   variant = 'primary',
   size = 'md',
   type = 'button',
@@ -44,15 +36,16 @@ export const Button = ({
   isLoading,
   disabled,
   ...props
-}: ButtonProps) => {
+}, ref) {
   const sizeClass = variant === 'link' && size !== 'icon' ? LINK_SIZE_CLASSES[size] : SIZE_CLASSES[size];
 
   return (
     <button
+      ref={ref}
       type={type}
       className={cn(
-        'inline-flex cursor-pointer items-center justify-center rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed',
-        VARIANT_CLASSES[variant],
+        'inline-flex cursor-pointer items-center justify-center rounded-[var(--theme-radius-control)] font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--theme-border-strong)] disabled:cursor-not-allowed',
+        themeRecipes.button(variant),
         sizeClass,
         className,
       )}
@@ -68,4 +61,4 @@ export const Button = ({
       {children}
     </button>
   );
-};
+});

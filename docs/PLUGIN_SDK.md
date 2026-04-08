@@ -12,6 +12,18 @@ import { definePlugin } from '../../../src/plugin/sdk';
 
 Do not import from `src/plugin/host`.
 
+## Host Model
+
+The current shell model is:
+
+- `ActivityRail`: left-side activity navigation
+- `LeftPanelHost`: active left panel view
+- `MainStage`: main content layout
+- `WorkbenchHost`: one active Workbench view
+- `OverlayHost`: drawer or modal overlay
+
+Plugins should treat Workbench as a single primary view host. If a plugin needs tabs, sub-panels, or a custom editor layout, it should implement those inside its own Workbench view rather than expecting core to manage them.
+
 ## Recommended Structure
 
 ```text
@@ -160,9 +172,66 @@ Current UI slots:
 - `ctx.ui.activityBar.register(...)`
 - `ctx.ui.leftPanel.register(...)`
 - `ctx.ui.workbench.register(...)`
+- `ctx.ui.overlay.register(...)`
 - `ctx.ui.settings.register(...)`
 - `ctx.ui.messageActions.register(...)`
 - `ctx.ui.toolResultActions.register(...)`
+
+Activity entries can be workspace-scoped or global-scoped:
+
+```ts
+ctx.ui.activityBar.register({
+  id: 'my-plugin.activity',
+  title: 'My Plugin',
+  icon: 'box',
+  scope: 'workspace',
+  opens: 'my-plugin.panel',
+});
+```
+
+Default scope is `workspace`. Use `scope: 'global'` for app-wide entries such as plugin management or settings.
+
+### Workbench
+
+Open a primary Workbench view with an explicit layout:
+
+```ts
+ctx.ui.workbench.open({
+  viewId: 'my-plugin.preview',
+  title: 'My Plugin',
+  payload: { message: 'Opened from the left panel.' },
+  layoutMode: 'replace',
+});
+```
+
+Supported layout modes:
+
+- `split`
+- `replace`
+
+### Overlay
+
+Use overlay for temporary layered UI such as drawers, inspectors, and modals:
+
+```ts
+ctx.ui.overlay.register({
+  id: 'my-plugin.inspector',
+  title: 'Inspector',
+  component: ExampleInspector,
+});
+
+ctx.ui.overlay.open({
+  viewId: 'my-plugin.inspector',
+  title: 'Inspector',
+  payload: { id: 'node-1' },
+  kind: 'drawer',
+});
+```
+
+Supported overlay kinds:
+
+- `drawer`
+- `modal`
 
 ### Storage
 

@@ -15,6 +15,7 @@ import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust';
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
 import { Button } from '@/shared/ui/Button';
+import { themeRecipes } from '@/shared/theme/recipes';
 
 interface CodeBlockProps {
   language: string;
@@ -58,19 +59,19 @@ export const CodeBlock = ({ language, code }: CodeBlockProps) => {
 
   if (isPlainText) {
     return (
-      <div className="not-prose group relative my-2 rounded-2xl border border-slate-200 bg-[#f8fafc]">
+      <div className={`not-prose group relative my-2 ${themeRecipes.mutedCard()}`}>
         <Button
           variant="unstyled"
           size="none"
           onClick={handleCopy}
-          className="absolute right-2 top-2 rounded-lg p-1 text-slate-300 opacity-0 transition-all hover:bg-white hover:text-slate-600 group-hover:opacity-100"
+          className="absolute right-2 top-2 rounded-[var(--theme-radius-control)] p-1 text-[var(--theme-code-muted)] opacity-0 transition-all hover:bg-[var(--theme-surface)] hover:text-[var(--theme-text-primary)] group-hover:opacity-100"
           title="复制"
         >
-          {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+          {copied ? <Check size={14} className="text-[var(--theme-success-text)]" /> : <Copy size={14} />}
         </Button>
         <pre
-          className="m-0 overflow-x-auto whitespace-pre-wrap px-4 py-3 pr-9 font-mono text-[13px] leading-6 text-slate-700"
-          style={{ background: 'transparent', color: '#334155' }}
+          className="m-0 overflow-x-auto whitespace-pre-wrap px-[var(--theme-card-padding-x)] py-[var(--theme-card-padding-y)] pr-9 font-mono text-[13px] leading-6 text-[var(--theme-text-secondary)]"
+          style={{ background: 'transparent' }}
         >
           {code}
         </pre>
@@ -79,25 +80,25 @@ export const CodeBlock = ({ language, code }: CodeBlockProps) => {
   }
 
   return (
-    <div className="not-prose relative group my-3 overflow-hidden rounded-2xl border border-slate-200 bg-[#fbfaf7]">
-      <div className="flex items-center justify-between border-b border-slate-100 bg-white/70 px-4 py-2">
-        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-slate-400">{normalizedLanguage}</span>
+    <div className={`not-prose relative group my-3 overflow-hidden ${themeRecipes.surfaceCard()}`}>
+      <div className="flex items-center justify-between border-b-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[var(--theme-code-header-bg)] px-[var(--theme-card-padding-x)] py-[calc(var(--theme-card-padding-y)*0.72)]">
+        <span className="font-mono text-[11px] uppercase tracking-[var(--theme-eyebrow-spacing)] text-[var(--theme-text-muted)]">{normalizedLanguage}</span>
         <div className="flex items-center gap-1">
           <Button
             variant="unstyled"
             size="none"
             onClick={handleCopy}
-            className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-[var(--theme-radius-control)] p-1 text-[var(--theme-code-muted)] transition-colors hover:bg-[var(--theme-surface)] hover:text-[var(--theme-text-primary)]"
             title="复制"
           >
-            {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+            {copied ? <Check size={14} className="text-[var(--theme-success-text)]" /> : <Copy size={14} />}
           </Button>
           {isLong && (
             <Button
               variant="unstyled"
               size="none"
               onClick={() => setCollapsed(!collapsed)}
-              className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              className="rounded-[var(--theme-radius-control)] p-1 text-[var(--theme-code-muted)] transition-colors hover:bg-[var(--theme-surface)] hover:text-[var(--theme-text-primary)]"
               title={collapsed ? '展开' : '折叠'}
             >
               {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
@@ -113,8 +114,9 @@ export const CodeBlock = ({ language, code }: CodeBlockProps) => {
             margin: 0,
             borderRadius: 0,
             fontSize: '0.82rem',
-            background: '#111827',
+            background: 'var(--theme-code-bg)',
             padding: '1rem',
+            color: 'var(--theme-code-text)',
           }}
           showLineNumbers={lineCount > 5}
         >
@@ -122,7 +124,7 @@ export const CodeBlock = ({ language, code }: CodeBlockProps) => {
         </SyntaxHighlighter>
       </div>
       {collapsed && isLong && (
-        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[#fbfaf7] to-transparent" />
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[var(--theme-surface)] to-transparent" />
       )}
     </div>
   );

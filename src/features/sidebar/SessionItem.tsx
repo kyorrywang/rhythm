@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Archive, Loader2, MoreHorizontal, Pin, Pencil, Copy, RotateCcw } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Archive, Copy, Loader2, MoreHorizontal, Pencil, Pin, RotateCcw, Trash2 } from 'lucide-react';
 import type { Session } from '@/shared/types/schema';
 import { useSessionStore } from '@/shared/state/useSessionStore';
-import { Button } from '@/shared/ui/Button';
+import { cn } from '@/shared/lib/utils';
+import { themeRecipes } from '@/shared/theme/recipes';
+import { Badge, IconButton, MenuContent, MenuItem, MenuPortal, MenuRoot, MenuTrigger } from '@/shared/ui';
 
 interface SessionItemProps {
   session: Session;
@@ -13,16 +14,22 @@ interface SessionItemProps {
 
 const formatTime = (timestamp: number): string => {
   const now = Date.now();
-  const diff = now - timestamp;
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
+  const days = Math.floor((now - timestamp) / 86400000);
+  const nowDate = new Date(now);
+  const targetDate = new Date(timestamp);
+  const isSameDay = nowDate.getFullYear() === targetDate.getFullYear()
+    && nowDate.getMonth() === targetDate.getMonth()
+    && nowDate.getDate() === targetDate.getDate();
 
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes}分钟前`;
-  if (hours < 24) return `${hours}小时前`;
-  if (days < 7) return `${days}天前`;
-  return new Date(timestamp).toLocaleDateString('zh-CN');
+  if (isSameDay) {
+    return targetDate.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }
+  if (days < 7) return `${Math.max(1, days)}天前`;
+  return '一周前';
 };
 
 const isSessionRunning = (session: Session): boolean =>
@@ -30,24 +37,28 @@ const isSessionRunning = (session: Session): boolean =>
 
 export const SessionItem = ({ session, isActive, onClick }: SessionItemProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const running = isSessionRunning(session);
+  const sessions = useSessionStore((s) => s.sessions);
   const togglePinnedSession = useSessionStore((s) => s.togglePinnedSession);
   const archiveSession = useSessionStore((s) => s.archiveSession);
+  const removeSession = useSessionStore((s) => s.removeSession);
   const restoreSession = useSessionStore((s) => s.restoreSession);
   const renameSession = useSessionStore((s) => s.renameSession);
+  const setActiveSession = useSessionStore((s) => s.setActiveSession);
 
   const hasUnreadCompleted = !isActive && !!session.hasUnreadCompleted;
   const statusNode = useMemo(() => {
     if (running) {
-      return <Loader2 size={12} className="animate-spin text-sky-500" />;
+      return <Loader2 size={12} className="animate-spin text-[var(--theme-info-text)]" />;
     }
     if (hasUnreadCompleted) {
-      return <div className="h-2 w-2 rounded-full bg-sky-500" />;
+      return <div className="h-2 w-2 rounded-full bg-[var(--theme-info-text)]" />;
     }
     if (session.pinned) {
-      return <Pin size={12} className="text-amber-500" fill="currentColor" />;
+      return <Pin size={12} className="text-[var(--theme-warning-text)]" fill="currentColor" />;
     }
-    return <div className="h-[6px] w-[6px] rounded-full bg-slate-300" />;
+    return <div className="h-[6px] w-[6px] rounded-full bg-[var(--theme-border-strong)]" />;
   }, [running, hasUnreadCompleted, session.pinned]);
 
   return (
@@ -55,58 +66,73 @@ export const SessionItem = ({ session, isActive, onClick }: SessionItemProps) =>
       onClick={onClick}
       role="button"
       tabIndex={0}
-      className={`group relative flex w-full cursor-pointer items-start justify-between rounded-xl px-2.5 py-2.5 outline-none transition-all ${
-        isActive 
-          ? 'bg-white shadow-[0_2px_10px_rgba(0,0,0,0.04)] ring-1 ring-slate-200/60' 
-          : 'hover:bg-white/60'
-      }`}
+      className={cn('group', themeRecipes.listRow(isActive))}
     >
-      <div className="flex min-w-0 flex-1 items-start gap-2.5">
-        <div className="flex h-5 w-3 shrink-0 items-center justify-center">{statusNode}</div>
+      <div className="flex min-w-0 flex-1 items-start gap-[var(--theme-row-gap)]">
+        <div className="relative flex h-5 w-3 shrink-0 items-center justify-center">
+          <span className={cn('flex items-center justify-center transition-opacity duration-200', !session.pinned && 'group-hover:opacity-0')}>
+            {statusNode}
+          </span>
+          <button
+            type="button"
+            title={session.pinned ? '取消置顶' : '置顶会话'}
+            aria-label={session.pinned ? '取消置顶' : '置顶会话'}
+            onClick={(event) => {
+              event.stopPropagation();
+              togglePinnedSession(session.id);
+            }}
+            className={cn(
+              'absolute inset-0 flex cursor-pointer items-center justify-center text-[var(--theme-warning-text)] transition-opacity duration-200',
+              session.pinned ? 'opacity-0 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100',
+            )}
+          >
+            <Pin size={12} fill="currentColor" />
+          </button>
+        </div>
         <div className="min-w-0 flex-1">
-          <div className={`truncate text-[13px] font-medium leading-5 transition-colors ${isActive ? 'text-slate-900' : 'text-slate-700 group-hover:text-slate-900'}`}>
+          <div className={cn('truncate text-[length:var(--theme-body-size)] font-medium leading-5 transition-colors', themeRecipes.listRowTitle(isActive))}>
             {session.title}
           </div>
           {session.archived && (
-            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="rounded bg-slate-100 px-1 py-[1px] text-[10px] font-medium text-slate-500">
-                已归档
-              </span>
+            <div className="mt-1 flex items-center gap-2">
+              <Badge tone="muted">已归档</Badge>
             </div>
           )}
         </div>
       </div>
 
       <div className="relative ml-2 flex h-5 w-14 shrink-0 items-center justify-end">
-        <span className={`absolute right-1 text-[10px] text-slate-400 transition-opacity duration-200 ${menuOpen ? 'opacity-0' : 'opacity-100 group-hover:opacity-0'}`}>
+        <span className={cn('absolute right-1 min-w-[3.25rem] whitespace-nowrap text-right text-[length:var(--theme-meta-size)] transition-opacity duration-200', themeRecipes.listRowMeta(isActive), menuOpen ? 'opacity-0' : 'opacity-100 group-hover:opacity-0')}>
           {formatTime(session.updatedAt)}
         </span>
-        <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
-          <DropdownMenu.Trigger asChild>
-            <Button
-              variant="unstyled"
-              size="none"
+        <MenuRoot
+          open={menuOpen}
+          onOpenChange={(open) => {
+            setMenuOpen(open);
+            if (!open) {
+              triggerRef.current?.blur();
+            }
+          }}
+        >
+          <MenuTrigger asChild>
+            <IconButton
+              ref={triggerRef}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
-              className={`absolute right-0 rounded-md p-1 text-slate-400 transition-all duration-200 ${
-                menuOpen ? 'bg-slate-100 text-slate-700 opacity-100' : 'pointer-events-none opacity-0 hover:bg-slate-100 hover:text-slate-700 group-hover:pointer-events-auto group-hover:opacity-100'
+              className={`absolute right-0 focus:ring-0 transition-all duration-200 ${
+                menuOpen ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
               }`}
             >
               <MoreHorizontal size={14} />
-            </Button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
+            </IconButton>
+          </MenuTrigger>
+          <MenuPortal>
+            <MenuContent
               align="end"
               sideOffset={8}
               collisionPadding={12}
-              className="z-50 w-40 origin-[--radix-dropdown-menu-content-transform-origin] rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.16)] backdrop-blur-xl outline-none data-[state=open]:animate-[composer-popover-in_180ms_cubic-bezier(0.16,1,0.3,1)_forwards]"
+              className="w-40"
             >
-              <MenuAction
-                icon={<Pin size={13} />}
-                label={session.pinned ? '取消置顶' : '置顶会话'}
-                onClick={() => togglePinnedSession(session.id)}
-              />
               <MenuAction
                 icon={<Pencil size={13} />}
                 label="重命名"
@@ -135,9 +161,34 @@ export const SessionItem = ({ session, isActive, onClick }: SessionItemProps) =>
                   onClick={() => archiveSession(session.id)}
                 />
               )}
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
+              <MenuAction
+                icon={<Trash2 size={13} />}
+                label="删除会话"
+                danger
+                onClick={() => {
+                  const confirmed = window.confirm(`确认删除会话“${session.title}”？此操作不可恢复。`);
+                  if (!confirmed) return;
+
+                  const nextSession = Array.from(sessions.values())
+                    .filter((item) =>
+                      item.id !== session.id
+                      && item.workspacePath === session.workspacePath
+                      && !item.parentId
+                      && !item.archived,
+                    )
+                    .sort((a, b) => {
+                      const updatedDiff = b.updatedAt - a.updatedAt;
+                      if (updatedDiff !== 0) return updatedDiff;
+                      return a.id.localeCompare(b.id);
+                    })[0];
+
+                  removeSession(session.id);
+                  setActiveSession(nextSession?.id ?? null);
+                }}
+              />
+            </MenuContent>
+          </MenuPortal>
+        </MenuRoot>
       </div>
     </div>
   );
@@ -147,16 +198,14 @@ const MenuAction = ({
   icon,
   label,
   onClick,
+  danger,
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
+  danger?: boolean;
 }) => (
-  <DropdownMenu.Item
-    onSelect={onClick}
-    className="flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-left text-[12px] text-slate-600 outline-none transition-colors hover:bg-slate-50 hover:text-slate-900 focus:bg-slate-50 focus:text-slate-900"
-  >
-    {icon}
-    <span>{label}</span>
-  </DropdownMenu.Item>
+  <MenuItem onSelect={onClick} icon={icon} className={danger ? 'text-[var(--theme-danger-text)]' : undefined}>
+    {label}
+  </MenuItem>
 );

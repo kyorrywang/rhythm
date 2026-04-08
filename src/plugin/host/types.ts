@@ -5,8 +5,11 @@ export type {
   Disposable,
   EventBusApi,
   LeftPanelContribution,
+  OverlayContribution,
+  OverlayProps,
   MessageActionContribution,
   MessageActionContext,
+  OpenOverlayInput,
   OpenWorkbenchInput,
   PermissionApi,
   PluginTaskRecord,
@@ -23,6 +26,7 @@ export type {
   PluginContext,
   RhythmPlugin,
   LeftPanelProps,
+  OverlayComponent,
   WorkbenchProps,
 } from '../sdk/types';
 
