@@ -15,13 +15,13 @@ const plugins = readdirSync(pluginsDir, { withFileTypes: true })
 for (const pluginName of plugins) {
   const pluginRoot = path.join(pluginsDir, pluginName);
   const manifest = JSON.parse(readFileSync(path.join(pluginRoot, 'plugin.json'), 'utf8'));
-  const sourceEntry = path.join(pluginRoot, 'src', 'main.tsx');
+  const sourceEntry = path.join(pluginRoot, manifest.dev?.main || 'src/main.tsx');
   if (!existsSync(sourceEntry)) {
     continue;
   }
   const outputEntry = manifest.main || 'dist/main.js';
   if (outputEntry !== 'dist/main.js') {
-    console.warn(`[plugins] ${pluginName}: expected main to be "dist/main.js", got "${outputEntry}"`);
+    throw new Error(`[plugins] ${pluginName}: expected main to be "dist/main.js", got "${outputEntry}"`);
   }
   await build({
     configFile: false,

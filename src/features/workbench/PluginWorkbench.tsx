@@ -1,8 +1,8 @@
-import { AlertCircle, CheckCircle2, Package, Power, Wrench } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Package, Power, RefreshCw, Trash2, Wrench } from 'lucide-react';
 import { useToast } from '@/shared/hooks/useToast';
 import { usePluginStore } from '@/shared/state/usePluginStore';
 import { useActiveWorkspace } from '@/shared/state/useWorkspaceStore';
-import { usePluginHostStore } from '@/plugin-host/usePluginHostStore';
+import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
 import { Button } from '@/shared/ui/Button';
 import type { BackendPluginSummary } from '@/shared/types/api';
 
@@ -10,6 +10,8 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
   const workspace = useActiveWorkspace();
   const togglePlugin = usePluginStore((s) => s.togglePlugin);
   const setPluginPermission = usePluginStore((s) => s.setPluginPermission);
+  const fetchPlugins = usePluginStore((s) => s.fetchPlugins);
+  const uninstallPluginByName = usePluginStore((s) => s.uninstallPluginByName);
   const runtime = usePluginHostStore((s) => s.runtime[plugin.name]);
   const registeredActivity = usePluginHostStore((s) => s.activityBarItems.filter((item) => item.pluginId === plugin.name));
   const registeredLeftPanels = usePluginHostStore((s) => Object.values(s.leftPanels).filter((view) => view.pluginId === plugin.name));
@@ -40,6 +42,28 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
       success(`${permission} 已${granted ? '授权' : '撤销'}`);
     } catch {
       error('插件权限更新失败');
+    }
+  };
+
+  const handleRefresh = async () => {
+    try {
+      await fetchPlugins(workspace.path);
+      success('插件信息已刷新');
+    } catch {
+      error('插件刷新失败');
+    }
+  };
+
+  const handleUninstall = async () => {
+    try {
+      const removed = await uninstallPluginByName(workspace.path, plugin.name);
+      if (removed) {
+        success(`${plugin.name} 已卸载`);
+      } else {
+        error('插件卸载失败');
+      }
+    } catch {
+      error('插件卸载失败');
     }
   };
 
@@ -95,9 +119,18 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
               </div>
               <div className="mt-1 text-xs text-slate-500">如果依赖或 capability 不满足，插件会保持 blocked，不会进入运行时。</div>
             </div>
-            <Button variant="unstyled" size="none" onClick={handleToggle} className={`rounded-full px-4 py-2 text-sm font-medium ${plugin.enabled ? 'bg-slate-900 text-white' : 'bg-emerald-600 text-white'}`}>
-              {plugin.configured_enabled ? 'Disable' : 'Enable'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="unstyled" size="none" onClick={handleRefresh} className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600">
+                <RefreshCw size={14} />
+              </Button>
+              <Button variant="unstyled" size="none" onClick={handleToggle} className={`rounded-full px-4 py-2 text-sm font-medium ${plugin.enabled ? 'bg-slate-900 text-white' : 'bg-emerald-600 text-white'}`}>
+                {plugin.configured_enabled ? '禁用' : '启用'}
+              </Button>
+              <Button variant="unstyled" size="none" onClick={handleUninstall} className="rounded-full bg-rose-100 px-4 py-2 text-sm font-medium text-rose-700">
+                <Trash2 size={14} />
+                卸载
+              </Button>
+            </div>
           </div>
         </section>
 
@@ -146,7 +179,7 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
                         granted ? 'bg-slate-900 text-white' : 'bg-amber-100 text-amber-700'
                       }`}
                     >
-                      {granted ? 'Revoke' : 'Grant'}
+                      {granted ? '撤销' : '授权'}
                     </Button>
                   </div>
                 );
@@ -186,6 +219,7 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
           </div>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <InfoList title="Views" items={[...registeredLeftPanels, ...registeredWorkbenchViews].map((view) => view.id)} empty="没有注册 UI view" />
+            <InfoList title="Runtime Entry" items={[runtime?.entry, plugin.main || plugin.entry, plugin.dev_main].filter(Boolean) as string[]} empty="没有可见入口信息" />
             <InfoList title="Manifest Commands" items={plugin.contributes.commands.map(formatContribution)} empty="没有声明 command" />
             <InfoList title="Manifest Tools" items={plugin.contributes.agent_tools.map(formatContribution)} empty="没有声明 tool" />
             <InfoList title="Commands" items={registeredCommands.map((id) => {

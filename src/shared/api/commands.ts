@@ -16,10 +16,13 @@ import type {
   LlmCompleteRequest,
   PluginCommandRequest,
   PluginCommandResponse,
+  PluginCommandStartResponse,
+  PluginCommandCancelRequest,
   PluginStorageFileRequest,
   PluginStorageGetRequest,
   PluginStorageSetRequest,
   PluginStorageTextFileSetRequest,
+  PluginCommandEvent,
   WorkspaceShellRunRequest,
 } from '@/shared/types/api';
 import type { ServerEventChunk, Session } from '@/shared/types/schema';
@@ -83,6 +86,14 @@ export function disablePlugin(name: string): Promise<void> {
   return client.invoke('disable_plugin', { name } as never);
 }
 
+export function installPlugin(sourcePath: string): Promise<BackendPluginSummary> {
+  return client.invoke('install_plugin_cmd', { sourcePath } as never);
+}
+
+export function uninstallPlugin(name: string): Promise<boolean> {
+  return client.invoke('uninstall_plugin_cmd', { name } as never);
+}
+
 export function grantPluginPermission(name: string, permission: string, cwd?: string): Promise<void> {
   return client.invoke('grant_plugin_permission', { name, permission, cwd } as never);
 }
@@ -97,6 +108,17 @@ export function getPluginRuntimeInfo(cwd: string, pluginName: string): Promise<B
 
 export function invokePluginCommand(request: PluginCommandRequest): Promise<PluginCommandResponse> {
   return client.invoke('plugin_invoke_command', { request } as never);
+}
+
+export function startPluginCommand(
+  request: PluginCommandRequest,
+  onEvent: Channel<PluginCommandEvent>,
+): Promise<PluginCommandStartResponse> {
+  return client.invoke('plugin_start_command', { request, onEvent } as never);
+}
+
+export function cancelPluginCommand(request: PluginCommandCancelRequest): Promise<boolean> {
+  return client.invoke('plugin_cancel_command', { request } as never);
 }
 
 export function getPluginStorageValue<T = unknown>(request: PluginStorageGetRequest): Promise<T | null> {

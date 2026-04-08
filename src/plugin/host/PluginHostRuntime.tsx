@@ -8,6 +8,7 @@ import { usePluginHostStore } from './usePluginHostStore';
 
 const localPluginModules = import.meta.glob('../../plugins/*/src/main.tsx');
 const externalPluginModules = import.meta.glob('../../plugins/*/dist/main.js');
+const useDevPluginEntry = import.meta.env.DEV;
 
 export function PluginHostRuntime() {
   const workspace = useActiveWorkspace();
@@ -44,26 +45,22 @@ export function PluginHostRuntime() {
               ? 'load_error'
               : plugin.status,
           source: 'manifest',
-          entry: plugin.main || plugin.entry || undefined,
+          entry: resolvePluginEntry(plugin),
         });
         if (plugin.status !== 'enabled') {
           continue;
         }
 
-        const candidatePaths = [
-          plugin.main ? `../../plugins/${plugin.name}/${plugin.main}` : null,
-          plugin.entry ? `../../plugins/${plugin.name}/${plugin.entry}` : null,
-          `../../plugins/${plugin.name}/src/main.tsx`,
-          `../../plugins/${plugin.name}/dist/main.js`,
-        ].filter(Boolean) as string[];
+        const entry = resolvePluginEntry(plugin);
+        const candidatePaths = entry ? [`../../plugins/${plugin.name}/${entry}`] : [];
         const loaderPath = candidatePaths.find((path) => localPluginModules[path] || externalPluginModules[path]);
         const loader = loaderPath ? localPluginModules[loaderPath] || externalPluginModules[loaderPath] : null;
         if (!loader) {
           host.setPluginRuntime(plugin.name, {
             status: 'load_error',
-            source: (plugin.main || plugin.entry)?.startsWith('dist/') ? 'external' : 'dev',
-            entry: plugin.main || plugin.entry || 'src/main.tsx',
-            error: '插件入口不存在或未被 Vite dev loader 发现',
+            source: entry?.startsWith('dist/') ? 'external' : 'dev',
+            entry,
+            error: `插件入口 '${entry || '<missing>'}' 不存在或未被 Vite loader 发现`,
           });
           continue;
         }
@@ -75,7 +72,7 @@ export function PluginHostRuntime() {
           }
           const activated = await activatePlugin(plugin.name, mod.default, {
             source: loaderPath?.includes('/dist/') ? 'external' : 'dev',
-            entry: plugin.main || plugin.entry || loaderPath,
+            entry: entry || loaderPath,
             trackDisposable: (disposable) => disposablesRef.current.push(disposable),
           });
           if (activated && generationRef.current === generation) {
@@ -85,7 +82,7 @@ export function PluginHostRuntime() {
           host.setPluginRuntime(plugin.name, {
             status: 'load_error',
             source: loaderPath?.includes('/dist/') ? 'external' : 'dev',
-            entry: plugin.main || plugin.entry || loaderPath,
+            entry: entry || loaderPath,
             error: error instanceof Error ? error.message : String(error),
           });
         }
@@ -100,6 +97,11 @@ export function PluginHostRuntime() {
   }, [plugins, workspace.path]);
 
   return null;
+}
+
+function resolvePluginEntry(plugin: { main?: string | null; dev_main?: string | null }) {
+  if (useDevPluginEntry && plugin.dev_main) return plugin.dev_main;
+  return plugin.main || undefined;
 }
 
 async function activatePlugin(

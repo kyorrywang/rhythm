@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { PluginContext } from '../../../../src/plugin-host';
+import type { PluginContext } from '../../../../src/plugin/sdk';
 import { DEVELOPER_STORAGE_KEYS, MAX_VALIDATION_HISTORY } from '../constants';
 import type { ValidationPayload } from '../types';
 
@@ -23,5 +23,10 @@ export function useValidationHistory(ctx: PluginContext) {
     await ctx.storage.set(DEVELOPER_STORAGE_KEYS.latestValidation, payload);
   }, [ctx.storage, entries]);
 
-  return { entries, remember };
+  const clear = useCallback(async () => {
+    setEntries([]);
+    await ctx.storage.set(DEVELOPER_STORAGE_KEYS.validationHistory, []);
+  }, [ctx.storage]);
+
+  return { entries, remember, clear };
 }

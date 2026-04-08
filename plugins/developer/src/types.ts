@@ -11,6 +11,7 @@ export interface CommitInput {
 }
 
 export interface ShellCommandResult {
+  run_id?: string;
   command: string;
   stdout: string;
   stderr: string;
@@ -19,6 +20,7 @@ export interface ShellCommandResult {
   timed_out: boolean;
   truncated: boolean;
   duration_ms: number;
+  status?: 'running' | 'completed' | 'cancelled' | 'error';
 }
 
 export interface LogPayload extends ShellCommandResult {
@@ -64,4 +66,38 @@ export interface ValidationPayload {
 export interface GitStatusEntry {
   path: string;
   status: string;
+  stagedStatus?: string;
+  unstagedStatus?: string;
+  isStaged: boolean;
+  isUnstaged: boolean;
+  isUntracked: boolean;
+  isConflict: boolean;
+  originalPath?: string;
+}
+
+export interface ValidationPreset {
+  id: string;
+  label: string;
+  command: string;
+  kind: 'typecheck' | 'build' | 'test' | 'lint' | 'custom';
+}
+
+export interface DeveloperSettings {
+  validationPresets: ValidationPreset[];
+  autoRefreshGitStatus: boolean;
+  syncFolderBadges: boolean;
+}
+
+export interface DeveloperTaskSummary {
+  title: string;
+  updatedAt: number;
+  latestLog?: LogPayload | null;
+  latestValidation?: ValidationPayload | null;
+  latestDiff?: {
+    title: string;
+    fileCount: number;
+    additions: number;
+    deletions: number;
+  } | null;
+  changedFiles: GitStatusEntry[];
 }

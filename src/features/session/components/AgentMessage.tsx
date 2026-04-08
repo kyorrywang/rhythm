@@ -10,9 +10,9 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { getToolPresentation } from '@/features/session/toolPresentation';
-import { createPluginContext } from '@/plugin-host/createPluginContext';
-import type { MessageActionContribution, ToolResultActionContribution } from '@/plugin-host/types';
-import { usePluginHostStore } from '@/plugin-host/usePluginHostStore';
+import { createPluginContext } from '@/plugin/host/createPluginContext';
+import type { MessageActionContribution, ToolResultActionContribution } from '@/plugin/host/types';
+import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
 import { useDisplayStore } from '@/shared/state/useDisplayStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';

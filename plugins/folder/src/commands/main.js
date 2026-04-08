@@ -6,6 +6,7 @@ const { spawn } = require('node:child_process');
 const handlers = {
   createDir,
   rename,
+  deletePath,
   reveal,
 };
 
@@ -61,6 +62,17 @@ async function reveal(input, call) {
   } else {
     await spawnDetached('xdg-open', [path.dirname(target)]);
   }
+  return { path: toRelativePath(cwd, target) };
+}
+
+async function deletePath(input, call) {
+  if (!input.path) throw new Error("'path' is required");
+  const cwd = workspaceCwd(call);
+  const target = resolveInsideWorkspace(cwd, input.path);
+  await fs.rm(target, {
+    recursive: !!input.recursive,
+    force: false,
+  });
   return { path: toRelativePath(cwd, target) };
 }
 

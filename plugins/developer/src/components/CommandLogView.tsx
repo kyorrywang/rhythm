@@ -1,4 +1,4 @@
-import type { WorkbenchProps } from '../../../../src/plugin-host';
+import type { WorkbenchProps } from '../../../../src/plugin/sdk';
 import type { LogPayload } from '../types';
 
 export function CommandLogView({ payload }: WorkbenchProps<LogPayload>) {
@@ -16,11 +16,18 @@ export function CommandLogContent({ payload }: { payload: LogPayload }) {
 }
 
 function CommandSummary({ payload }: { payload: LogPayload }) {
+  const statusLabel = payload.status === 'running'
+    ? 'Running'
+    : payload.status === 'cancelled'
+      ? 'Cancelled'
+      : payload.success
+        ? 'Success'
+        : `Failed with exit code ${payload.exit_code}`;
   return (
     <div className="mb-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
       <div className="font-medium text-slate-800">{payload.command}</div>
       <div className="mt-1">
-        {payload.success ? 'Success' : `Failed with exit code ${payload.exit_code}`}
+        {statusLabel}
         {payload.timed_out ? ' · timed out' : ''}
         {payload.truncated ? ' · output truncated' : ''}
         {` · ${(payload.duration_ms / 1000).toFixed(1)}s`}

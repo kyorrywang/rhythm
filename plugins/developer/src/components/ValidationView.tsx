@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
-import type { WorkbenchProps } from '../../../../src/plugin-host';
+import type { WorkbenchProps } from '../../../../src/plugin/sdk';
 import type { ValidationPayload } from '../types';
 import { CommandLogContent } from './CommandLogView';
 

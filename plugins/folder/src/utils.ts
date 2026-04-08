@@ -18,6 +18,18 @@ export function basename(path: string) {
   return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
+export function dirname(path: string) {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  if (parts.length <= 1) return '.';
+  return parts.slice(0, -1).join('/');
+}
+
+export function joinPath(basePath: string | undefined, name: string) {
+  const normalizedBase = !basePath || basePath === '.' ? '' : basePath.replace(/\\/g, '/').replace(/\/+$/g, '');
+  const normalizedName = name.replace(/\\/g, '/').replace(/^\/+/g, '');
+  return normalizedBase ? `${normalizedBase}/${normalizedName}` : normalizedName;
+}
+
 export function fileStatusDescription(
   file: Pick<FilePreviewPayload, 'size' | 'truncated' | 'is_binary' | 'encoding_error' | 'limit_bytes'>,
 ) {

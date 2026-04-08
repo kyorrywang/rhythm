@@ -2,6 +2,18 @@ use crate::infrastructure::config;
 use crate::infrastructure::paths;
 use crate::plugins::PluginStatus;
 use crate::plugins::{self, PluginSummary};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::process::Stdio;
+use std::sync::LazyLock;
+use std::time::Instant;
+use tauri::ipc::Channel;
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
+use tokio::process::Command as TokioCommand;
+use tokio::sync::{mpsc, oneshot, Mutex};
+
+static PLUGIN_COMMAND_RUNS: LazyLock<Mutex<HashMap<String, oneshot::Sender<()>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, serde::Deserialize)]
 pub struct PluginCommandRequest {
@@ -58,6 +70,61 @@ pub struct PluginCommandResponse {
     pub command_id: String,
     pub handled: bool,
     pub result: serde_json::Value,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct PluginCommandStartResponse {
+    pub plugin_name: String,
+    pub command_id: String,
+    pub run_id: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct PluginCommandCancelRequest {
+    pub run_id: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type")]
+pub enum PluginCommandEvent {
+    #[serde(rename = "started")]
+    Started {
+        #[serde(rename = "runId")]
+        run_id: String,
+        #[serde(rename = "pluginName")]
+        plugin_name: String,
+        #[serde(rename = "commandId")]
+        command_id: String,
+    },
+    #[serde(rename = "stdout")]
+    Stdout {
+        #[serde(rename = "runId")]
+        run_id: String,
+        chunk: String,
+    },
+    #[serde(rename = "stderr")]
+    Stderr {
+        #[serde(rename = "runId")]
+        run_id: String,
+        chunk: String,
+    },
+    #[serde(rename = "completed")]
+    Completed {
+        #[serde(rename = "runId")]
+        run_id: String,
+        result: serde_json::Value,
+    },
+    #[serde(rename = "error")]
+    Error {
+        #[serde(rename = "runId")]
+        run_id: String,
+        message: String,
+    },
+    #[serde(rename = "cancelled")]
+    Cancelled {
+        #[serde(rename = "runId")]
+        run_id: String,
+    },
 }
 
 /// List all discoverable plugins (enabled and disabled) for the given cwd.
@@ -161,6 +228,99 @@ pub async fn plugin_invoke_command(
         handled: execution.handled,
         result: execution.result,
     })
+}
+
+#[tauri::command]
+pub async fn plugin_start_command(
+    request: PluginCommandRequest,
+    on_event: Channel<PluginCommandEvent>,
+) -> Result<PluginCommandStartResponse, String> {
+    let cwd_path = crate::commands::workspace::resolve_workspace_path(Some(&request.cwd))?;
+    let settings = config::load_settings();
+    let loaded = plugins::load_plugins(&settings, &cwd_path);
+    let registry = plugins::PluginCommandRegistry::from_plugins(&loaded);
+    let resolved = registry.resolve(
+        &loaded,
+        &request.plugin_name,
+        &request.command_id,
+        &request.input,
+    )?;
+    let run_id = format!(
+        "plugin-run-{}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default(),
+        rand_suffix()
+    );
+
+    let response = PluginCommandStartResponse {
+        plugin_name: resolved.provider_plugin.clone(),
+        command_id: resolved.definition.id.clone(),
+        run_id: run_id.clone(),
+    };
+    let _ = on_event.send(PluginCommandEvent::Started {
+        run_id: run_id.clone(),
+        plugin_name: response.plugin_name.clone(),
+        command_id: response.command_id.clone(),
+    });
+
+    if is_shell_tool_command(&resolved) {
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        PLUGIN_COMMAND_RUNS
+            .lock()
+            .await
+            .insert(run_id.clone(), cancel_tx);
+        let event_channel = on_event.clone();
+        tokio::spawn(async move {
+            let result = run_shell_stream_command(
+                run_id.clone(),
+                request.input,
+                &cwd_path,
+                event_channel.clone(),
+                cancel_rx,
+            )
+            .await;
+            PLUGIN_COMMAND_RUNS.lock().await.remove(&run_id);
+            if let Err(error) = result {
+                let _ = event_channel.send(PluginCommandEvent::Error {
+                    run_id,
+                    message: error,
+                });
+            }
+        });
+        return Ok(response);
+    }
+
+    tokio::spawn(async move {
+        match registry.execute_resolved(&loaded, &resolved, request.input, &cwd_path).await {
+            Ok(execution) => {
+                let _ = on_event.send(PluginCommandEvent::Completed {
+                    run_id,
+                    result: execution.result,
+                });
+            }
+            Err(error) => {
+                let _ = on_event.send(PluginCommandEvent::Error {
+                    run_id,
+                    message: error,
+                });
+            }
+        }
+    });
+
+    Ok(response)
+}
+
+#[tauri::command]
+pub async fn plugin_cancel_command(request: PluginCommandCancelRequest) -> Result<bool, String> {
+    let sender = PLUGIN_COMMAND_RUNS.lock().await.remove(&request.run_id);
+    if let Some(sender) = sender {
+        let _ = sender.send(());
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 /// Read a value from workspace-scoped plugin storage.
@@ -386,4 +546,173 @@ fn set_plugin_permission(
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     std::fs::write(&settings_path, json).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn rand_suffix() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| format!("{:06x}", (duration.as_nanos() & 0xFF_FFFF) as u64))
+        .unwrap_or_else(|_| "000000".to_string())
+}
+
+fn is_shell_tool_command(resolved: &plugins::ResolvedPluginCommand) -> bool {
+    resolved
+        .definition
+        .tool
+        .as_deref()
+        .map(plugins::resolve_builtin_tool_alias)
+        == Some("shell")
+}
+
+async fn run_shell_stream_command(
+    run_id: String,
+    input: Value,
+    cwd_path: &std::path::Path,
+    on_event: Channel<PluginCommandEvent>,
+    mut cancel_rx: oneshot::Receiver<()>,
+) -> Result<(), String> {
+    let command = input
+        .get("command")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "tool.shell requires a string 'command'".to_string())?
+        .to_string();
+    let timeout_ms = input.get("timeout_ms").and_then(Value::as_u64);
+    let max_output_bytes = input
+        .get("max_output_bytes")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(256 * 1024);
+
+    let mut child = if cfg!(target_os = "windows") {
+        TokioCommand::new("cmd")
+            .args(["/C", &command])
+            .current_dir(cwd_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    } else {
+        TokioCommand::new("sh")
+            .args(["-c", &command])
+            .current_dir(cwd_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    }
+    .map_err(|e| format!("Cannot start shell command: {}", e))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Cannot capture shell stdout".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Cannot capture shell stderr".to_string())?;
+
+    let (line_tx, mut line_rx) = mpsc::unbounded_channel::<(bool, String)>();
+    spawn_reader(stdout, true, line_tx.clone());
+    spawn_reader(stderr, false, line_tx);
+
+    let started_at = Instant::now();
+    let mut stdout_text = String::new();
+    let mut stderr_text = String::new();
+    let mut truncated = false;
+    let mut timed_out = false;
+    let mut timeout = timeout_ms
+        .map(std::time::Duration::from_millis)
+        .map(tokio::time::sleep)
+        .map(Box::pin);
+
+    loop {
+        tokio::select! {
+            _ = &mut cancel_rx => {
+                let _ = child.kill().await;
+                let _ = on_event.send(PluginCommandEvent::Cancelled { run_id });
+                return Ok(());
+            }
+            _ = async {
+                if let Some(timeout) = timeout.as_mut() {
+                    timeout.as_mut().await;
+                }
+            }, if timeout.is_some() => {
+                timed_out = true;
+                let _ = child.kill().await;
+            }
+            Some((is_stdout, chunk)) = line_rx.recv() => {
+                let total_len = stdout_text.len() + stderr_text.len();
+                let target = if is_stdout { &mut stdout_text } else { &mut stderr_text };
+                if !truncated {
+                    let remaining = max_output_bytes.saturating_sub(total_len);
+                    if remaining == 0 {
+                        truncated = true;
+                    } else {
+                        let accepted = if chunk.len() > remaining {
+                            truncated = true;
+                            chunk[..remaining].to_string()
+                        } else {
+                            chunk.clone()
+                        };
+                        target.push_str(&accepted);
+                    }
+                }
+                let _ = on_event.send(if is_stdout {
+                    PluginCommandEvent::Stdout { run_id: run_id.clone(), chunk }
+                } else {
+                    PluginCommandEvent::Stderr { run_id: run_id.clone(), chunk }
+                });
+            }
+            status = child.wait() => {
+                let status = status.map_err(|e| format!("Shell command failed: {}", e))?;
+                while let Ok((is_stdout, chunk)) = line_rx.try_recv() {
+                    let total_len = stdout_text.len() + stderr_text.len();
+                    let target = if is_stdout { &mut stdout_text } else { &mut stderr_text };
+                    if !truncated {
+                        let remaining = max_output_bytes.saturating_sub(total_len);
+                        if remaining == 0 {
+                            truncated = true;
+                        } else {
+                            let accepted = if chunk.len() > remaining {
+                                truncated = true;
+                                chunk[..remaining].to_string()
+                            } else {
+                                chunk.clone()
+                            };
+                            target.push_str(&accepted);
+                        }
+                    }
+                    let _ = on_event.send(if is_stdout {
+                        PluginCommandEvent::Stdout { run_id: run_id.clone(), chunk }
+                    } else {
+                        PluginCommandEvent::Stderr { run_id: run_id.clone(), chunk }
+                    });
+                }
+                let exit_code = if timed_out { -1 } else { status.code().unwrap_or(-1) };
+                let success = !timed_out && status.success();
+                let result = serde_json::json!({
+                    "command": command,
+                    "stdout": stdout_text,
+                    "stderr": stderr_text,
+                    "exit_code": exit_code,
+                    "success": success,
+                    "timed_out": timed_out,
+                    "truncated": truncated,
+                    "duration_ms": started_at.elapsed().as_millis() as u64,
+                });
+                let _ = on_event.send(PluginCommandEvent::Completed { run_id, result });
+                return Ok(());
+            }
+        }
+    }
+}
+
+fn spawn_reader<R>(reader: R, is_stdout: bool, tx: mpsc::UnboundedSender<(bool, String)>)
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(reader).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let _ = tx.send((is_stdout, format!("{}\n", line)));
+        }
+    });
 }

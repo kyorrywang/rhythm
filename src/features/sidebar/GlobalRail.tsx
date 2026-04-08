@@ -2,7 +2,7 @@ import { Code2, FolderTree, Globe, Plus, Puzzle, Settings2, Workflow } from 'luc
 import { cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
 import type { Workspace } from '@/shared/state/useWorkspaceStore';
-import type { ActivityBarContribution } from '@/plugin-host/types';
+import type { ActivityBarContribution } from '@/plugin/host/types';
 
 interface GlobalRailProps {
   activeMode: string;

@@ -61,6 +61,7 @@ export interface BackendPluginSummary {
   mcp_servers_count: number;
   path: string;
   main?: string | null;
+  dev_main?: string | null;
   entry?: string | null;
   permissions: string[];
   granted_permissions: string[];
@@ -99,6 +100,10 @@ export interface BackendPluginRuntimeInfo {
   commands: BackendPluginContribution[];
 }
 
+export interface PluginInstallRequest {
+  source_path: string;
+}
+
 export interface PluginCommandRequest {
   cwd: string;
   plugin_name: string;
@@ -112,6 +117,24 @@ export interface PluginCommandResponse {
   handled: boolean;
   result: unknown;
 }
+
+export interface PluginCommandStartResponse {
+  plugin_name: string;
+  command_id: string;
+  run_id: string;
+}
+
+export interface PluginCommandCancelRequest {
+  run_id: string;
+}
+
+export type PluginCommandEvent =
+  | { type: 'started'; runId: string; pluginName: string; commandId: string }
+  | { type: 'stdout'; runId: string; chunk: string }
+  | { type: 'stderr'; runId: string; chunk: string }
+  | { type: 'completed'; runId: string; result: unknown }
+  | { type: 'error'; runId: string; message: string }
+  | { type: 'cancelled'; runId: string };
 
 export interface PluginStorageGetRequest {
   cwd: string;
@@ -320,6 +343,14 @@ export interface TauriCommands {
     request: { name: string };
     response: void;
   };
+  install_plugin_cmd: {
+    request: { sourcePath: string };
+    response: BackendPluginSummary;
+  };
+  uninstall_plugin_cmd: {
+    request: { name: string };
+    response: boolean;
+  };
   grant_plugin_permission: {
     request: { name: string; permission: string; cwd?: string };
     response: void;
@@ -335,6 +366,14 @@ export interface TauriCommands {
   plugin_invoke_command: {
     request: { request: PluginCommandRequest };
     response: PluginCommandResponse;
+  };
+  plugin_start_command: {
+    request: { request: PluginCommandRequest; onEvent: unknown };
+    response: PluginCommandStartResponse;
+  };
+  plugin_cancel_command: {
+    request: { request: PluginCommandCancelRequest };
+    response: boolean;
   };
   plugin_storage_get: {
     request: { request: PluginStorageGetRequest };

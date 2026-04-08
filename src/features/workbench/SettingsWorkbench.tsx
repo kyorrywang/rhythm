@@ -157,9 +157,14 @@ export const SettingsWorkbench = ({ section }: { section: SettingsSection }) => 
     ),
     plugin: (
       <Panel title="插件设置" icon={<Puzzle size={16} />} description="配置视角查看已启用插件，完整安装卸载建议走插件页。">
-        <Field label="Enabled plugins">
-          <TagEditor values={settings.enabledPlugins} onChange={(values) => updateSettings({ enabledPlugins: values })} />
-        </Field>
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-7 text-slate-600">
+            这里保存的是全局插件启用配置。每个插件更细的业务设置，请从左侧“设置”里的 Plugin Settings 分组进入对应插件设置页。
+          </div>
+          <Field label="Enabled plugins">
+            <TagEditor values={settings.enabledPlugins} onChange={(values) => updateSettings({ enabledPlugins: values })} />
+          </Field>
+        </div>
       </Panel>
     ),
     cron: (

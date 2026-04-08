@@ -1,4 +1,4 @@
-import { definePlugin, type LeftPanelProps, type WorkbenchProps } from '../../../src/plugin-host';
+import { definePlugin, type LeftPanelProps, type WorkbenchProps } from '../../../src/plugin/sdk';
 
 interface ExamplePayload {
   message: string;

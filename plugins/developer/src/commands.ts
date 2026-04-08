@@ -1,7 +1,7 @@
-import type { LeftPanelProps } from '../../../src/plugin-host';
-import { SUGGESTED_COMMANDS } from './constants';
-import type { CommitInput, FilePathInput, RunCommandInput, ShellCommandResult } from './types';
-import { createValidationPayload, escapeShellPath, parseExitCode, parseGitDiff } from './utils';
+import type { LeftPanelProps } from '../../../src/plugin/sdk';
+import { DEFAULT_VALIDATION_COMMANDS } from './constants';
+import type { CommitInput, FilePathInput, RunCommandInput, ShellCommandResult, ValidationPreset } from './types';
+import { classifyValidationCommand, createValidationPayload, escapeShellPath, parseExitCode, parseGitDiff } from './utils';
 
 export function registerDeveloperCommands(ctx: LeftPanelProps['ctx']) {
   ctx.commands.register(
@@ -102,27 +102,40 @@ export function registerDeveloperCommands(ctx: LeftPanelProps['ctx']) {
 }
 
 async function detectValidationCommands(ctx: LeftPanelProps['ctx']) {
-  const suggestions = new Set<string>();
+  const suggestions = new Map<string, ValidationPreset>();
   try {
     const result = await ctx.commands.execute<unknown, { entries?: Array<{ name: string; kind: string }> }>('tool.list_dir', {});
     const names = new Set((result.entries || []).map((entry) => entry.name));
     if (names.has('package.json')) {
-      suggestions.add('npm run typecheck');
-      suggestions.add('npm run build');
-      suggestions.add('npm test');
+      const pkgText = await ctx.commands.execute<{ path: string }, string | { output?: string }>('tool.read_file', { path: 'package.json' });
+      const pkgJson = JSON.parse(typeof pkgText === 'string' ? pkgText : pkgText.output || '{}');
+      const scripts = pkgJson?.scripts && typeof pkgJson.scripts === 'object' ? pkgJson.scripts : {};
+      for (const scriptName of Object.keys(scripts)) {
+        const command = `npm run ${scriptName}`;
+        suggestions.set(command, {
+          id: command,
+          label: command,
+          command,
+          kind: classifyValidationCommand(command),
+        });
+      }
     }
     if (names.has('Cargo.toml')) {
-      suggestions.add('cargo check');
-      suggestions.add('cargo test');
+      for (const command of ['cargo check', 'cargo test']) {
+        suggestions.set(command, { id: command, label: command, command, kind: classifyValidationCommand(command) });
+      }
     }
     if (names.has('pyproject.toml') || names.has('requirements.txt')) {
-      suggestions.add('python -m pytest');
+      const command = 'python -m pytest';
+      suggestions.set(command, { id: command, label: command, command, kind: classifyValidationCommand(command) });
     }
   } catch {
     // Fall through to defaults when the workspace cannot be inspected.
   }
-  for (const command of SUGGESTED_COMMANDS) suggestions.add(command);
-  return Array.from(suggestions);
+  for (const command of DEFAULT_VALIDATION_COMMANDS) {
+    suggestions.set(command, { id: command, label: command, command, kind: classifyValidationCommand(command) });
+  }
+  return Array.from(suggestions.values());
 }
 
 export async function runTrackedCommand(ctx: LeftPanelProps['ctx'], command: string) {

@@ -1,4 +1,4 @@
-import { CheckCircle2, Play } from 'lucide-react';
+import { CheckCircle2, Play, Square } from 'lucide-react';
 import { Button } from '../../../../src/shared/ui/Button';
 
 export function CommandRunner({
@@ -8,6 +8,7 @@ export function CommandRunner({
   onCommandChange,
   onRun,
   onValidate,
+  onCancel,
 }: {
   command: string;
   isRunning: boolean;
@@ -15,6 +16,7 @@ export function CommandRunner({
   onCommandChange: (command: string) => void;
   onRun: () => void;
   onValidate: () => void;
+  onCancel: () => void;
 }) {
   return (
     <section>
@@ -39,6 +41,14 @@ export function CommandRunner({
           Validate
         </Button>
       </div>
+      {isRunning && (
+        <div className="mt-2">
+          <Button variant="ghost" size="sm" onClick={onCancel} className="justify-center rounded-2xl">
+            <Square size={14} />
+            Cancel
+          </Button>
+        </div>
+      )}
     </section>
   );
 }

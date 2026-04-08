@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "test": "vitest run",
     "lint": "eslint src --ext .ts,.tsx",
+    "validate:plugins": "node scripts/validate-plugins.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:plugins": "tsc --noEmit -p tsconfig.plugins.json"
   },

@@ -1,7 +1,7 @@
 import { Box, PanelLeftClose, PanelLeftOpen, ScrollText, X } from 'lucide-react';
-import { createPluginContext } from '@/plugin-host/createPluginContext';
-import { PluginErrorBoundary } from '@/plugin-host/PluginErrorBoundary';
-import { usePluginHostStore } from '@/plugin-host/usePluginHostStore';
+import { createPluginContext } from '@/plugin/host/createPluginContext';
+import { PluginErrorBoundary } from '@/plugin/host/PluginErrorBoundary';
+import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { Button } from '@/shared/ui/Button';
 

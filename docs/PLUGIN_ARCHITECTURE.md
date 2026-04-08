@@ -1,8 +1,8 @@
 # Rhythm Plugin Architecture
 
-This document captures the current plugin direction after the architecture discussions.
+This document captures the current plugin architecture after the framework收口 work.
 
-The goal is not to invent a large plugin framework from scratch. Rhythm should follow the proven VS Code extension philosophy for UI and app commands, while keeping Rhythm-specific agent capabilities such as skills, tools, and MCP aligned with the existing backend implementation.
+Rhythm follows the VS Code extension philosophy for UI and app commands, while keeping Rhythm-specific agent capabilities such as skills and tools aligned with the existing backend implementation.
 
 ## Goals
 
@@ -49,7 +49,7 @@ Examples:
 
 ## Manifest Shape
 
-Rhythm should move toward a VS Code-like manifest shape, simplified for our needs:
+Rhythm uses a VS Code-like manifest shape, simplified for our needs:
 
 ```json
 {
@@ -82,11 +82,13 @@ Rhythm should move toward a VS Code-like manifest shape, simplified for our need
 }
 ```
 
-Current fields such as `entry`, `skillsDir`, `hooksFile`, `mcpFile`, `provides.capabilities`, and capability dependencies should be treated as transitional or legacy until the new shape is implemented.
+Current plugin manifests should use `main`, `dev.main`, `requires.plugins/commands/tools`, and `contributes.commands/views/tools/skills/settings/menus`.
+
+Legacy top-level `entry` is no longer allowed for local plugins.
 
 ## UI Entry
 
-Formal plugin UI entry should be built JavaScript:
+Formal plugin UI entry is built JavaScript:
 
 ```json
 {
@@ -94,7 +96,7 @@ Formal plugin UI entry should be built JavaScript:
 }
 ```
 
-Development mode may optionally support a dev entry later, but production manifest should not point at `.tsx`:
+Development mode uses a fixed dev entry:
 
 ```json
 {
@@ -105,7 +107,10 @@ Development mode may optionally support a dev entry later, but production manife
 }
 ```
 
-The current repo-local `.tsx` loading is a development convenience, not the final package format.
+Current rule:
+
+- `main` must be `dist/main.js`
+- `dev.main` must be `src/main.tsx`
 
 ## Contributions
 
@@ -187,7 +192,10 @@ Tool manifest example:
           "required": ["path"]
         },
         "readOnly": true,
-        "permissions": ["workspace.files.read"]
+        "permissions": ["workspace.files.read"],
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "read"
       }
     ]
   }
@@ -305,9 +313,11 @@ The host should verify:
 
 Views follow the existing frontend plugin host model.
 
-The plugin registers React components from its `main` entry:
+The plugin registers React components from its SDK entry:
 
 ```ts
+import { definePlugin } from '../../../src/plugin/sdk';
+
 export default definePlugin({
   activate(ctx) {
     ctx.ui.leftPanel.register({
@@ -326,6 +336,8 @@ export default definePlugin({
 ```
 
 Core only hosts the slot and renders registered components. It does not know what a folder tree, diff view, or workflow graph is.
+
+Official and local plugins should import from `src/plugin/sdk`, never from `src/plugin/host`.
 
 ## Menus
 
@@ -416,17 +428,30 @@ Provides:
 
 Workflow node extensions should be owned by Workflow, not by core.
 
-## Migration Plan
+## Current Status
 
-1. Add the new manifest shape while still reading legacy fields.
-2. Rename `entry` to `main` for UI entry, with dev-only fallback for repo-local `.tsx`.
-3. Add `requires.commands` and `requires.tools` checks.
-4. Add `contributes.commands` and `contributes.tools` to backend summaries.
-5. Make `ctx.commands.execute(...)` fall back to backend command execution when no UI implementation exists.
-6. Make selected existing built-in tools command-callable.
-7. Migrate Folder from frontend-only command handlers to declared commands/tools where appropriate.
-8. Migrate Developer commands/tools.
-9. Build Workflow after the command/tool model is stable.
+The following are already in place:
+
+1. `main` + `dev.main` manifest shape.
+2. `requires.commands` and `requires.tools` checks.
+3. `ctx.commands.execute(...)` as the unified command entry point.
+4. Built-in command-callable tools such as `tool.list_dir`, `tool.read_file`, and `tool.shell`.
+5. Folder and Developer migrated to the SDK import surface.
+6. Plugin-only validation, typecheck, and build commands:
+   - `npm run validate:plugins`
+   - `npm run typecheck:plugins`
+   - `npm run build:plugins`
+7. A first plugin ecosystem layer:
+   - local install
+   - uninstall
+   - enable/disable
+   - permissions
+   - diagnostics
+8. A first settings layer:
+   - core settings panel
+   - plugin settings aggregation
+   - settings overview and search
+9. Streaming shell command support via `ctx.commands.start(...)`.
 
 ## Non-Goals For Now
 
@@ -437,4 +462,3 @@ Workflow node extensions should be owned by Workflow, not by core.
 - Abstract capability provider matching.
 - Workflow node contribution in core.
 - MCP as a first-class plugin type.
-

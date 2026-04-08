@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Folder, RefreshCw } from 'lucide-react';
 import { Button } from '../../../../src/shared/ui/Button';
-import type { LeftPanelProps } from '../../../../src/plugin-host';
+import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import type { BackendWorkspaceDirEntry } from '../../../../src/shared/types/api';
 import { FOLDER_COMMANDS } from '../constants';
 import type { FolderListInput, FolderTreeFileActions } from '../types';
@@ -70,6 +70,9 @@ export function TreeNode({
         active={activePath === entry.path}
         depth={depth}
         onOpen={() => actions.openFile(entry)}
+        onRename={() => void actions.renamePath(entry)}
+        onDelete={() => void actions.deletePath(entry)}
+        onReveal={() => void actions.revealPath(entry.path)}
         onCopyPath={(path) => void actions.copyPath(path)}
         gitStatus={actions.gitStatusForPath(entry.path)}
       />
@@ -81,18 +84,22 @@ export function TreeNode({
 
   return (
     <div>
-      <Button
-        variant="unstyled"
-        size="none"
-        onClick={() => onToggle(entry.path)}
-        className="group flex w-full items-center justify-between rounded-2xl py-2 pr-2 text-left text-sm text-slate-700 transition-colors hover:bg-white"
+      <div
+        className="group flex w-full items-center justify-between rounded-2xl py-2 pr-2 text-sm text-slate-700 transition-colors hover:bg-white"
         style={{ paddingLeft: 12 + depth * 14 }}
       >
-        <span className="flex min-w-0 items-center gap-2 truncate">
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <Folder size={14} className="shrink-0" />
-          <span className="truncate">{entry.name}</span>
-        </span>
+        <Button
+          variant="unstyled"
+          size="none"
+          onClick={() => onToggle(entry.path)}
+          className="min-w-0 flex-1 text-left"
+        >
+          <span className="flex min-w-0 items-center gap-2 truncate">
+            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            <Folder size={14} className="shrink-0" />
+            <span className="truncate">{entry.name}</span>
+          </span>
+        </Button>
         <span className="flex items-center gap-1">
           {expanded && (
             <Button
@@ -101,6 +108,7 @@ export function TreeNode({
               onClick={(event) => {
                 event.stopPropagation();
                 void loadChildren(true);
+                void actions.refreshPath(entry.path);
               }}
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-300 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-700 group-hover:opacity-100"
               title="刷新目录"
@@ -108,9 +116,18 @@ export function TreeNode({
               <RefreshCw size={13} />
             </Button>
           )}
-          <ActionMenu path={entry.path} onCopyPath={(path) => void actions.copyPath(path)} />
+          <ActionMenu
+            entry={entry}
+            onCopyPath={(path) => void actions.copyPath(path)}
+            onCreateFile={(basePath) => void actions.createFile(basePath)}
+            onCreateDir={(basePath) => void actions.createDir(basePath)}
+            onRename={() => void actions.renamePath(entry)}
+            onDelete={() => void actions.deletePath(entry)}
+            onReveal={() => void actions.revealPath(entry.path)}
+            onRefresh={() => void actions.refreshPath(entry.path)}
+          />
         </span>
-      </Button>
+      </div>
       {expanded && (
         <div className="space-y-1">
           {isLoading && (

@@ -1,4 +1,4 @@
-import { definePlugin } from '../../../src/plugin-host';
+import { definePlugin } from '../../../src/plugin/sdk';
 import { FOLDER_COMMANDS, FOLDER_VIEWS } from './constants';
 import { FolderTree } from './components/FolderTree';
 import { FilePreview } from './components/FilePreview';

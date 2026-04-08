@@ -3,8 +3,10 @@ import {
   disablePlugin,
   enablePlugin,
   grantPluginPermission,
+  installPlugin,
   listPlugins,
   revokePluginPermission,
+  uninstallPlugin,
 } from '@/shared/api/commands';
 import type { BackendPluginSummary } from '@/shared/types/api';
 
@@ -15,6 +17,8 @@ interface PluginState {
   fetchPlugins: (cwd: string) => Promise<void>;
   togglePlugin: (cwd: string, name: string, enabled: boolean) => Promise<void>;
   setPluginPermission: (cwd: string, name: string, permission: string, granted: boolean) => Promise<void>;
+  installPluginFromPath: (cwd: string, sourcePath: string) => Promise<BackendPluginSummary>;
+  uninstallPluginByName: (cwd: string, name: string) => Promise<boolean>;
 }
 
 export const usePluginStore = create<PluginState>((set) => ({
@@ -50,5 +54,19 @@ export const usePluginStore = create<PluginState>((set) => ({
     }
     const plugins = await listPlugins(cwd);
     set({ plugins });
+  },
+
+  installPluginFromPath: async (cwd, sourcePath) => {
+    const installed = await installPlugin(sourcePath);
+    const plugins = await listPlugins(cwd);
+    set({ plugins });
+    return installed;
+  },
+
+  uninstallPluginByName: async (cwd, name) => {
+    const removed = await uninstallPlugin(name);
+    const plugins = await listPlugins(cwd);
+    set({ plugins });
+    return removed;
   },
 }));

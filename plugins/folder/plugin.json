@@ -13,7 +13,7 @@
     "system.openPath"
   ],
   "requires": {
-    "commands": ["tool.list_dir", "tool.read_file"],
+    "commands": ["tool.list_dir", "tool.read_file", "tool.write_file", "tool.delete_file"],
     "tools": []
   },
   "contributes": {
@@ -66,6 +66,23 @@
         "entry": "src/commands/main.js",
         "handler": "reveal",
         "permissions": ["system.openPath"]
+      },
+      {
+        "id": "folder.delete",
+        "description": "Delete a file or folder in the current workspace.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" },
+            "recursive": { "type": "boolean" }
+          },
+          "required": ["path"]
+        },
+        "readOnly": false,
+        "implementation": "node",
+        "entry": "src/commands/main.js",
+        "handler": "deletePath",
+        "permissions": ["workspace.files.write"]
       },
       {
         "id": "folder.openFile",

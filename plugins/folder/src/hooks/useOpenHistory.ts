@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { LeftPanelProps } from '../../../../src/plugin-host';
+import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import { FOLDER_STORAGE_KEYS, MAX_OPEN_HISTORY } from '../constants';
 import { basename } from '../utils';
 

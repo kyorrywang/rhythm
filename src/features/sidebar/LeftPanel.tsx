@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { Search } from 'lucide-react';
-import { createPluginContext } from '@/plugin-host/createPluginContext';
-import { PluginErrorBoundary } from '@/plugin-host/PluginErrorBoundary';
-import { usePluginHostStore } from '@/plugin-host/usePluginHostStore';
+import { createPluginContext } from '@/plugin/host/createPluginContext';
+import { PluginErrorBoundary } from '@/plugin/host/PluginErrorBoundary';
+import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
 import { DEFAULT_WORKSPACE_PATH, useActiveWorkspace, useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
 import { useSessions, useSessionStore } from '@/shared/state/useSessionStore';
 import { useToast } from '@/shared/hooks/useToast';

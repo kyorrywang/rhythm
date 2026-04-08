@@ -20,6 +20,13 @@ pub struct PluginCommandDefinition {
     pub declaration: Value,
 }
 
+#[derive(Debug, Clone)]
+pub struct ResolvedPluginCommand {
+    pub caller_plugin: String,
+    pub provider_plugin: String,
+    pub definition: PluginCommandDefinition,
+}
+
 #[derive(Debug)]
 pub struct PluginCommandExecution {
     pub plugin_name: String,
@@ -83,10 +90,22 @@ impl PluginCommandRegistry {
         input: Value,
         cwd: &Path,
     ) -> Result<PluginCommandExecution, String> {
+        let resolved = self.resolve(plugins, caller_plugin, command_id, &input)?;
+        self.execute_resolved(plugins, &resolved, input, cwd).await
+    }
+
+    pub fn resolve(
+        &self,
+        plugins: &[LoadedPlugin],
+        caller_plugin: &str,
+        command_id: &str,
+        input: &Value,
+    ) -> Result<ResolvedPluginCommand, String> {
         let command = self
             .commands
             .get(command_id)
-            .ok_or_else(|| format!("Command '{}' is not registered", command_id))?;
+            .ok_or_else(|| format!("Command '{}' is not registered", command_id))?
+            .clone();
         let provider = plugins
             .iter()
             .find(|plugin| plugin.name() == command.plugin_name);
@@ -124,18 +143,32 @@ impl PluginCommandRegistry {
             ));
         }
 
-        validate_schema(command.parameters.as_ref(), &input)?;
+        validate_schema(command.parameters.as_ref(), input)?;
         if let Some(provider) = provider {
             validate_permissions(provider, &command.permissions)?;
         } else {
             validate_permissions(caller, &command.permissions)?;
         }
 
-        if let Some(tool) = &command.tool {
+        Ok(ResolvedPluginCommand {
+            caller_plugin: caller.name().to_string(),
+            provider_plugin: command.plugin_name.clone(),
+            definition: command,
+        })
+    }
+
+    pub async fn execute_resolved(
+        &self,
+        plugins: &[LoadedPlugin],
+        resolved: &ResolvedPluginCommand,
+        input: Value,
+        cwd: &Path,
+    ) -> Result<PluginCommandExecution, String> {
+        if let Some(tool) = &resolved.definition.tool {
             return execute_tool_command(
                 plugins,
-                &command.plugin_name,
-                &command.id,
+                &resolved.provider_plugin,
+                &resolved.definition.id,
                 tool,
                 input,
                 cwd,
@@ -143,28 +176,31 @@ impl PluginCommandRegistry {
             .await;
         }
 
-        match command.implementation.as_deref() {
+        match resolved.definition.implementation.as_deref() {
             Some("ui") => Err(format!(
                 "Command '{}' is implemented by UI but no UI handler was registered",
-                command.id
+                resolved.definition.id
             )),
             Some("node") | Some("python") => {
+                let provider = plugins
+                    .iter()
+                    .find(|plugin| plugin.name() == resolved.provider_plugin);
                 let Some(provider) = provider else {
                     return Err(format!(
                         "Command '{}' provider '{}' is not installed",
-                        command.id, command.plugin_name
+                        resolved.definition.id, resolved.provider_plugin
                     ));
                 };
-                let Some(entry) = command.entry.as_deref() else {
-                    return Err(format!("Command '{}' is missing entry", command.id));
+                let Some(entry) = resolved.definition.entry.as_deref() else {
+                    return Err(format!("Command '{}' is missing entry", resolved.definition.id));
                 };
-                let Some(handler) = command.handler.as_deref() else {
-                    return Err(format!("Command '{}' is missing handler", command.id));
+                let Some(handler) = resolved.definition.handler.as_deref() else {
+                    return Err(format!("Command '{}' is missing handler", resolved.definition.id));
                 };
                 let call = PluginRuntimeCall {
-                    id: command.id.clone(),
+                    id: resolved.definition.id.clone(),
                     plugin: provider.name().to_string(),
-                    command: command.id.clone(),
+                    command: resolved.definition.id.clone(),
                     kind: "command".to_string(),
                     input,
                     context: PluginRuntimeCallContext {
@@ -174,7 +210,11 @@ impl PluginCommandRegistry {
                     },
                 };
                 let result = run_plugin_runtime(
-                    command.implementation.as_deref().unwrap_or_default(),
+                    resolved
+                        .definition
+                        .implementation
+                        .as_deref()
+                        .unwrap_or_default(),
                     &provider.path,
                     entry,
                     handler,
@@ -183,23 +223,23 @@ impl PluginCommandRegistry {
                 .await?;
                 Ok(PluginCommandExecution {
                     plugin_name: provider.name().to_string(),
-                    command_id: command.id.clone(),
+                    command_id: resolved.definition.id.clone(),
                     handled: true,
                     result,
                 })
             }
             Some(other) => Err(format!(
                 "Command '{}' uses unsupported implementation '{}'",
-                command.id, other
+                resolved.definition.id, other
             )),
             None => Ok(PluginCommandExecution {
-                plugin_name: command.plugin_name.clone(),
-                command_id: command.id.clone(),
+                plugin_name: resolved.provider_plugin.clone(),
+                command_id: resolved.definition.id.clone(),
                 handled: false,
                 result: serde_json::json!({
                     "status": "registered",
                     "message": "Command is declared but has no implementation or tool mapping.",
-                    "declaration": command.declaration,
+                    "declaration": resolved.definition.declaration,
                     "input": input
                 }),
             }),
@@ -296,7 +336,7 @@ fn register_builtin_tool_commands(commands: &mut HashMap<String, PluginCommandDe
     }
 }
 
-fn resolve_builtin_tool_alias(tool_name: &str) -> &str {
+pub fn resolve_builtin_tool_alias(tool_name: &str) -> &str {
     match tool_name {
         "tool.read_file" => "read",
         "tool.list_dir" => "list_dir",

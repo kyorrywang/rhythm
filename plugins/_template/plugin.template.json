@@ -18,7 +18,13 @@
       {
         "id": "my-plugin.hello",
         "description": "Return a simple greeting.",
-        "implementation": "ui"
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "my-plugin.hello"
       }
     ],
     "views": [

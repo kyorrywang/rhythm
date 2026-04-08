@@ -1,12 +1,14 @@
-import { definePlugin } from '../../../src/plugin-host';
+import { definePlugin } from '../../../src/plugin/sdk';
 import { registerDeveloperCommands } from './commands';
-import { DEVELOPER_VIEWS } from './constants';
+import { DEVELOPER_SETTINGS_SECTION_ID, DEVELOPER_VIEWS } from './constants';
 import { DeveloperPanel } from './components/DeveloperPanel';
 import { CommandLogView } from './components/CommandLogView';
 import { DiffView } from './components/DiffView';
+import { TaskSummaryView } from './components/TaskSummaryView';
 import { ValidationView } from './components/ValidationView';
+import { DeveloperSettingsSection } from './components/DeveloperSettingsSection';
 import { registerDeveloperToolActions } from './toolActions';
-import type { DiffPayload, LogPayload, ValidationPayload } from './types';
+import type { DeveloperTaskSummary, DiffPayload, LogPayload, ValidationPayload } from './types';
 
 export default definePlugin({
   activate(ctx) {
@@ -26,6 +28,13 @@ export default definePlugin({
       component: DeveloperPanel,
     });
 
+    ctx.ui.settings.register({
+      id: DEVELOPER_SETTINGS_SECTION_ID,
+      title: 'Developer',
+      description: 'Developer plugin settings and validation presets.',
+      component: DeveloperSettingsSection,
+    });
+
     ctx.ui.workbench.register<LogPayload>({
       id: DEVELOPER_VIEWS.log,
       title: 'Command Log',
@@ -42,6 +51,12 @@ export default definePlugin({
       id: DEVELOPER_VIEWS.validation,
       title: 'Validation',
       component: ValidationView,
+    });
+
+    ctx.ui.workbench.register<DeveloperTaskSummary>({
+      id: DEVELOPER_VIEWS.taskSummary,
+      title: 'Task Summary',
+      component: TaskSummaryView,
     });
 
     registerDeveloperToolActions(ctx);

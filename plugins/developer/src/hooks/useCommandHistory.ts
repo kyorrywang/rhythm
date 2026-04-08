@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { PluginContext } from '../../../../src/plugin-host';
+import type { PluginContext } from '../../../../src/plugin/sdk';
 import { DEVELOPER_STORAGE_KEYS, MAX_COMMAND_HISTORY } from '../constants';
 import type { LogPayload } from '../types';
 

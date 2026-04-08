@@ -71,6 +71,8 @@ pub fn run() {
             commands::plugins::uninstall_plugin_cmd,
             commands::plugins::plugin_runtime_info,
             commands::plugins::plugin_invoke_command,
+            commands::plugins::plugin_start_command,
+            commands::plugins::plugin_cancel_command,
             commands::plugins::plugin_storage_get,
             commands::plugins::plugin_storage_set,
             commands::plugins::plugin_storage_delete,

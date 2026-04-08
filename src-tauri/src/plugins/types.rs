@@ -24,6 +24,9 @@ pub struct PluginManifest {
     /// JavaScript plugin entrypoint, for example "dist/main.js" or "src/main.tsx" in dev mode.
     #[serde(default, alias = "main")]
     pub entry: Option<String>,
+    /// Development-only plugin entrypoint, for example { "main": "src/main.tsx" }.
+    #[serde(default)]
+    pub dev: PluginDevConfig,
     /// Host capabilities requested by this plugin.
     #[serde(default)]
     pub permissions: Vec<String>,
@@ -65,6 +68,12 @@ pub struct PluginRequires {
 pub struct PluginProvides {
     #[serde(default)]
     pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PluginDevConfig {
+    #[serde(default)]
+    pub main: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -175,6 +184,7 @@ pub struct PluginSummary {
     pub mcp_servers_count: usize,
     pub path: String,
     pub main: Option<String>,
+    pub dev_main: Option<String>,
     pub entry: Option<String>,
     pub permissions: Vec<String>,
     pub granted_permissions: Vec<String>,
@@ -198,6 +208,7 @@ impl From<&LoadedPlugin> for PluginSummary {
             mcp_servers_count: p.mcp_servers.len(),
             path: p.path.to_string_lossy().to_string(),
             main: p.manifest.entry.clone(),
+            dev_main: p.manifest.dev.main.clone(),
             entry: p.manifest.entry.clone(),
             permissions: p.manifest.permissions.clone(),
             granted_permissions: p.granted_permissions.clone(),

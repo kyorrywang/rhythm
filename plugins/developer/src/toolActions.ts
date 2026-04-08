@@ -1,7 +1,7 @@
-import type { LeftPanelProps } from '../../../src/plugin-host';
+import type { LeftPanelProps } from '../../../src/plugin/sdk';
 import type { ToolCall } from '../../../src/shared/types/schema';
 import { DEVELOPER_STORAGE_KEYS, DEVELOPER_VIEWS } from './constants';
-import type { DiffPayload, LogPayload, ValidationPayload } from './types';
+import type { DeveloperTaskSummary, DiffPayload, LogPayload, ValidationPayload } from './types';
 
 export function registerDeveloperToolActions(ctx: LeftPanelProps['ctx']) {
   ctx.ui.messageActions.register({
@@ -33,6 +33,23 @@ export function registerDeveloperToolActions(ctx: LeftPanelProps['ctx']) {
         viewId: DEVELOPER_VIEWS.validation,
         title: `Validation: ${payload.command}`,
         description: payload.success ? 'Validation passed' : `${payload.issues.length} issue(s) detected`,
+        payload,
+      });
+    },
+  });
+
+  ctx.ui.messageActions.register({
+    id: 'developer.openLatestTaskSummary',
+    title: 'Open Task Summary',
+    description: 'Open the latest Developer task summary.',
+    order: 22,
+    run: async ({ ctx }) => {
+      const payload = await ctx.storage.get<DeveloperTaskSummary>(DEVELOPER_STORAGE_KEYS.latestTaskSummary);
+      if (!payload) return;
+      ctx.ui.workbench.open({
+        viewId: DEVELOPER_VIEWS.taskSummary,
+        title: payload.title,
+        description: 'Latest Developer task summary',
         payload,
       });
     },

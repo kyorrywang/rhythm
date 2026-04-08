@@ -11,7 +11,7 @@ import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { useEffect } from 'react';
 import { getSessions } from '@/shared/api/commands';
-import { PluginHostRuntime } from '@/plugin-host/PluginHostRuntime';
+import { PluginHostRuntime } from '@/plugin/host/PluginHostRuntime';
 
 export function App() {
   const workbench = useSessionStore((s) => s.workbench);

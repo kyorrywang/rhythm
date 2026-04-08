@@ -1,4 +1,4 @@
-import type { DiffPayload, GitStatusEntry, LogPayload, ValidationIssue, ValidationPayload } from './types';
+import type { DeveloperSettings, DeveloperTaskSummary, DiffPayload, GitStatusEntry, LogPayload, ValidationIssue, ValidationPayload, ValidationPreset } from './types';
 
 export function createValidationPayload(log: LogPayload): ValidationPayload {
   return {
@@ -49,10 +49,27 @@ export function parseGitStatus(output: string): GitStatusEntry[] {
     .split('\n')
     .map((line) => line.trimEnd())
     .filter(Boolean)
-    .map((line) => ({
-      status: line.slice(0, 2).trim() || '?',
-      path: line.slice(3).trim() || line.trim(),
-    }))
+    .map((line) => {
+      const stagedStatus = line[0] && line[0] !== ' ' ? line[0] : undefined;
+      const unstagedStatus = line[1] && line[1] !== ' ' ? line[1] : undefined;
+      const rawPath = line.slice(3).trim() || line.trim();
+      const renameMatch = rawPath.match(/^(.*?)\s+->\s+(.*)$/);
+      const path = renameMatch?.[2] || rawPath;
+      const originalPath = renameMatch?.[1];
+      const status = `${stagedStatus || ''}${unstagedStatus || ''}`.trim() || '?';
+      const isConflict = ['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'].includes(line.slice(0, 2));
+      return {
+        status,
+        path,
+        originalPath,
+        stagedStatus,
+        unstagedStatus,
+        isStaged: Boolean(stagedStatus && stagedStatus !== '?'),
+        isUnstaged: Boolean(unstagedStatus),
+        isUntracked: line.startsWith('??'),
+        isConflict,
+      };
+    })
     .filter((entry) => Boolean(entry.path));
 }
 
@@ -88,4 +105,54 @@ export function parseExitCode(message: string) {
 
 export function escapeShellPath(path: string) {
   return path.replace(/"/g, '\\"');
+}
+
+export function classifyValidationCommand(command: string): ValidationPreset['kind'] {
+  const normalized = command.toLowerCase();
+  if (/(typecheck|tsc|pyright|mypy|cargo check)/.test(normalized)) return 'typecheck';
+  if (/(build|vite build|webpack|rollup)/.test(normalized)) return 'build';
+  if (/(test|pytest|vitest|jest|cargo test)/.test(normalized)) return 'test';
+  if (/(lint|eslint|ruff|clippy)/.test(normalized)) return 'lint';
+  return 'custom';
+}
+
+export function createValidationPreset(command: string): ValidationPreset {
+  return {
+    id: command,
+    label: command,
+    command,
+    kind: classifyValidationCommand(command),
+  };
+}
+
+export function defaultDeveloperSettings(defaultCommands: string[]): DeveloperSettings {
+  return {
+    validationPresets: defaultCommands.map(createValidationPreset),
+    autoRefreshGitStatus: true,
+    syncFolderBadges: true,
+  };
+}
+
+export function createTaskSummary(input: {
+  latestLog?: LogPayload | null;
+  latestValidation?: ValidationPayload | null;
+  latestDiff?: DiffPayload | null;
+  changedFiles: GitStatusEntry[];
+}): DeveloperTaskSummary {
+  const latestDiff = input.latestDiff
+    ? {
+        title: input.latestDiff.title,
+        fileCount: input.latestDiff.files.length,
+        additions: input.latestDiff.files.reduce((sum, file) => sum + file.additions, 0),
+        deletions: input.latestDiff.files.reduce((sum, file) => sum + file.deletions, 0),
+      }
+    : null;
+  return {
+    title: 'Developer Task Summary',
+    updatedAt: Date.now(),
+    latestLog: input.latestLog || null,
+    latestValidation: input.latestValidation || null,
+    latestDiff,
+    changedFiles: input.changedFiles,
+  };
 }

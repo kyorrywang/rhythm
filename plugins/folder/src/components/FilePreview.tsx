@@ -1,4 +1,4 @@
-import type { WorkbenchProps } from '../../../../src/plugin-host';
+import type { WorkbenchProps } from '../../../../src/plugin/sdk';
 import type { FilePreviewPayload } from '../types';
 import { fileStatusDescription } from '../utils';
 

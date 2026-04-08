@@ -16,16 +16,22 @@ export const DEVELOPER_VIEWS = {
   log: 'developer.log',
   diff: 'developer.diff',
   validation: 'developer.validation',
+  taskSummary: 'developer.taskSummary',
 } as const;
+
+export const DEVELOPER_SETTINGS_SECTION_ID = 'developer.settings';
 
 export const DEVELOPER_STORAGE_KEYS = {
   commandHistory: 'developer.commandHistory',
   validationHistory: 'developer.validationHistory',
   latestDiff: 'developer.latestDiff',
   latestValidation: 'developer.latestValidation',
+  latestTaskSummary: 'developer.latestTaskSummary',
+  settings: 'developer.settings',
+  commitDraft: 'developer.commitDraft',
 } as const;
 
-export const SUGGESTED_COMMANDS = ['npm run typecheck', 'npm run build', 'cargo check'];
+export const DEFAULT_VALIDATION_COMMANDS = ['npm run typecheck', 'npm run build', 'cargo check'];
 
 export const MAX_COMMAND_HISTORY = 12;
 export const MAX_VALIDATION_HISTORY = 12;

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Code2 } from 'lucide-react';
-import type { LeftPanelProps } from '../../../../src/plugin-host';
-import { DEVELOPER_COMMANDS, DEVELOPER_STORAGE_KEYS, DEVELOPER_VIEWS, SUGGESTED_COMMANDS } from '../constants';
+import type { LeftPanelProps, RunningCommand } from '../../../../src/plugin/sdk';
+import { DEVELOPER_COMMANDS, DEVELOPER_STORAGE_KEYS, DEVELOPER_VIEWS, DEFAULT_VALIDATION_COMMANDS } from '../constants';
 import { useCommandHistory } from '../hooks/useCommandHistory';
+import { useDeveloperSettings } from '../hooks/useDeveloperSettings';
 import { useValidationHistory } from '../hooks/useValidationHistory';
-import type { DiffPayload, GitStatusEntry, LogPayload, RunCommandInput, ShellCommandResult } from '../types';
-import { createValidationPayload, parseGitStatus } from '../utils';
+import type { DeveloperTaskSummary, DiffPayload, GitStatusEntry, LogPayload, RunCommandInput, ShellCommandResult, ValidationPreset } from '../types';
+import { createTaskSummary, createValidationPayload, parseGitStatus } from '../utils';
 import { CommandRunner } from './CommandRunner';
 import { GitPanel } from './GitPanel';
 import { RecentLogs } from './RecentLogs';
@@ -13,18 +14,31 @@ import { ValidationHistory } from './ValidationHistory';
 import { ValidationPresets } from './ValidationPresets';
 
 export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
-  const [command, setCommand] = useState(SUGGESTED_COMMANDS[0]);
-  const [validationCommands, setValidationCommands] = useState<string[]>(SUGGESTED_COMMANDS);
+  const [command, setCommand] = useState(DEFAULT_VALIDATION_COMMANDS[0]);
+  const [validationCommands, setValidationCommands] = useState<ValidationPreset[]>([]);
   const [gitStatus, setGitStatus] = useState<LogPayload | null>(null);
   const [changedFiles, setChangedFiles] = useState<GitStatusEntry[]>([]);
+  const [commitDraft, setCommitDraft] = useState('');
   const [isRunning, setIsRunning] = useState(false);
+  const [activeRun, setActiveRun] = useState<RunningCommand<ShellCommandResult> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const history = useCommandHistory(ctx);
   const validationHistory = useValidationHistory(ctx);
+  const { settings } = useDeveloperSettings(ctx);
 
   useEffect(() => {
     let cancelled = false;
-    void ctx.commands.execute<unknown, string[]>(DEVELOPER_COMMANDS.detectValidationCommands, {}).then((items) => {
+    void ctx.storage.get<string>(DEVELOPER_STORAGE_KEYS.commitDraft).then((value) => {
+      if (!cancelled) setCommitDraft(value || '');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx.storage]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void ctx.commands.execute<unknown, ValidationPreset[]>(DEVELOPER_COMMANDS.detectValidationCommands, {}).then((items) => {
       if (!cancelled && items.length > 0) setValidationCommands(items);
     });
     return () => {
@@ -32,27 +46,119 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
     };
   }, [ctx.commands]);
 
+  useEffect(() => {
+    if (settings.validationPresets.length > 0) {
+      setValidationCommands(settings.validationPresets);
+    } else {
+      setValidationCommands(DEFAULT_VALIDATION_COMMANDS.map((command) => ({
+        id: command,
+        label: command,
+        command,
+        kind: 'custom',
+      })));
+    }
+  }, [settings.validationPresets]);
+
+  useEffect(() => {
+    if (!settings.autoRefreshGitStatus) return;
+    void refreshGitStatus();
+  }, [settings.autoRefreshGitStatus]);
+
+  const saveTaskSummary = async (input: {
+    latestLog?: LogPayload | null;
+    latestValidation?: ReturnType<typeof createValidationPayload> | null;
+    latestDiff?: DiffPayload | null;
+    changedFiles?: GitStatusEntry[];
+  }) => {
+    const previous = await ctx.storage.get<DeveloperTaskSummary>(DEVELOPER_STORAGE_KEYS.latestTaskSummary);
+    const summary = createTaskSummary({
+      latestLog: input.latestLog ?? previous?.latestLog ?? null,
+      latestValidation: input.latestValidation ?? previous?.latestValidation ?? null,
+      latestDiff: input.latestDiff
+        ? {
+            title: input.latestDiff.title,
+            raw: '',
+            files: input.latestDiff.files,
+          }
+        : null,
+      changedFiles: input.changedFiles ?? previous?.changedFiles ?? changedFiles,
+    });
+    await ctx.storage.set(DEVELOPER_STORAGE_KEYS.latestTaskSummary, summary);
+  };
+
   const runCommand = async (nextCommand = command, mode: 'log' | 'validation' = 'log') => {
     if (!nextCommand.trim()) return;
     setCommand(nextCommand);
     setIsRunning(true);
     setError(null);
     try {
-      const result = await ctx.commands.execute<RunCommandInput, ShellCommandResult>(DEVELOPER_COMMANDS.runCommand, {
+      const liveViewId = `developer.log:${Date.now()}`;
+      let payload: LogPayload = {
+        run_id: liveViewId,
         command: nextCommand,
-      });
-      const payload: LogPayload = { ...result, source: 'panel' };
+        stdout: '',
+        stderr: '',
+        exit_code: 0,
+        success: false,
+        timed_out: false,
+        truncated: false,
+        duration_ms: 0,
+        source: 'panel',
+        status: 'running',
+      };
+      openLog(ctx, payload, liveViewId, 'live');
+      const running = await ctx.commands.start<RunCommandInput, ShellCommandResult>(
+        'tool.shell',
+        { command: nextCommand },
+        (event) => {
+          if (event.type === 'stdout') {
+            payload = { ...payload, stdout: `${payload.stdout}${event.chunk}` };
+            openLog(ctx, payload, liveViewId, 'live');
+          } else if (event.type === 'stderr') {
+            payload = { ...payload, stderr: `${payload.stderr}${event.chunk}` };
+            openLog(ctx, payload, liveViewId, 'live');
+          } else if (event.type === 'completed') {
+            payload = {
+              ...event.result,
+              run_id: event.runId,
+              source: 'panel',
+              status: 'completed',
+            };
+            openLog(ctx, payload, liveViewId, 'snapshot');
+          } else if (event.type === 'cancelled') {
+            payload = {
+              ...payload,
+              run_id: event.runId,
+              status: 'cancelled',
+            };
+            openLog(ctx, payload, liveViewId, 'snapshot');
+          } else if (event.type === 'error') {
+            payload = {
+              ...payload,
+              stderr: `${payload.stderr}${payload.stderr ? '\n' : ''}${event.message}`,
+              status: 'error',
+            };
+            openLog(ctx, payload, liveViewId, 'snapshot');
+          }
+        },
+      );
+      setActiveRun(running);
+      const result = await running.result;
+      payload = { ...result, source: 'panel', run_id: running.runId, status: 'completed' };
       await history.remember(payload);
       if (mode === 'validation') {
         const validation = createValidationPayload(payload);
         await validationHistory.remember(validation);
+        await saveTaskSummary({ latestLog: payload, latestValidation: validation });
         openValidation(ctx, validation);
       } else {
-        openLog(ctx, payload);
+        await saveTaskSummary({ latestLog: payload });
+        openLog(ctx, payload, liveViewId);
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error || '命令执行失败'));
     } finally {
+      setActiveRun(null);
       setIsRunning(false);
     }
   };
@@ -66,7 +172,10 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
       setGitStatus(payload);
       const files = parseGitStatus(payload.stdout);
       setChangedFiles(files);
-      ctx.events.emit('developer.gitStatusChanged', { files });
+      await saveTaskSummary({ latestLog: payload, changedFiles: files });
+      if (settings.syncFolderBadges) {
+        ctx.events.emit('developer.gitStatusChanged', { files });
+      }
       openLog(ctx, payload);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error || 'Git status 失败'));
@@ -81,6 +190,7 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
     try {
       const diff = await ctx.commands.execute<unknown, DiffPayload>(DEVELOPER_COMMANDS.gitDiff, {});
       await ctx.storage.set(DEVELOPER_STORAGE_KEYS.latestDiff, diff);
+      await saveTaskSummary({ latestDiff: diff });
       ctx.ui.workbench.open<DiffPayload>({
         viewId: DEVELOPER_VIEWS.diff,
         title: diff.title,
@@ -101,6 +211,7 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
       const diff = await ctx.commands.execute<unknown, DiffPayload>(DEVELOPER_COMMANDS.stagedDiff, {});
       const payload = { ...diff, title: 'Staged Diff' };
       await ctx.storage.set(DEVELOPER_STORAGE_KEYS.latestDiff, payload);
+      await saveTaskSummary({ latestDiff: payload });
       ctx.ui.workbench.open<DiffPayload>({
         viewId: DEVELOPER_VIEWS.diff,
         title: payload.title,
@@ -121,6 +232,7 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
       const diff = await ctx.commands.execute<{ path: string }, DiffPayload>(DEVELOPER_COMMANDS.gitDiffFile, { path });
       const payload = { ...diff, title: `Diff: ${path}` };
       await ctx.storage.set(DEVELOPER_STORAGE_KEYS.latestDiff, payload);
+      await saveTaskSummary({ latestDiff: payload });
       ctx.ui.workbench.open<DiffPayload>({
         viewId: DEVELOPER_VIEWS.diff,
         title: `Diff: ${path}`,
@@ -135,14 +247,16 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
   };
 
   const commitStagedChanges = async () => {
-    const message = window.prompt('Commit message');
-    if (!message?.trim()) return;
+    if (!commitDraft.trim()) return;
     setIsRunning(true);
     setError(null);
     try {
-      const result = await ctx.commands.execute<{ message: string }, ShellCommandResult>(DEVELOPER_COMMANDS.commit, { message });
+      const result = await ctx.commands.execute<{ message: string }, ShellCommandResult>(DEVELOPER_COMMANDS.commit, { message: commitDraft });
       const payload: LogPayload = { ...result, source: 'panel' };
       await history.remember(payload);
+      await saveTaskSummary({ latestLog: payload });
+      setCommitDraft('');
+      await ctx.storage.set(DEVELOPER_STORAGE_KEYS.commitDraft, '');
       openLog(ctx, payload);
       await refreshGitStatus();
     } catch (error) {
@@ -150,6 +264,11 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
     } finally {
       setIsRunning(false);
     }
+  };
+
+  const updateCommitDraft = async (value: string) => {
+    setCommitDraft(value);
+    await ctx.storage.set(DEVELOPER_STORAGE_KEYS.commitDraft, value);
   };
 
   const revealFile = async (path: string) => {
@@ -192,9 +311,10 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
           onCommandChange={setCommand}
           onRun={() => void runCommand()}
           onValidate={() => void runCommand(command, 'validation')}
+          onCancel={() => void activeRun?.cancel()}
         />
 
-        <ValidationPresets commands={validationCommands} onRun={(item) => void runCommand(item, 'validation')} />
+        <ValidationPresets presets={validationCommands} onRun={(item) => void runCommand(item, 'validation')} />
 
         <GitPanel
           gitStatus={gitStatus}
@@ -207,9 +327,11 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
           onStageFile={(path) => void runGitFileAction(DEVELOPER_COMMANDS.stageFile, path)}
           onUnstageFile={(path) => void runGitFileAction(DEVELOPER_COMMANDS.unstageFile, path)}
           onCommit={() => void commitStagedChanges()}
+          commitDraft={commitDraft}
+          onCommitDraftChange={(value) => void updateCommitDraft(value)}
         />
 
-        <ValidationHistory entries={validationHistory.entries} onOpen={(entry) => openValidation(ctx, entry)} />
+        <ValidationHistory entries={validationHistory.entries} onOpen={(entry) => openValidation(ctx, entry)} onClear={() => void validationHistory.clear()} />
 
         <RecentLogs entries={history.entries} onOpen={(entry) => openLog(ctx, entry)} onClear={() => void history.clear()} />
       </div>
@@ -217,12 +339,26 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
   );
 }
 
-function openLog(ctx: LeftPanelProps['ctx'], payload: LogPayload) {
+function openLog(
+  ctx: LeftPanelProps['ctx'],
+  payload: LogPayload,
+  id?: string,
+  lifecycle: 'snapshot' | 'live' = 'snapshot',
+) {
+  const description = payload.status === 'running'
+    ? 'Command is running'
+    : payload.status === 'cancelled'
+      ? 'Command was cancelled'
+      : payload.success
+        ? 'Command completed successfully'
+        : `Command failed with exit code ${payload.exit_code}`;
   ctx.ui.workbench.open<LogPayload>({
+    id,
     viewId: DEVELOPER_VIEWS.log,
     title: payload.command,
-    description: payload.success ? 'Command completed successfully' : `Command failed with exit code ${payload.exit_code}`,
+    description,
     payload,
+    lifecycle,
   });
 }
 

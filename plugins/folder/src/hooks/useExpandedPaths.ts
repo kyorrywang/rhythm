@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { LeftPanelProps } from '../../../../src/plugin-host';
+import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import { FOLDER_STORAGE_KEYS } from '../constants';
 
 export function useExpandedPaths(ctx: LeftPanelProps['ctx']) {

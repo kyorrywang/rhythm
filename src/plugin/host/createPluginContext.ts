@@ -1,4 +1,6 @@
+import { Channel } from '@tauri-apps/api/core';
 import {
+  cancelPluginCommand,
   deletePluginStorageValue,
   getPluginStorageValue,
   invokePluginCommand,
@@ -7,6 +9,7 @@ import {
   readWorkspaceTextFile,
   readPluginStorageTextFile,
   runWorkspaceShell,
+  startPluginCommand,
   setPluginStorageValue,
   writePluginStorageTextFile,
   deletePluginStorageFile,
@@ -14,8 +17,10 @@ import {
 import { usePluginStore } from '@/shared/state/usePluginStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
+import type { PluginCommandEvent } from '@/shared/types/api';
 import type { Disposable, PluginContext } from './types';
 import { usePluginHostStore } from './usePluginHostStore';
+import type { CommandStreamEvent, RunningCommand } from '../sdk/types';
 
 export function createPluginContext(pluginId: string, trackDisposable?: (disposable: Disposable) => void): PluginContext {
   const tracked = (dispose: () => void): Disposable => {
@@ -160,6 +165,17 @@ export function createPluginContext(pluginId: string, trackDisposable?: (disposa
           throw error;
         }
       },
+      start: async (id, input, listener) => {
+        const command = usePluginHostStore.getState().commandHandlers[id];
+        if (command) {
+          return startLocalCommand(pluginId, id, input, command.handler as never, listener);
+        }
+        const uiCommand = findManifestCommand(id);
+        if (uiCommand?.implementation === 'ui') {
+          throw new Error(`Command '${id}' is declared as UI command but no handler was registered`);
+        }
+        return startBackendCommand(pluginId, id, input, listener);
+      },
     },
     events: {
       on: (event, handler): Disposable =>
@@ -193,6 +209,7 @@ export function createPluginContext(pluginId: string, trackDisposable?: (disposa
         open: (input) => {
           const view = usePluginHostStore.getState().workbenchViews[input.viewId];
           useSessionStore.getState().openWorkbench({
+            id: input.id,
             isOpen: true,
             pluginId: view?.pluginId || pluginId,
             viewType: input.viewId,
@@ -304,6 +321,126 @@ async function executeBackendCommand<TOutput>(callerPluginId: string, commandId:
     });
     throw error;
   }
+}
+
+async function startBackendCommand<TOutput>(
+  callerPluginId: string,
+  commandId: string,
+  input: unknown,
+  listener?: (event: CommandStreamEvent<TOutput>) => void,
+): Promise<RunningCommand<TOutput>> {
+  const startedAt = Date.now();
+  usePluginHostStore.getState().recordCommandInvocation({
+    id: `backend-command-${startedAt}-${Math.random().toString(36).slice(2, 8)}`,
+    pluginId: callerPluginId,
+    type: 'command',
+    name: commandId,
+    status: 'started',
+    message: summarizePayload(input),
+    createdAt: startedAt,
+  });
+
+  let resolveResult!: (value: TOutput) => void;
+  let rejectResult!: (reason?: unknown) => void;
+  const result = new Promise<TOutput>((resolve, reject) => {
+    resolveResult = resolve;
+    rejectResult = reject;
+  });
+
+  const channel = new Channel<PluginCommandEvent>();
+  let activeRunId = '';
+  channel.onmessage = (event) => {
+    const typedEvent = event as CommandStreamEvent<TOutput>;
+    activeRunId = typedEvent.runId || activeRunId;
+    listener?.(typedEvent);
+    if (typedEvent.type === 'completed') {
+      usePluginHostStore.getState().recordCommandInvocation({
+        id: `backend-command-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        pluginId: callerPluginId,
+        type: 'command',
+        name: commandId,
+        status: 'completed',
+        message: summarizePayload(typedEvent.result),
+        createdAt: Date.now(),
+      });
+      resolveResult(typedEvent.result);
+    } else if (typedEvent.type === 'error') {
+      const error = new Error(typedEvent.message);
+      usePluginHostStore.getState().reportPluginError(callerPluginId, error);
+      usePluginHostStore.getState().recordCommandInvocation({
+        id: `backend-command-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        pluginId: callerPluginId,
+        type: 'command',
+        name: commandId,
+        status: 'error',
+        message: typedEvent.message,
+        createdAt: Date.now(),
+      });
+      rejectResult(error);
+    } else if (typedEvent.type === 'cancelled') {
+      usePluginHostStore.getState().recordCommandInvocation({
+        id: `backend-command-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        pluginId: callerPluginId,
+        type: 'command',
+        name: commandId,
+        status: 'error',
+        message: 'cancelled',
+        createdAt: Date.now(),
+      });
+      rejectResult(new Error('Command cancelled'));
+    }
+  };
+
+  try {
+    const response = await startPluginCommand(
+      {
+        cwd: getActiveWorkspacePath(),
+        plugin_name: callerPluginId,
+        command_id: commandId,
+        input,
+      },
+      channel,
+    );
+    activeRunId = response.run_id;
+    return {
+      runId: response.run_id,
+      result,
+      cancel: () => cancelPluginCommand({ run_id: activeRunId }),
+    };
+  } catch (error) {
+    usePluginHostStore.getState().reportPluginError(callerPluginId, error);
+    usePluginHostStore.getState().recordCommandInvocation({
+      id: `backend-command-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      pluginId: callerPluginId,
+      type: 'command',
+      name: commandId,
+      status: 'error',
+      message: error instanceof Error ? error.message : String(error),
+      createdAt: Date.now(),
+    });
+    rejectResult(error);
+    throw error;
+  }
+}
+
+async function startLocalCommand<TInput, TOutput>(
+  pluginId: string,
+  commandId: string,
+  input: TInput,
+  handler: (input: TInput) => Promise<TOutput> | TOutput,
+  listener?: (event: CommandStreamEvent<TOutput>) => void,
+): Promise<RunningCommand<TOutput>> {
+  const runId = `local-command-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  listener?.({ type: 'started', runId, pluginName: pluginId, commandId });
+  const result = Promise.resolve(handler(input)).then((value) => {
+    listener?.({ type: 'completed', runId, result: value });
+    return value;
+  });
+  return {
+    runId,
+    result,
+    cancel: async () => false,
+  };
 }
 
 function summarizePayload(payload: unknown) {

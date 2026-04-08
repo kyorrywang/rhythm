@@ -172,6 +172,17 @@
         "id": "developer.validation",
         "title": "Validation",
         "location": "workbench"
+      },
+      {
+        "id": "developer.taskSummary",
+        "title": "Task Summary",
+        "location": "workbench"
+      }
+    ],
+    "settings": [
+      {
+        "id": "developer.settings",
+        "title": "Developer"
       }
     ]
   }

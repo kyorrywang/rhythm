@@ -1,21 +1,12 @@
 import type React from 'react';
-import type { BackendWorkspaceDirEntry, BackendWorkspaceShellResult, BackendWorkspaceTextFile } from '@/shared/types/api';
 import type { Message, ToolCall } from '@/shared/types/schema';
 
 export interface Disposable {
   dispose: () => void;
 }
 
-export type PluginRuntimeStatus = 'pending' | 'active' | 'load_error' | 'runtime_error' | 'disabled' | 'blocked';
-
-export interface PluginRuntimeRecord {
-  pluginId: string;
-  status: PluginRuntimeStatus;
-  source: 'core' | 'dev' | 'external' | 'manifest';
-  entry?: string;
-  error?: string;
-  activatedAt?: number;
-}
+export type PluginCommandHandler<TInput = unknown, TOutput = unknown> =
+  (input: TInput) => Promise<TOutput> | TOutput;
 
 export interface ActivityBarContribution {
   id: string;
@@ -30,6 +21,8 @@ export interface LeftPanelProps {
   width: number;
 }
 
+export type LeftPanelComponent = React.ComponentType<LeftPanelProps>;
+
 export interface WorkbenchProps<TPayload = unknown> {
   ctx: PluginContext;
   title: string;
@@ -37,22 +30,26 @@ export interface WorkbenchProps<TPayload = unknown> {
   payload: TPayload;
 }
 
+export type WorkbenchComponent<TPayload = unknown> = React.ComponentType<WorkbenchProps<TPayload>>;
+
 export interface SettingsSectionProps {
   ctx: PluginContext;
 }
+
+export type SettingsSectionComponent = React.ComponentType<SettingsSectionProps>;
 
 export interface LeftPanelContribution {
   id: string;
   title: string;
   icon?: string;
-  component: React.ComponentType<LeftPanelProps>;
+  component: LeftPanelComponent;
   pluginId?: string;
 }
 
 export interface WorkbenchContribution<TPayload = unknown> {
   id: string;
   title: string;
-  component: React.ComponentType<WorkbenchProps<TPayload>>;
+  component: WorkbenchComponent<TPayload>;
   pluginId?: string;
 }
 
@@ -60,7 +57,7 @@ export interface SettingsSectionContribution {
   id: string;
   title: string;
   description?: string;
-  component: React.ComponentType<SettingsSectionProps>;
+  component: SettingsSectionComponent;
   pluginId?: string;
 }
 
@@ -105,17 +102,12 @@ export interface ToolResultActionContribution {
 }
 
 export interface OpenWorkbenchInput<TPayload = unknown> {
+  id?: string;
   viewId: string;
   title: string;
   description?: string;
   payload: TPayload;
   lifecycle?: 'snapshot' | 'live';
-}
-
-export interface WorkspaceApi {
-  cwd: () => string;
-  listDir: (path: string) => Promise<{ path: string; entries: BackendWorkspaceDirEntry[] }>;
-  readTextFile: (path: string) => Promise<BackendWorkspaceTextFile>;
 }
 
 export interface StorageApi {
@@ -130,15 +122,6 @@ export interface StorageApi {
   };
 }
 
-export interface ShellApi {
-  run: (command: string, options?: ShellRunOptions) => Promise<BackendWorkspaceShellResult>;
-}
-
-export interface ShellRunOptions {
-  timeoutMs?: number;
-  maxOutputBytes?: number;
-}
-
 export interface PermissionApi {
   check: (capability: string) => boolean;
   request: (capability: string, reason: string) => Promise<boolean>;
@@ -147,10 +130,15 @@ export interface PermissionApi {
 export interface CommandRegistryApi {
   register: <TInput = unknown, TOutput = unknown>(
     id: string,
-    handler: (input: TInput) => Promise<TOutput> | TOutput,
+    handler: PluginCommandHandler<TInput, TOutput>,
     metadata?: CommandRegistrationMetadata,
   ) => Disposable;
   execute: <TInput = unknown, TOutput = unknown>(id: string, input: TInput) => Promise<TOutput>;
+  start: <TInput = unknown, TOutput = unknown>(
+    id: string,
+    input: TInput,
+    listener?: (event: CommandStreamEvent<TOutput>) => void,
+  ) => Promise<RunningCommand<TOutput>>;
 }
 
 export interface CommandRegistrationMetadata {
@@ -158,6 +146,20 @@ export interface CommandRegistrationMetadata {
   description?: string;
   inputSchema?: unknown;
   outputSchema?: unknown;
+}
+
+export type CommandStreamEvent<TOutput = unknown> =
+  | { type: 'started'; runId: string; pluginName: string; commandId: string }
+  | { type: 'stdout'; runId: string; chunk: string }
+  | { type: 'stderr'; runId: string; chunk: string }
+  | { type: 'completed'; runId: string; result: TOutput }
+  | { type: 'error'; runId: string; message: string }
+  | { type: 'cancelled'; runId: string };
+
+export interface RunningCommand<TOutput = unknown> {
+  runId: string;
+  result: Promise<TOutput>;
+  cancel: () => Promise<boolean>;
 }
 
 export interface EventBusApi {
@@ -219,8 +221,6 @@ export interface PluginUiApi {
 
 export interface PluginContext {
   id: string;
-  workspace: WorkspaceApi;
-  shell: ShellApi;
   storage: StorageApi;
   permissions: PermissionApi;
   commands: CommandRegistryApi;
@@ -234,6 +234,4 @@ export interface RhythmPlugin {
   deactivate?: () => void | Promise<void>;
 }
 
-export function definePlugin(plugin: RhythmPlugin) {
-  return plugin;
-}
+export type PluginDefinition = RhythmPlugin;

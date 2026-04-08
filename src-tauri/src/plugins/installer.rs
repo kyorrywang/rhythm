@@ -49,6 +49,7 @@ pub fn install_plugin(source: &Path) -> Result<PluginSummary, RhythmError> {
         mcp_servers_count: 0,
         path: dest.to_string_lossy().to_string(),
         main: manifest.entry.clone(),
+        dev_main: manifest.dev.main.clone(),
         entry: manifest.entry,
         permissions: manifest.permissions.clone(),
         granted_permissions: if manifest.enabled_by_default {

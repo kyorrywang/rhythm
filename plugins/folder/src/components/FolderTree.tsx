@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Folder, RefreshCw, Search, Trash2 } from 'lucide-react';
-import type { LeftPanelProps } from '../../../../src/plugin-host';
+import { FilePlus2, Folder, FolderPlus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import type { BackendWorkspaceDirEntry } from '../../../../src/shared/types/api';
 import { Button } from '../../../../src/shared/ui/Button';
 import { FOLDER_COMMANDS, FOLDER_VIEWS } from '../constants';
 import { useExpandedPaths } from '../hooks/useExpandedPaths';
 import { useOpenHistory } from '../hooks/useOpenHistory';
 import type { FilePreviewPayload, FolderGitStatusEntry, FolderListInput, FolderReadInput, FolderTreeFileActions } from '../types';
-import { fileStatusDescription, sortEntries } from '../utils';
+import { basename, dirname, fileStatusDescription, joinPath, sortEntries } from '../utils';
 import { FileRow } from './FileRow';
 import { TreeNode } from './TreeNode';
 
@@ -85,13 +85,102 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
     await navigator.clipboard.writeText(path);
   }, []);
 
+  const refreshPath = useCallback(async () => {
+    await loadRoot();
+  }, [loadRoot]);
+
+  const createFile = useCallback(async (basePath?: string) => {
+    const filename = window.prompt('输入新文件名');
+    if (!filename) return;
+    const nextPath = joinPath(basePath, filename.trim());
+    if (!nextPath) return;
+    setError(null);
+    try {
+      await ctx.commands.execute('tool.write_file', { path: nextPath, content: '' });
+      await loadRoot();
+      await ctx.commands.execute(FOLDER_COMMANDS.openFile, { path: nextPath });
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : String(actionError || '创建文件失败'));
+    }
+  }, [ctx.commands, loadRoot]);
+
+  const createDir = useCallback(async (basePath?: string) => {
+    const dirnameInput = window.prompt('输入新目录名');
+    if (!dirnameInput) return;
+    const nextPath = joinPath(basePath, dirnameInput.trim());
+    if (!nextPath) return;
+    setError(null);
+    try {
+      await ctx.commands.execute(FOLDER_COMMANDS.createDir, { path: nextPath });
+      await loadRoot();
+      if (basePath) {
+        toggle(basePath);
+      }
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : String(actionError || '创建目录失败'));
+    }
+  }, [ctx.commands, loadRoot, toggle]);
+
+  const renamePath = useCallback(async (entry: BackendWorkspaceDirEntry) => {
+    const nextName = window.prompt(`重命名 ${entry.name}`, basename(entry.path));
+    if (!nextName || nextName.trim() === entry.name) return;
+    const nextPath = joinPath(dirname(entry.path), nextName.trim());
+    setError(null);
+    try {
+      await ctx.commands.execute(FOLDER_COMMANDS.rename, {
+        from: entry.path,
+        to: nextPath,
+      });
+      if (activePath === entry.path && entry.kind === 'file') {
+        setActivePath(nextPath);
+      }
+      await loadRoot();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : String(actionError || '重命名失败'));
+    }
+  }, [activePath, ctx.commands, loadRoot]);
+
+  const deletePath = useCallback(async (entry: BackendWorkspaceDirEntry) => {
+    const confirmed = window.confirm(`确认删除${entry.kind === 'directory' ? '目录' : '文件'}“${entry.name}”？`);
+    if (!confirmed) return;
+    setError(null);
+    try {
+      if (entry.kind === 'directory') {
+        await ctx.commands.execute(FOLDER_COMMANDS.deletePath, { path: entry.path, recursive: true });
+      } else {
+        await ctx.commands.execute(FOLDER_COMMANDS.deleteFile, { path: entry.path });
+      }
+      if (activePath === entry.path) {
+        setActivePath(null);
+      }
+      await loadRoot();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : String(actionError || '删除失败'));
+    }
+  }, [activePath, ctx.commands, loadRoot]);
+
+  const revealPath = useCallback(async (path: string) => {
+    setError(null);
+    try {
+      await ctx.commands.execute(FOLDER_COMMANDS.reveal, { path });
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : String(actionError || 'Reveal 失败'));
+    }
+  }, [ctx.commands]);
+
   const actions = useMemo<FolderTreeFileActions>(
     () => ({
       openFile: (entry) => void openFile(entry),
       copyPath,
+      createFile,
+      createDir,
+      renamePath,
+      deletePath,
+      revealPath,
+      refreshPath: async () => refreshPath(),
       gitStatusForPath: (path) => gitStatuses.get(path),
     }),
-    [copyPath, gitStatuses, openFile],
+    [copyPath, createDir, createFile, deletePath, gitStatuses, openFile, refreshPath, renamePath, revealPath],
   );
 
   return (
@@ -113,7 +202,27 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
           </Button>
         </div>
         <h2 className="mt-3 text-[20px] font-semibold text-slate-900">Files</h2>
-        <p className="mt-1 truncate text-sm leading-6 text-slate-500">{ctx.workspace.cwd()}</p>
+        <p className="mt-1 truncate text-sm leading-6 text-slate-500">当前工作区</p>
+        <div className="mt-3 flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void createFile()}
+            className="rounded-xl"
+          >
+            <FilePlus2 size={14} className="mr-1.5" />
+            新建文件
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void createDir()}
+            className="rounded-xl"
+          >
+            <FolderPlus size={14} className="mr-1.5" />
+            新建目录
+          </Button>
+        </div>
         <label className="mt-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 focus-within:border-amber-300">
           <Search size={15} className="text-slate-400" />
           <input
@@ -154,6 +263,9 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
                   active={activePath === entry.path}
                   depth={0}
                   onOpen={() => void openFile(entry)}
+                  onRename={() => void renamePath(entry)}
+                  onDelete={() => void deletePath(entry)}
+                  onReveal={() => void revealPath(entry.path)}
                   onCopyPath={(path) => void copyPath(path)}
                   gitStatus={gitStatuses.get(entry.path)}
                 />
