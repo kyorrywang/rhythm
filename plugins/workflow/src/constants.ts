@@ -1,6 +1,9 @@
 export const WORKFLOW_COMMANDS = {
   create: 'workflow.create',
   run: 'workflow.run',
+  pause: 'workflow.pause',
+  resume: 'workflow.resume',
+  retry: 'workflow.retry',
   cancel: 'workflow.cancel',
   getStatus: 'workflow.getStatus',
   registerNodeType: 'workflow.registerNodeType',

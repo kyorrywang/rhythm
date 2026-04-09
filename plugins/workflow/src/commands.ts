@@ -2,10 +2,18 @@ import type { PluginContext } from '../../../src/plugin/sdk';
 import { WORKFLOW_COMMANDS, WORKFLOW_EVENTS, WORKFLOW_VIEWS } from './constants';
 import { registerWorkflowNodeType } from './nodeRegistry';
 import { getRun, getWorkflow, listRuns, saveWorkflow } from './storage';
-import { cancelWorkflowRun, runWorkflow } from './runtime';
-import type { WorkflowCancelInput, WorkflowCreateInput, WorkflowRunInput, WorkflowStatusInput } from './types';
-import type { WorkflowNodeTypeDefinition } from './types';
-import { createDefaultWorkflow } from './utils';
+import { cancelWorkflowRun, pauseWorkflowRun, resumeWorkflowRun, retryWorkflowRun, runWorkflow } from './runtime';
+import type {
+  WorkflowCancelInput,
+  WorkflowCreateInput,
+  WorkflowNodeTypeDefinition,
+  WorkflowPauseInput,
+  WorkflowRetryInput,
+  WorkflowResumeInput,
+  WorkflowRunInput,
+  WorkflowStatusInput,
+} from './types';
+import { createDefaultWorkflow, createLlmIfTemplateWorkflow, createLoopTemplateWorkflow } from './utils';
 
 export function registerWorkflowCommands(ctx: PluginContext) {
   ctx.commands.register<WorkflowCreateInput, unknown>(
@@ -15,6 +23,7 @@ export function registerWorkflowCommands(ctx: PluginContext) {
       await saveWorkflow(ctx, workflow);
       ctx.events.emit(WORKFLOW_EVENTS.changed, { workflowId: workflow.id });
       ctx.ui.workbench.open({
+        id: `workflow.editor:${workflow.id}`,
         viewId: WORKFLOW_VIEWS.editor,
         title: workflow.name,
         description: 'New workflow',
@@ -33,6 +42,26 @@ export function registerWorkflowCommands(ctx: PluginContext) {
     },
   );
 
+  ctx.commands.register<WorkflowCreateInput, unknown>(
+    'workflow.createSample.llmIf',
+    async ({ name }) => {
+      const workflow = createLlmIfTemplateWorkflow(name || 'LLM Decide');
+      await saveWorkflow(ctx, workflow);
+      ctx.events.emit(WORKFLOW_EVENTS.changed, { workflowId: workflow.id });
+      return workflow;
+    },
+  );
+
+  ctx.commands.register<WorkflowCreateInput, unknown>(
+    'workflow.createSample.loop',
+    async ({ name }) => {
+      const workflow = createLoopTemplateWorkflow(name || 'Loop Summaries');
+      await saveWorkflow(ctx, workflow);
+      ctx.events.emit(WORKFLOW_EVENTS.changed, { workflowId: workflow.id });
+      return workflow;
+    },
+  );
+
   ctx.commands.register<WorkflowRunInput, unknown>(
     WORKFLOW_COMMANDS.run,
     async ({ workflowId }) => {
@@ -47,6 +76,61 @@ export function registerWorkflowCommands(ctx: PluginContext) {
         type: 'object',
         properties: { workflowId: { type: 'string' } },
         required: ['workflowId'],
+      },
+    },
+  );
+
+  ctx.commands.register<WorkflowPauseInput, boolean>(
+    WORKFLOW_COMMANDS.pause,
+    async ({ runId }) => pauseWorkflowRun(runId),
+    {
+      title: 'Pause Workflow',
+      description: 'Pause a running workflow at the next checkpoint.',
+      inputSchema: {
+        type: 'object',
+        properties: { runId: { type: 'string' } },
+        required: ['runId'],
+      },
+    },
+  );
+
+  ctx.commands.register<WorkflowResumeInput, unknown>(
+    WORKFLOW_COMMANDS.resume,
+    async ({ runId }) => {
+      const run = await getRun(ctx, runId);
+      if (!run) throw new Error(`Workflow run not found: ${runId}`);
+      if (run.status !== 'paused') throw new Error(`Workflow run is not paused: ${runId}`);
+      const workflow = await getWorkflow(ctx, run.workflowId);
+      if (!workflow) throw new Error(`Workflow not found: ${run.workflowId}`);
+      return resumeWorkflowRun(ctx, workflow, run);
+    },
+    {
+      title: 'Resume Workflow',
+      description: 'Resume a paused workflow run.',
+      inputSchema: {
+        type: 'object',
+        properties: { runId: { type: 'string' } },
+        required: ['runId'],
+      },
+    },
+  );
+
+  ctx.commands.register<WorkflowRetryInput, unknown>(
+    WORKFLOW_COMMANDS.retry,
+    async ({ runId }) => {
+      const run = await getRun(ctx, runId);
+      if (!run) throw new Error(`Workflow run not found: ${runId}`);
+      const workflow = await getWorkflow(ctx, run.workflowId);
+      if (!workflow) throw new Error(`Workflow not found: ${run.workflowId}`);
+      return retryWorkflowRun(ctx, workflow, run);
+    },
+    {
+      title: 'Retry Workflow Node',
+      description: 'Retry the current failed workflow node.',
+      inputSchema: {
+        type: 'object',
+        properties: { runId: { type: 'string' } },
+        required: ['runId'],
       },
     },
   );

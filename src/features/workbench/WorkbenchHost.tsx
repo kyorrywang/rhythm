@@ -1,4 +1,4 @@
-import { useCallback, type KeyboardEvent, type PointerEvent } from 'react';
+import { useCallback, useMemo, type KeyboardEvent, type PointerEvent } from 'react';
 import { PanelLeftClose, PanelLeftOpen, ScrollText } from 'lucide-react';
 import { createPluginContext } from '@/plugin/host/createPluginContext';
 import { PluginErrorBoundary } from '@/plugin/host/PluginErrorBoundary';
@@ -20,10 +20,15 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
   const setWorkbenchLayoutMode = useSessionStore((s) => s.setWorkbenchLayoutMode);
   const setWorkbenchSplitWidth = useSessionStore((s) => s.setWorkbenchSplitWidth);
   const workbenchViews = usePluginHostStore((s) => s.workbenchViews);
+  const activeItem = workbench?.item;
+  const view = activeItem ? workbenchViews[activeItem.viewType] : undefined;
+  const ctx = useMemo(
+    () => createPluginContext(view?.pluginId || activeItem?.pluginId || 'unknown'),
+    [activeItem?.pluginId, view?.pluginId],
+  );
 
   if (!workbench) return null;
-  const activeItem = workbench.item;
-  const view = workbenchViews[activeItem.viewType];
+  const currentItem = workbench.item;
   const isReplace = mode === 'replace';
   const maxSplitWidth = getWorkbenchMaxWidth();
   const splitWidth = clampWorkbenchWidth(workbenchSplitWidth || DEFAULT_WORKBENCH_SPLIT_WIDTH);
@@ -84,12 +89,12 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
             <div className="flex items-center justify-between border-b-[var(--theme-divider-width)] border-[var(--theme-border)] px-[var(--theme-card-padding-x)] py-[var(--theme-card-padding-y)]">
               <div className={`flex items-center gap-2 ${themeRecipes.eyebrow()}`}>
                 <ScrollText size={14} />
-                <span>{view?.title || activeItem.viewType}</span>
+                <span>{view?.title || currentItem.viewType}</span>
               </div>
               <div className="flex items-center gap-[var(--theme-toolbar-gap)]">
-                {activeItem.viewType === 'folder.file.preview' && activeItem.description ? (
+                {currentItem.viewType === 'folder.file.preview' && currentItem.description ? (
                   <div className={`shrink-0 text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>
-                    {activeItem.description}
+                    {currentItem.description}
                   </div>
                 ) : null}
                 <IconButton
@@ -102,16 +107,16 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
             </div>
             <div className="h-[calc(100%-calc(var(--theme-card-padding-y)*2+1.5rem))] overflow-hidden">
               {view ? (
-                <PluginErrorBoundary pluginId={view.pluginId || activeItem.pluginId} surface={activeItem.viewType}>
+                <PluginErrorBoundary pluginId={view.pluginId || currentItem.pluginId} surface={currentItem.viewType}>
                   <view.component
-                    ctx={createPluginContext(view.pluginId || activeItem.pluginId)}
-                    title={activeItem.title}
-                    description={activeItem.description}
-                    payload={activeItem.payload}
+                    ctx={ctx}
+                    title={currentItem.title}
+                    description={currentItem.description}
+                    payload={currentItem.payload}
                   />
                 </PluginErrorBoundary>
               ) : (
-                <MissingWorkbenchView item={activeItem} />
+                <MissingWorkbenchView item={currentItem} />
               )}
             </div>
           </div>

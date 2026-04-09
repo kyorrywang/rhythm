@@ -1,4 +1,5 @@
 import type { WorkflowDefinition, WorkflowNode } from '../types';
+import { normalizeWorkflowNodeType } from '../utils';
 
 interface WorkflowGraphCanvasProps {
   workflow: WorkflowDefinition;
@@ -47,14 +48,20 @@ export function WorkflowGraphCanvas({
           const endY = to.position.y + NODE_HEIGHT / 2;
           const midX = startX + Math.max(40, (endX - startX) / 2);
           return (
-            <path
-              key={edge.id}
-              d={`M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`}
-              fill="none"
-              stroke="#94a3b8"
-              strokeWidth="2"
-              markerEnd="url(#workflow-arrow)"
-            />
+            <g key={edge.id}>
+              <path
+                d={`M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`}
+                fill="none"
+                stroke="#94a3b8"
+                strokeWidth="2"
+                markerEnd="url(#workflow-arrow)"
+              />
+              {edge.branch && (
+                <text x={midX - 18} y={(startY + endY) / 2 - 6} fontSize="10" fill="#64748b">
+                  {edge.branch}
+                </text>
+              )}
+            </g>
           );
         })}
       </svg>
@@ -127,7 +134,11 @@ function GraphNodeCard({
         <div className="text-[10px] uppercase tracking-[0.14em] text-slate-400">{node.type}</div>
         <div className="mt-1 truncate text-sm font-semibold text-slate-900">{node.title}</div>
         <div className="mt-1 truncate text-xs text-slate-500">
-          {node.type === 'shell' ? node.config.command : node.type === 'command' ? node.config.commandId : 'manual'}
+          {normalizeWorkflowNodeType(node.type) === 'shell'
+            ? String(node.config.command || '')
+            : normalizeWorkflowNodeType(node.type) === 'command'
+              ? String(node.config.commandId || '')
+              : normalizeWorkflowNodeType(node.type)}
         </div>
       </button>
       <div className="mt-3 flex gap-2">

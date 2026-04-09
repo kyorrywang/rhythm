@@ -13,6 +13,7 @@ import {
   exportWorkflow,
   importWorkflow,
   isStarterWorkflow,
+  normalizeWorkflowNodeType,
   readJsonFile,
 } from '../utils';
 import { WorkflowGraphCanvas } from './WorkflowGraphCanvas';
@@ -31,6 +32,14 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
     [selectedNodeId, workflow.nodes],
   );
   const showStarterGuide = useMemo(() => isStarterWorkflow(workflow), [workflow]);
+
+  useEffect(() => {
+    setWorkflow(payload.workflow);
+    setSelectedNodeId(payload.workflow.nodes[0]?.id || '');
+    setEdgeStartNodeId('');
+    setError(null);
+    setSaved(false);
+  }, [payload.workflow]);
 
   useEffect(() => {
     const disposable = ctx.events.on(WORKFLOW_EVENTS.nodeTypesChanged, () => {
@@ -120,9 +129,16 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
     setWorkflow((current) => {
       const exists = current.edges.some((edge) => edge.from === edgeStartNodeId && edge.to === nodeId);
       if (exists) return current;
+      const sourceNode = current.nodes.find((node) => node.id === edgeStartNodeId);
+      const sourceType = normalizeWorkflowNodeType(sourceNode?.type || '');
+      const branch = sourceType === 'if'
+        ? suggestIfBranch(current, edgeStartNodeId)
+        : sourceType === 'loop'
+          ? suggestLoopBranch(current, edgeStartNodeId)
+        : undefined;
       return {
         ...current,
-        edges: [...current.edges, { id: createId('edge'), from: edgeStartNodeId, to: nodeId }],
+        edges: [...current.edges, { id: createId('edge'), from: edgeStartNodeId, to: nodeId, branch }],
       };
     });
     setEdgeStartNodeId('');
@@ -133,6 +149,14 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
     setWorkflow((current) => ({
       ...current,
       edges: current.edges.filter((edge) => edge.id !== edgeId),
+    }));
+    setSaved(false);
+  };
+
+  const updateEdgeBranch = (edgeId: string, branch: string) => {
+    setWorkflow((current) => ({
+      ...current,
+      edges: current.edges.map((edge) => edge.id === edgeId ? { ...edge, branch: branch || undefined } : edge),
     }));
     setSaved(false);
   };
@@ -264,6 +288,7 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
               moveNode={moveNode}
               removeNode={removeNode}
               removeEdge={removeEdge}
+              updateEdgeBranch={updateEdgeBranch}
               edgeStartNodeId={edgeStartNodeId}
             />
           ) : (
@@ -284,6 +309,7 @@ function NodeEditor({
   moveNode,
   removeNode,
   removeEdge,
+  updateEdgeBranch,
   edgeStartNodeId,
 }: {
   ctx: WorkbenchProps<WorkflowEditorPayload>['ctx'];
@@ -294,6 +320,7 @@ function NodeEditor({
   moveNode: (nodeId: string, dx: number, dy: number) => void;
   removeNode: (nodeId: string) => void;
   removeEdge: (edgeId: string) => void;
+  updateEdgeBranch: (edgeId: string, branch: string) => void;
   edgeStartNodeId: string;
 }) {
   const connectedEdges = workflow.edges.filter((edge) => edge.from === node.id || edge.to === node.id);
@@ -349,14 +376,32 @@ function NodeEditor({
         <div className="mt-2 space-y-2">
           {connectedEdges.map((edge) => (
             <div key={edge.id} className="flex items-center justify-between gap-2 rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-xs text-slate-600">
-              <span>{nodeTitle(edge.from)} → {nodeTitle(edge.to)}</span>
+              <div className="min-w-0 flex-1">
+                <div>{nodeTitle(edge.from)} → {nodeTitle(edge.to)}</div>
+                {normalizeWorkflowNodeType(node.type) === 'if' && edge.from === node.id && (
+                  <input
+                    value={edge.branch || ''}
+                    onChange={(event) => updateEdgeBranch(edge.id, event.target.value)}
+                    placeholder="branch: true / false / default"
+                    className="mt-2 w-full rounded border border-slate-200 px-2 py-1 text-[11px] outline-none focus:border-amber-300"
+                  />
+                )}
+                {normalizeWorkflowNodeType(node.type) === 'loop' && edge.from === node.id && (
+                  <input
+                    value={edge.branch || ''}
+                    onChange={(event) => updateEdgeBranch(edge.id, event.target.value)}
+                    placeholder="branch: body / done / default"
+                    className="mt-2 w-full rounded border border-slate-200 px-2 py-1 text-[11px] outline-none focus:border-amber-300"
+                  />
+                )}
+              </div>
               <Button variant="ghost" size="sm" onClick={() => removeEdge(edge.id)}>删除</Button>
             </div>
           ))}
           {connectedEdges.length === 0 && <div className="text-xs text-slate-500">该节点暂无连线</div>}
         </div>
       </section>
-      {node.type === 'shell' && (
+      {normalizeWorkflowNodeType(node.type) === 'shell' && (
         <label className="mt-4 block text-xs font-medium text-slate-500">
           Shell Command
           <textarea
@@ -367,13 +412,19 @@ function NodeEditor({
           />
         </label>
       )}
-      {node.type === 'command' && (
+      {normalizeWorkflowNodeType(node.type) === 'command' && (
         <CommandConfigEditor node={node} updateNodeConfig={updateNodeConfig} />
       )}
-      {node.type === 'workflow.llm' && (
+      {normalizeWorkflowNodeType(node.type) === 'llm' && (
         <LlmConfigEditor node={node} updateNodeConfig={updateNodeConfig} />
       )}
-      {!['manual', 'shell', 'command', 'workflow.llm'].includes(node.type) && (
+      {normalizeWorkflowNodeType(node.type) === 'if' && (
+        <IfConfigEditor node={node} updateNodeConfig={updateNodeConfig} />
+      )}
+      {normalizeWorkflowNodeType(node.type) === 'loop' && (
+        <LoopConfigEditor node={node} updateNodeConfig={updateNodeConfig} />
+      )}
+      {!['start', 'shell', 'command', 'llm', 'if', 'loop'].includes(normalizeWorkflowNodeType(node.type)) && (
         <CommandConfigEditor node={node} updateNodeConfig={updateNodeConfig} />
       )}
     </div>
@@ -421,7 +472,7 @@ function LlmConfigEditor({
   return (
     <div className="mt-4 space-y-3">
       <div className="rounded-[var(--theme-radius-control)] bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-        可用模板：{'{{previous.output}}'}、{'{{previous.logs}}'}、{'{{node.<id>.output}}'}、{'{{node.<id>.logs}}'}
+        可用模板：{'{{previous.output}}'}、{'{{previous.logs}}'}、{'{{node.<id>.output}}'}、{'{{node.<id>.logs}}'}、{'{{vars.<key>}}'}
       </div>
       <label className="block text-xs font-medium text-slate-500">
         System Prompt
@@ -461,6 +512,169 @@ function LlmConfigEditor({
           />
         </label>
       </div>
+      <label className="block text-xs font-medium text-slate-500">
+        Output Mode
+        <select
+          value={String(node.config.outputMode || 'text')}
+          onChange={(event) => updateNodeConfig(node.id, 'outputMode', event.target.value)}
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+        >
+          <option value="text">text</option>
+          <option value="json">json</option>
+        </select>
+      </label>
+      <label className="block text-xs font-medium text-slate-500">
+        Output Schema (Optional JSON)
+        <textarea
+          value={String(node.config.outputSchema || '')}
+          onChange={(event) => updateNodeConfig(node.id, 'outputSchema', event.target.value)}
+          rows={4}
+          placeholder='{"type":"object","required":["decision"]}'
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-amber-300"
+        />
+      </label>
     </div>
   );
+}
+
+function IfConfigEditor({
+  node,
+  updateNodeConfig,
+}: {
+  node: WorkflowNode;
+  updateNodeConfig: (nodeId: string, key: keyof WorkflowNode['config'], value: string) => void;
+}) {
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="rounded-[var(--theme-radius-control)] bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+        用模板取左值，例如 {'{{previous.output}}'}、{'{{node.someNode.output}}'}、{'{{vars.flag}}'}
+      </div>
+      <label className="block text-xs font-medium text-slate-500">
+        Left Value
+        <input
+          value={String(node.config.leftValue || '{{previous.output}}')}
+          onChange={(event) => updateNodeConfig(node.id, 'leftValue', event.target.value)}
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+        />
+      </label>
+      <label className="block text-xs font-medium text-slate-500">
+        Operator
+        <select
+          value={String(node.config.operator || 'equals')}
+          onChange={(event) => updateNodeConfig(node.id, 'operator', event.target.value)}
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+        >
+          <option value="equals">equals</option>
+          <option value="not_equals">not_equals</option>
+          <option value="contains">contains</option>
+          <option value="exists">exists</option>
+          <option value="greater_than">greater_than</option>
+        </select>
+      </label>
+      <label className="block text-xs font-medium text-slate-500">
+        Right Value
+        <input
+          value={String(node.config.rightValue || '')}
+          onChange={(event) => updateNodeConfig(node.id, 'rightValue', event.target.value)}
+          placeholder="compare against"
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+        />
+      </label>
+    </div>
+  );
+}
+
+function LoopConfigEditor({
+  node,
+  updateNodeConfig,
+}: {
+  node: WorkflowNode;
+  updateNodeConfig: (nodeId: string, key: keyof WorkflowNode['config'], value: string) => void;
+}) {
+  const mode = String(node.config.mode || 'for_each');
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="rounded-[var(--theme-radius-control)] bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+        `for_each` 建议配合 body 分支回到当前 loop 节点；`repeat_until` 建议用 true/false 条件控制退出。
+      </div>
+      <label className="block text-xs font-medium text-slate-500">
+        Mode
+        <select
+          value={mode}
+          onChange={(event) => updateNodeConfig(node.id, 'mode', event.target.value)}
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+        >
+          <option value="for_each">for_each</option>
+          <option value="repeat_until">repeat_until</option>
+        </select>
+      </label>
+      <label className="block text-xs font-medium text-slate-500">
+        Max Iterations
+        <input
+          value={String(node.config.maxIterations || '25')}
+          onChange={(event) => updateNodeConfig(node.id, 'maxIterations', event.target.value)}
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+        />
+      </label>
+      {mode === 'for_each' ? (
+        <label className="block text-xs font-medium text-slate-500">
+          Items Template
+          <textarea
+            value={String(node.config.itemsTemplate || '[]')}
+            onChange={(event) => updateNodeConfig(node.id, 'itemsTemplate', event.target.value)}
+            rows={5}
+            placeholder='{{node.someNode.output}} or ["a","b"]'
+            className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-amber-300"
+          />
+        </label>
+      ) : (
+        <>
+          <label className="block text-xs font-medium text-slate-500">
+            Left Value
+            <input
+              value={String(node.config.leftValue || '{{previous.output}}')}
+              onChange={(event) => updateNodeConfig(node.id, 'leftValue', event.target.value)}
+              className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+            />
+          </label>
+          <label className="block text-xs font-medium text-slate-500">
+            Operator
+            <select
+              value={String(node.config.operator || 'equals')}
+              onChange={(event) => updateNodeConfig(node.id, 'operator', event.target.value)}
+              className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+            >
+              <option value="equals">equals</option>
+              <option value="not_equals">not_equals</option>
+              <option value="contains">contains</option>
+              <option value="exists">exists</option>
+              <option value="greater_than">greater_than</option>
+            </select>
+          </label>
+          <label className="block text-xs font-medium text-slate-500">
+            Right Value
+            <input
+              value={String(node.config.rightValue || '')}
+              onChange={(event) => updateNodeConfig(node.id, 'rightValue', event.target.value)}
+              className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+            />
+          </label>
+        </>
+      )}
+    </div>
+  );
+}
+
+function suggestIfBranch(workflow: WorkflowDefinition, sourceNodeId: string) {
+  const existing = workflow.edges.filter((edge) => edge.from === sourceNodeId).map((edge) => edge.branch);
+  if (!existing.includes('true')) return 'true';
+  if (!existing.includes('false')) return 'false';
+  return 'default';
+}
+
+function suggestLoopBranch(workflow: WorkflowDefinition, sourceNodeId: string) {
+  const existing = workflow.edges.filter((edge) => edge.from === sourceNodeId).map((edge) => edge.branch);
+  if (!existing.includes('body')) return 'body';
+  if (!existing.includes('done')) return 'done';
+  return 'default';
 }

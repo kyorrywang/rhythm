@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Play, Plus } from 'lucide-react';
+import { CirclePause, Play, Plus } from 'lucide-react';
 import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import { themeRecipes } from '../../../../src/shared/theme/recipes';
 import { Button } from '../../../../src/shared/ui/Button';
@@ -59,6 +59,7 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
 
   const openEditor = (workflow: WorkflowDefinition) => {
     ctx.ui.workbench.open({
+      id: `workflow.editor:${workflow.id}`,
       viewId: WORKFLOW_VIEWS.editor,
       title: workflow.name,
       description: `${workflow.nodes.length} node(s)`,
@@ -99,23 +100,69 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
 
         <section>
           <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">Definitions</div>
+          <div className="mb-2 flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onClick={async () => {
+              try {
+                await ctx.commands.execute('workflow.createSample.llmIf', { name: 'LLM Decide' });
+                await refresh();
+              } catch (error) {
+                setError(error instanceof Error ? error.message : String(error || '创建样例失败'));
+              }
+            }}>
+              样例: LLM + If
+            </Button>
+            <Button variant="secondary" size="sm" onClick={async () => {
+              try {
+                await ctx.commands.execute('workflow.createSample.loop', { name: 'Loop Summaries' });
+                await refresh();
+              } catch (error) {
+                setError(error instanceof Error ? error.message : String(error || '创建样例失败'));
+              }
+            }}>
+              样例: Loop
+            </Button>
+          </div>
           {isLoading && <div className="rounded-[var(--theme-radius-card)] border border-slate-200 bg-white px-4 py-4 text-sm text-slate-500">正在加载...</div>}
           <div className="space-y-2">
             {workflows.map((workflow) => (
-              <article key={workflow.id} className="rounded-[var(--theme-radius-card)] border border-slate-200 bg-white p-3 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => openEditor(workflow)}
-                  className="block w-full text-left"
-                >
+              <article
+                key={workflow.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => openEditor(workflow)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openEditor(workflow);
+                  }
+                }}
+                className="cursor-pointer rounded-[var(--theme-radius-card)] border border-slate-200 bg-white p-3 shadow-sm transition-colors hover:border-amber-200"
+              >
+                <div className="block w-full text-left">
                   <div className="text-sm font-semibold text-slate-900">{workflow.name}</div>
                   <div className="mt-1 text-xs text-slate-500">
                     {workflow.nodes.length} node(s), updated {formatDate(workflow.updatedAt)}
                   </div>
-                </button>
+                </div>
                 <div className="mt-3 flex gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => openEditor(workflow)}>编辑</Button>
-                  <Button variant="primary" size="sm" onClick={() => void runWorkflow(workflow)}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openEditor(workflow);
+                    }}
+                  >
+                    编辑
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void runWorkflow(workflow);
+                    }}
+                  >
                     <Play size={13} className="mr-1.5" />
                     运行
                   </Button>
@@ -154,10 +201,47 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
               >
                 <div className="text-sm font-medium text-slate-800">{run.workflowName}</div>
                 <div className="mt-1 text-xs text-slate-500">{run.status} · {formatDate(run.startedAt)}</div>
+                {run.resumeFromNodeId && (
+                  <div className="mt-1 text-[11px] text-slate-400">resume from {run.resumeFromNodeId}</div>
+                )}
               </button>
             ))}
           </div>
           {runs.length === 0 && <div className="text-sm text-slate-500">暂无运行记录</div>}
+        </section>
+
+        <section>
+          <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">
+            <CirclePause size={12} />
+            Paused Runs
+          </div>
+          <div className="space-y-2">
+            {runs.filter((run) => run.status === 'paused').slice(0, 5).map((run) => (
+              <button
+                key={`paused-${run.id}`}
+                type="button"
+                onClick={() => {
+                  const workflow = workflows.find((item) => item.id === run.workflowId);
+                  if (!workflow) return;
+                  ctx.ui.workbench.open({
+                    id: `workflow.run:${run.id}`,
+                    viewId: WORKFLOW_VIEWS.run,
+                    title: `Run: ${workflow.name}`,
+                    description: 'Paused workflow run',
+                    payload: { workflow, run },
+                    layoutMode: 'replace',
+                  });
+                }}
+                className="w-full rounded-[var(--theme-radius-card)] border border-sky-200 bg-sky-50 px-3 py-3 text-left"
+              >
+                <div className="text-sm font-medium text-slate-800">{run.workflowName}</div>
+                <div className="mt-1 text-xs text-slate-500">paused · {formatDate(run.endedAt || run.startedAt)}</div>
+              </button>
+            ))}
+            {runs.every((run) => run.status !== 'paused') && (
+              <div className="text-sm text-slate-500">暂无暂停中的运行</div>
+            )}
+          </div>
         </section>
       </div>
     </SidebarPage>

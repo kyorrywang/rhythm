@@ -49,9 +49,9 @@ async function run(input, call) {
     nodeRun.startedAt = Date.now();
     await saveRun(call, run);
     try {
-      if (node.type === 'manual') {
+      if (normalizeWorkflowNodeType(node.type) === 'start') {
         nodeRun.output = { triggered: true };
-      } else if (node.type === 'shell') {
+      } else if (normalizeWorkflowNodeType(node.type) === 'shell') {
         const command = node.config?.command || '';
         if (!command.trim()) throw new Error(`${node.title} missing shell command`);
         nodeRun.input = { command };
@@ -59,13 +59,13 @@ async function run(input, call) {
         const output = nodeRun.output || {};
         nodeRun.logs.push(String(output.stdout || ''));
         if (output.stderr) nodeRun.logs.push(String(output.stderr));
-      } else if (node.type === 'command') {
+      } else if (normalizeWorkflowNodeType(node.type) === 'command') {
         const commandId = node.config?.commandId || '';
         if (!commandId.trim()) throw new Error(`${node.title} missing command id`);
         const commandInput = parseInputJson(node.config?.inputJson);
         nodeRun.input = commandInput;
         nodeRun.output = await executeHostCommand(commandId, commandInput);
-      } else if (node.type === 'workflow.llm') {
+      } else if (normalizeWorkflowNodeType(node.type) === 'llm') {
         const input = {
           prompt: renderWorkflowTemplate(node.config?.prompt || '', run),
           systemPrompt: renderWorkflowTemplate(node.config?.systemPrompt || '', run),
@@ -131,26 +131,26 @@ async function saveRun(call, run) {
 
 function createDefaultWorkflow(name) {
   const now = Date.now();
-  const manual = {
+  const start = {
     id: createId('node'),
-    type: 'manual',
-    title: 'Manual Trigger',
+    type: 'start',
+    title: 'Start',
     config: {},
     position: { x: 0, y: 0 },
   };
-  const shell = {
+  const llm = {
     id: createId('node'),
-    type: 'shell',
-    title: 'Echo Hello',
-    config: { command: 'echo hello from workflow' },
+    type: 'llm',
+    title: 'LLM',
+    config: { prompt: 'Summarize the workflow input.', outputMode: 'text', timeoutSecs: '30' },
     position: { x: 180, y: 0 },
   };
   return {
     id: createId('wf'),
     name,
     version: 1,
-    nodes: [manual, shell],
-    edges: [{ id: createId('edge'), from: manual.id, to: shell.id }],
+    nodes: [start, llm],
+    edges: [{ id: createId('edge'), from: start.id, to: llm.id }],
     createdAt: now,
     updatedAt: now,
   };
@@ -162,8 +162,9 @@ function createRun(workflow) {
     nodeRuns[node.id] = {
       nodeId: node.id,
       title: node.title,
-      type: node.type,
+      type: normalizeWorkflowNodeType(node.type),
       status: 'pending',
+      attempt: 0,
       logs: [],
     };
   }
@@ -173,7 +174,10 @@ function createRun(workflow) {
     workflowName: workflow.name,
     status: 'queued',
     startedAt: Date.now(),
+    checkpointVersion: 1,
+    variables: {},
     nodeRuns,
+    executionStack: [],
   };
 }
 
@@ -232,7 +236,11 @@ function renderWorkflowTemplate(template, run) {
       const value = run.nodeRuns[nodeId]?.output;
       return value === undefined ? '' : stringifyTemplateValue(value);
     })
-    .replace(/\{\{\s*node\.([^.}]+)\.logs\s*\}\}/g, (_match, nodeId) => run.nodeRuns[nodeId]?.logs?.join('') || '');
+    .replace(/\{\{\s*node\.([^.}]+)\.logs\s*\}\}/g, (_match, nodeId) => run.nodeRuns[nodeId]?.logs?.join('') || '')
+    .replace(/\{\{\s*vars\.([^.}]+)\s*\}\}/g, (_match, key) => {
+      const value = run.variables?.[key];
+      return value === undefined ? '' : stringifyTemplateValue(value);
+    });
 }
 
 function findPreviousNodeRun(run, predicate) {
@@ -245,6 +253,12 @@ function findPreviousNodeRun(run, predicate) {
 
 function stringifyTemplateValue(value) {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function normalizeWorkflowNodeType(type) {
+  if (type === 'manual') return 'start';
+  if (type === 'workflow.llm') return 'llm';
+  return type || 'start';
 }
 
 function executeHostCommand(commandId, input) {

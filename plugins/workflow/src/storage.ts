@@ -62,6 +62,15 @@ export async function saveRun(ctx: PluginContext, run: WorkflowRun) {
   await writeJsonFile(ctx, 'runs.json', WORKFLOW_STORAGE_KEYS.runs, next.slice(0, settings.maxRunHistory));
 }
 
+export async function updateRun(ctx: PluginContext, runId: string, updater: (run: WorkflowRun) => WorkflowRun) {
+  const runs = await listRuns(ctx);
+  const target = runs.find((run) => run.id === runId);
+  if (!target) return null;
+  const next = updater(target);
+  await saveRun(ctx, next);
+  return next;
+}
+
 export async function getWorkflowSettings(ctx: PluginContext) {
   const value = await readJsonFile<WorkflowSettings>(
     ctx,

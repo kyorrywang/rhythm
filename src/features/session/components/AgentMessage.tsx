@@ -122,6 +122,7 @@ const ToolBlock = ({ tool, sessionId }: { tool: ToolCall; sessionId: string }) =
   const config = useDisplayStore((s) => s.preferences.toolCall);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const toolResultActions = usePluginHostStore((s) => s.toolResultActions);
+  const orchestratorSummary = renderOrchestratorSummary(tool);
 
   const defaultExpanded = isRunning
     ? config.whileRunning === 'expand'
@@ -150,6 +151,20 @@ const ToolBlock = ({ tool, sessionId }: { tool: ToolCall; sessionId: string }) =
         timerStart={tool.startTime || Date.now()}
         timerMs={tool.executionTime}
         defaultExpanded={defaultExpanded}
+      />
+    );
+  }
+
+  if (orchestratorSummary) {
+    return (
+      <SegmentCard
+        title={orchestratorSummary.title}
+        summary={orchestratorSummary.summary}
+        running={isRunning}
+        timerStart={tool.startTime || Date.now()}
+        timerMs={tool.executionTime}
+        defaultExpanded={defaultExpanded}
+        action={<ToolActionButtons actions={toolResultActions} tool={tool} sessionId={sessionId} />}
       />
     );
   }
@@ -338,6 +353,117 @@ const PermissionSegment = ({
     </SegmentCard>
   );
 };
+
+const renderOrchestratorSummary = (tool: ToolCall): { title: string; summary: React.ReactNode } | null => {
+  if (
+    tool.name !== 'orchestrator.createRun'
+    && tool.name !== 'orchestrator.getRun'
+    && tool.name !== 'orchestrator.pauseRun'
+    && tool.name !== 'orchestrator.resumeRun'
+    && tool.name !== 'orchestrator.cancelRun'
+    && tool.name !== 'orchestrator.createTemplate'
+    && tool.name !== 'orchestrator.createSampleNovelTemplate'
+    && tool.name !== 'orchestrator.createSampleSoftwareTemplate'
+    && tool.name !== 'orchestrator.updateTemplate'
+    && tool.name !== 'orchestrator.duplicateTemplate'
+  ) {
+    return null;
+  }
+
+  const ctx = createPluginContext('orchestrator');
+  const parsed = parseToolResult(tool);
+
+  if (isOrchestratorRunResult(parsed)) {
+    return {
+      title: 'Agent 编排器',
+      summary: (
+        <Button
+          variant="link"
+          size="sm"
+          onClick={(event) => {
+            event.stopPropagation();
+            ctx.ui.workbench.open({
+              id: `orchestrator.run:${parsed.id}`,
+              viewId: 'orchestrator.run',
+              title: parsed.goal || 'Run',
+              description: parsed.templateName,
+              payload: { run: parsed },
+              layoutMode: 'replace',
+            });
+          }}
+          className="min-w-0 truncate text-[13px] leading-6"
+        >
+          {parsed.goal || parsed.templateName || '打开运行'}
+        </Button>
+      ),
+    };
+  }
+
+  if (isOrchestratorTemplateResult(parsed)) {
+    return {
+      title: 'Agent 编排器模板',
+      summary: (
+        <Button
+          variant="link"
+          size="sm"
+          onClick={(event) => {
+            event.stopPropagation();
+            ctx.ui.workbench.open({
+              id: `orchestrator.template:${parsed.id}`,
+              viewId: 'orchestrator.template',
+              title: parsed.name || 'Template',
+              description: parsed.domain,
+              payload: { template: parsed },
+              layoutMode: 'replace',
+            });
+          }}
+          className="min-w-0 truncate text-[13px] leading-6"
+        >
+          {parsed.name || '打开模板'}
+        </Button>
+      ),
+    };
+  }
+
+  return null;
+};
+
+const parseToolResult = (tool: ToolCall): unknown => {
+  if (!tool.result) return null;
+  try {
+    const parsed = JSON.parse(tool.result) as { ok?: boolean; data?: unknown } | unknown;
+    if (parsed && typeof parsed === 'object' && 'data' in parsed) {
+      return (parsed as { data?: unknown }).data;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const isOrchestratorRunResult = (value: unknown): value is {
+  id: string;
+  goal?: string;
+  templateName?: string;
+} => Boolean(
+  value
+  && typeof value === 'object'
+  && 'id' in value
+  && 'templateId' in value
+  && 'status' in value,
+);
+
+const isOrchestratorTemplateResult = (value: unknown): value is {
+  id: string;
+  name?: string;
+  domain?: string;
+} => Boolean(
+  value
+  && typeof value === 'object'
+  && 'id' in value
+  && 'stageRows' in value
+  && 'domain' in value,
+);
 
 const ToolActionButtons = ({
   actions,

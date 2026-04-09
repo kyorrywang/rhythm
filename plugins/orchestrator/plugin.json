@@ -1,0 +1,477 @@
+{
+  "name": "orchestrator",
+  "version": "0.1.0",
+  "description": "Agent orchestration templates and runs.",
+  "main": "dist/main.js",
+  "dev": {
+    "main": "src/main.tsx"
+  },
+  "enabledByDefault": true,
+  "permissions": [
+    "plugin.command.invoke"
+  ],
+  "requires": {
+    "commands": [],
+    "tools": []
+  },
+  "contributes": {
+    "commands": [
+      {
+        "id": "orchestrator.createTemplate",
+        "description": "Create an orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          }
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.createTemplate"
+      },
+      {
+        "id": "orchestrator.createSampleNovelTemplate",
+        "description": "Create a sample novel template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          }
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.createSampleNovelTemplate"
+      },
+      {
+        "id": "orchestrator.createSampleSoftwareTemplate",
+        "description": "Create a sample software template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          }
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.createSampleSoftwareTemplate"
+      },
+      {
+        "id": "orchestrator.updateTemplate",
+        "description": "Update an orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" },
+            "patch": { "type": "object" }
+          },
+          "required": ["templateId", "patch"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.updateTemplate"
+      },
+      {
+        "id": "orchestrator.duplicateTemplate",
+        "description": "Duplicate an orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" },
+            "name": { "type": "string" }
+          },
+          "required": ["templateId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.duplicateTemplate"
+      },
+      {
+        "id": "orchestrator.deleteTemplate",
+        "description": "Delete an orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" }
+          },
+          "required": ["templateId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.deleteTemplate"
+      },
+      {
+        "id": "orchestrator.matchTemplates",
+        "description": "Match templates for a goal.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "goal": { "type": "string" },
+            "limit": { "type": "number" }
+          },
+          "required": ["goal"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.matchTemplates"
+      },
+      {
+        "id": "orchestrator.createRun",
+        "description": "Create an orchestrator run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" },
+            "goal": { "type": "string" }
+          },
+          "required": ["templateId", "goal"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.createRun"
+      },
+      {
+        "id": "orchestrator.wakeRun",
+        "description": "Wake an orchestrator run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "runId": { "type": "string" },
+            "reason": { "type": "string" }
+          },
+          "required": ["runId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.wakeRun"
+      },
+      {
+        "id": "orchestrator.pauseRun",
+        "description": "Pause an orchestrator run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "runId": { "type": "string" }
+          },
+          "required": ["runId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.pauseRun"
+      },
+      {
+        "id": "orchestrator.resumeRun",
+        "description": "Resume an orchestrator run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "runId": { "type": "string" }
+          },
+          "required": ["runId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.resumeRun"
+      },
+      {
+        "id": "orchestrator.cancelRun",
+        "description": "Cancel an orchestrator run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "runId": { "type": "string" }
+          },
+          "required": ["runId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.cancelRun"
+      },
+      {
+        "id": "orchestrator.completeTask",
+        "description": "Complete an orchestrator task.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": { "type": "string" }
+          },
+          "required": ["taskId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.completeTask"
+      },
+      {
+        "id": "orchestrator.getRun",
+        "description": "Get an orchestrator run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "runId": { "type": "string" }
+          },
+          "required": ["runId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.getRun"
+      },
+      {
+        "id": "orchestrator.listTemplates",
+        "description": "List orchestrator templates.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.listTemplates"
+      },
+      {
+        "id": "orchestrator.listRuns",
+        "description": "List orchestrator runs.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.listRuns"
+      },
+      {
+        "id": "orchestrator.listTasks",
+        "description": "List orchestrator tasks.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.listTasks"
+      }
+    ],
+    "tools": [
+      {
+        "id": "orchestrator.createTemplate",
+        "description": "Create a new orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          }
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "createTemplate"
+      },
+      {
+        "id": "orchestrator.createSampleNovelTemplate",
+        "description": "Create a sample novel template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          }
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "createSampleNovelTemplate"
+      },
+      {
+        "id": "orchestrator.createSampleSoftwareTemplate",
+        "description": "Create a sample software template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          }
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "createSampleSoftwareTemplate"
+      },
+      {
+        "id": "orchestrator.updateTemplate",
+        "description": "Update an orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" },
+            "patch": { "type": "object" }
+          },
+          "required": ["templateId", "patch"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "updateTemplate"
+      },
+      {
+        "id": "orchestrator.duplicateTemplate",
+        "description": "Duplicate an orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" },
+            "name": { "type": "string" }
+          },
+          "required": ["templateId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "duplicateTemplate"
+      },
+      {
+        "id": "orchestrator.deleteTemplate",
+        "description": "Delete an orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" }
+          },
+          "required": ["templateId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "deleteTemplate"
+      },
+      {
+        "id": "orchestrator.matchTemplates",
+        "description": "Match available templates for a goal.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "goal": { "type": "string" },
+            "limit": { "type": "number" }
+          },
+          "required": ["goal"]
+        },
+        "readOnly": true,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "matchTemplates"
+      },
+      {
+        "id": "orchestrator.createRun",
+        "description": "Create and start a new orchestrator run from a template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" },
+            "goal": { "type": "string" },
+            "source": { "type": "string" }
+          },
+          "required": ["templateId", "goal"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "createRun"
+      },
+      {
+        "id": "orchestrator.pauseRun",
+        "description": "Pause an orchestrator run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "runId": { "type": "string" }
+          },
+          "required": ["runId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "pauseRun"
+      },
+      {
+        "id": "orchestrator.resumeRun",
+        "description": "Resume an orchestrator run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "runId": { "type": "string" }
+          },
+          "required": ["runId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "resumeRun"
+      },
+      {
+        "id": "orchestrator.cancelRun",
+        "description": "Cancel an orchestrator run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "runId": { "type": "string" }
+          },
+          "required": ["runId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "cancelRun"
+      },
+      {
+        "id": "orchestrator.getRun",
+        "description": "Get the current status of an orchestrator run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "runId": { "type": "string" }
+          },
+          "required": ["runId"]
+        },
+        "readOnly": true,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "getRun"
+      },
+      {
+        "id": "orchestrator.listTemplates",
+        "description": "List available orchestrator templates.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "readOnly": true,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "listTemplates"
+      },
+      {
+        "id": "orchestrator.listRuns",
+        "description": "List orchestrator runs.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "readOnly": true,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "listRuns"
+      }
+    ],
+    "views": [
+      {
+        "id": "orchestrator.panel",
+        "title": "Orchestrator",
+        "location": "leftPanel"
+      },
+      {
+        "id": "orchestrator.template",
+        "title": "Template",
+        "location": "workbench"
+      },
+      {
+        "id": "orchestrator.run",
+        "title": "Run",
+        "location": "workbench"
+      }
+    ]
+  }
+}

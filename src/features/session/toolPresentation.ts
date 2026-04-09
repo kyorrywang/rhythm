@@ -48,6 +48,56 @@ const presenters: Record<string, ToolPresenter> = {
       details: joinLogs(tool),
     };
   },
+  'orchestrator.createTemplate': () => ({
+    title: 'Agent 编排器模板',
+    summary: '创建模板',
+    details: '',
+  }),
+  'orchestrator.createSampleNovelTemplate': () => ({
+    title: 'Agent 编排器模板',
+    summary: '创建小说模板',
+    details: '',
+  }),
+  'orchestrator.createSampleSoftwareTemplate': () => ({
+    title: 'Agent 编排器模板',
+    summary: '创建软件模板',
+    details: '',
+  }),
+  'orchestrator.updateTemplate': () => ({
+    title: 'Agent 编排器模板',
+    summary: '更新模板',
+    details: '',
+  }),
+  'orchestrator.duplicateTemplate': () => ({
+    title: 'Agent 编排器模板',
+    summary: '复制模板',
+    details: '',
+  }),
+  'orchestrator.createRun': () => ({
+    title: 'Agent 编排器',
+    summary: '启动运行',
+    details: '',
+  }),
+  'orchestrator.getRun': () => ({
+    title: 'Agent 编排器',
+    summary: '查看运行',
+    details: '',
+  }),
+  'orchestrator.pauseRun': () => ({
+    title: 'Agent 编排器',
+    summary: '暂停运行',
+    details: '',
+  }),
+  'orchestrator.resumeRun': () => ({
+    title: 'Agent 编排器',
+    summary: '继续运行',
+    details: '',
+  }),
+  'orchestrator.cancelRun': () => ({
+    title: 'Agent 编排器',
+    summary: '取消运行',
+    details: '',
+  }),
 };
 
 export const getToolPresentation = (tool: ToolCall): ToolPresentation => {

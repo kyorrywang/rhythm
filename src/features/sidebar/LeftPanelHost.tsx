@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { createPluginContext } from '@/plugin/host/createPluginContext';
 import { PluginErrorBoundary } from '@/plugin/host/PluginErrorBoundary';
 import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
@@ -8,6 +9,8 @@ export const LeftPanelHost = ({ width }: { width: number }) => {
   const activeLeftPanelViewId = useSessionStore((state) => state.activeLeftPanelViewId);
   const leftPanels = usePluginHostStore((state) => state.leftPanels);
   const panelView = leftPanels[activeLeftPanelViewId];
+  const pluginId = panelView?.pluginId || 'unknown';
+  const ctx = useMemo(() => createPluginContext(pluginId), [pluginId]);
 
   if (!panelView) {
     return (
@@ -18,11 +21,10 @@ export const LeftPanelHost = ({ width }: { width: number }) => {
   }
 
   const View = panelView.component;
-  const pluginId = panelView.pluginId || 'unknown';
 
   return (
     <PluginErrorBoundary pluginId={pluginId} surface={panelView.id}>
-      <View ctx={createPluginContext(pluginId)} width={width} />
+      <View ctx={ctx} width={width} />
     </PluginErrorBoundary>
   );
 };

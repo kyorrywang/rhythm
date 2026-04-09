@@ -1,8 +1,8 @@
 import type { PluginContext, RunningCommand } from '../../../src/plugin/sdk';
 
-export type WorkflowNodeType = 'manual' | 'shell' | 'command' | string;
-export type WorkflowRunStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled';
-export type WorkflowNodeRunStatus = 'pending' | 'running' | 'success' | 'error' | 'skipped' | 'cancelled';
+export type WorkflowNodeType = 'start' | 'llm' | 'if' | 'loop' | 'set' | 'end' | 'shell' | 'command' | string;
+export type WorkflowRunStatus = 'queued' | 'running' | 'paused' | 'success' | 'error' | 'cancelled';
+export type WorkflowNodeRunStatus = 'pending' | 'running' | 'paused' | 'success' | 'error' | 'skipped' | 'cancelled';
 
 export interface WorkflowDefinition {
   id: string;
@@ -24,16 +24,30 @@ export interface WorkflowNode {
 }
 
 export interface WorkflowNodeConfig {
+  prompt?: string;
+  systemPrompt?: string;
+  providerId?: string;
+  model?: string;
+  timeoutSecs?: string;
+  outputMode?: 'text' | 'json' | string;
+  outputSchema?: string;
+  leftValue?: string;
+  operator?: 'equals' | 'not_equals' | 'contains' | 'exists' | 'greater_than' | string;
+  rightValue?: string;
+  mode?: 'for_each' | 'repeat_until' | string;
+  itemsTemplate?: string;
+  maxIterations?: string;
   command?: string;
   commandId?: string;
   inputJson?: string;
-  [key: string]: string | undefined;
+  [key: string]: unknown;
 }
 
 export interface WorkflowEdge {
   id: string;
   from: string;
   to: string;
+  branch?: 'true' | 'false' | 'default' | string;
 }
 
 export interface WorkflowRun {
@@ -43,7 +57,12 @@ export interface WorkflowRun {
   status: WorkflowRunStatus;
   startedAt: number;
   endedAt?: number;
+  currentNodeId?: string;
+  resumeFromNodeId?: string;
+  checkpointVersion: number;
+  variables: Record<string, unknown>;
   nodeRuns: Record<string, WorkflowNodeRun>;
+  executionStack?: WorkflowExecutionFrame[];
 }
 
 export interface WorkflowNodeRun {
@@ -51,12 +70,14 @@ export interface WorkflowNodeRun {
   title: string;
   type: WorkflowNodeType;
   status: WorkflowNodeRunStatus;
+  attempt: number;
   startedAt?: number;
   endedAt?: number;
   input?: unknown;
   output?: unknown;
   error?: string;
   logs: string[];
+  checkpoint?: WorkflowNodeCheckpoint;
 }
 
 export interface WorkflowSettings {
@@ -100,13 +121,46 @@ export interface WorkflowCancelInput {
   runId: string;
 }
 
+export interface WorkflowPauseInput {
+  runId: string;
+}
+
+export interface WorkflowResumeInput {
+  runId: string;
+}
+
+export interface WorkflowRetryInput {
+  runId: string;
+}
+
 export interface WorkflowStatusInput {
   runId: string;
 }
 
 export interface WorkflowRuntimeHandle {
+  workflow: WorkflowDefinition;
+  run: WorkflowRun;
+  pauseRequested: boolean;
+  cancelRequested: boolean;
   cancel: () => Promise<boolean>;
+  requestPause: () => Promise<boolean>;
   runningCommand?: RunningCommand<unknown>;
+}
+
+export interface WorkflowNodeCheckpoint {
+  savedAt: number;
+  kind: 'node_boundary' | 'loop_iteration' | 'wait_state';
+  data: Record<string, unknown>;
+}
+
+export interface WorkflowExecutionFrame {
+  type: 'loop';
+  nodeId: string;
+  mode?: 'for_each' | 'repeat_until' | string;
+  iteration: number;
+  maxIterations: number;
+  items?: unknown[];
+  cursor?: number;
 }
 
 export type WorkflowPluginContext = PluginContext;
