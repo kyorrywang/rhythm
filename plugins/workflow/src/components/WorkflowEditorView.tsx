@@ -195,7 +195,7 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
             }}
             placeholder="Description"
             rows={2}
-            className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 outline-none focus:border-amber-300"
+            className="mt-2 w-full resize-none rounded-[var(--theme-radius-control)] border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 outline-none focus:border-amber-300"
           />
           {error && <p className="mt-2 text-sm text-rose-600">{error}</p>}
           {saved && <p className="mt-2 text-sm text-emerald-600">已保存</p>}
@@ -208,15 +208,15 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
             className="hidden"
             onChange={(event) => void importFromFile(event.target.files?.[0])}
           />
-          <Button variant="secondary" onClick={() => fileInputRef.current?.click()} className="rounded-xl">
+          <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
             <FileUp size={15} className="mr-1.5" />
             导入
           </Button>
-          <Button variant="secondary" onClick={() => void exportCurrent()} className="rounded-xl">
+          <Button variant="secondary" onClick={() => void exportCurrent()}>
             <Download size={15} className="mr-1.5" />
             导出
           </Button>
-          <Button onClick={() => void save()} className="rounded-xl">
+          <Button onClick={() => void save()}>
             <Save size={15} className="mr-1.5" />
             保存
           </Button>
@@ -242,7 +242,7 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
           onCompleteEdge={completeEdge}
           edgeStartNodeId={edgeStartNodeId}
         />
-        <aside className="overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+        <aside className="overflow-y-auto rounded-[var(--theme-radius-shell)] border border-slate-200 bg-white p-4 shadow-sm">
           {selectedNode ? (
             <NodeEditor
               ctx={ctx}
@@ -319,7 +319,7 @@ function NodeEditor({
         <input
           value={node.title}
           onChange={(event) => updateNode(node.id, { title: event.target.value })}
-          className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-amber-300"
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-amber-300"
         />
       </label>
       <div className="mt-4 grid grid-cols-2 gap-2">
@@ -329,7 +329,7 @@ function NodeEditor({
         <Button variant="secondary" size="sm" onClick={() => moveNode(node.id, 0, 40)}>下移</Button>
       </div>
       {edgeStartNodeId && (
-        <div className="mt-4 rounded-2xl bg-sky-50 px-3 py-2 text-xs text-sky-700">
+        <div className="mt-4 rounded-[var(--theme-radius-control)] bg-sky-50 px-3 py-2 text-xs text-sky-700">
           正在从 {nodeTitle(edgeStartNodeId)} 连线。点击目标节点的“连入”完成。
         </div>
       )}
@@ -337,7 +337,7 @@ function NodeEditor({
         <div className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">Edges</div>
         <div className="mt-2 space-y-2">
           {connectedEdges.map((edge) => (
-            <div key={edge.id} className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-xs text-slate-600">
+            <div key={edge.id} className="flex items-center justify-between gap-2 rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-xs text-slate-600">
               <span>{nodeTitle(edge.from)} → {nodeTitle(edge.to)}</span>
               <Button variant="ghost" size="sm" onClick={() => removeEdge(edge.id)}>删除</Button>
             </div>
@@ -352,7 +352,7 @@ function NodeEditor({
             value={node.config.command || ''}
             onChange={(event) => updateNodeConfig(node.id, 'command', event.target.value)}
             rows={5}
-            className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-amber-300"
+            className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-amber-300"
           />
         </label>
       )}
@@ -384,7 +384,7 @@ function CommandConfigEditor({
               value={node.config.commandId || ''}
               onChange={(event) => updateNodeConfig(node.id, 'commandId', event.target.value)}
               placeholder="command id, e.g. tool.shell"
-              className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+              className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
             />
           </label>
           <label className="block text-xs font-medium text-slate-500">
@@ -393,7 +393,7 @@ function CommandConfigEditor({
               value={node.config.inputJson || '{}'}
               onChange={(event) => updateNodeConfig(node.id, 'inputJson', event.target.value)}
               rows={8}
-              className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-amber-300"
+              className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-amber-300"
             />
           </label>
         </div>
@@ -409,7 +409,7 @@ function LlmConfigEditor({
 }) {
   return (
     <div className="mt-4 space-y-3">
-      <div className="rounded-2xl bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+      <div className="rounded-[var(--theme-radius-control)] bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
         可用模板：{'{{previous.output}}'}、{'{{previous.logs}}'}、{'{{node.<id>.output}}'}、{'{{node.<id>.logs}}'}
       </div>
       <label className="block text-xs font-medium text-slate-500">
@@ -418,7 +418,7 @@ function LlmConfigEditor({
           value={node.config.systemPrompt || ''}
           onChange={(event) => updateNodeConfig(node.id, 'systemPrompt', event.target.value)}
           rows={4}
-          className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
         />
       </label>
       <label className="block text-xs font-medium text-slate-500">
@@ -427,7 +427,7 @@ function LlmConfigEditor({
           value={node.config.prompt || ''}
           onChange={(event) => updateNodeConfig(node.id, 'prompt', event.target.value)}
           rows={8}
-          className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-amber-300"
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-amber-300"
         />
       </label>
       <div className="grid grid-cols-2 gap-2">
@@ -437,7 +437,7 @@ function LlmConfigEditor({
             value={node.config.model || ''}
             onChange={(event) => updateNodeConfig(node.id, 'model', event.target.value)}
             placeholder="默认模型"
-            className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+            className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
           />
         </label>
         <label className="block text-xs font-medium text-slate-500">
@@ -446,7 +446,7 @@ function LlmConfigEditor({
             value={node.config.timeoutSecs || ''}
             onChange={(event) => updateNodeConfig(node.id, 'timeoutSecs', event.target.value)}
             placeholder="30"
-            className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
+            className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
           />
         </label>
       </div>

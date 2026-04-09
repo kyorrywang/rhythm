@@ -37,7 +37,7 @@ export function ValidationHistory({
           variant="unstyled"
           size="none"
           onClick={onClear}
-          className="rounded-lg p-1 text-slate-300 hover:bg-white hover:text-slate-600"
+          className="rounded-[var(--theme-radius-control)] p-1 text-slate-300 hover:bg-white hover:text-slate-600"
           title="清空 validation 历史"
         >
           clear
@@ -48,7 +48,7 @@ export function ValidationHistory({
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
           placeholder="Filter validations"
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:border-amber-300"
+          className="w-full rounded-[var(--theme-radius-control)] border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:border-amber-300"
         />
         <div className="flex gap-2 text-[11px]">
           {(['all', 'passed', 'failed'] as const).map((value) => (
@@ -73,7 +73,7 @@ export function ValidationHistory({
             variant="unstyled"
             size="none"
             onClick={() => onOpen(entry)}
-            className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left text-xs text-slate-600 hover:bg-slate-50"
+            className="w-full rounded-[var(--theme-radius-card)] border border-slate-200 bg-white px-3 py-3 text-left text-xs text-slate-600 hover:bg-slate-50"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="truncate font-medium text-slate-800">{entry.command}</span>
@@ -84,7 +84,7 @@ export function ValidationHistory({
           </Button>
         ))}
         {filteredEntries.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-5 text-center text-xs text-slate-500">
+          <div className="rounded-[var(--theme-radius-card)] border border-dashed border-slate-300 px-4 py-5 text-center text-xs text-slate-500">
             没有匹配的 validation 记录
           </div>
         )}

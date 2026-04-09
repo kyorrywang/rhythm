@@ -7,7 +7,7 @@ export function DeveloperSettingsSection({ ctx }: SettingsSectionProps) {
   const { settings, update } = useDeveloperSettings(ctx);
 
   return (
-    <div className="space-y-6 rounded-[32px] border border-slate-200 bg-white p-6 shadow-[0_24px_60px_rgba(15,23,42,0.05)]">
+    <div className="space-y-6 rounded-[var(--theme-radius-shell)] border border-slate-200 bg-white p-6 shadow-[0_24px_60px_rgba(15,23,42,0.05)]">
       <div>
         <div className="text-xs uppercase tracking-[0.16em] text-slate-400">Plugin Settings</div>
         <h2 className="mt-3 text-2xl font-semibold text-slate-900">Developer</h2>
@@ -27,7 +27,7 @@ export function DeveloperSettingsSection({ ctx }: SettingsSectionProps) {
                 .map(createValidationPreset),
             })
           }
-          className="min-h-[140px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-300"
+          className="min-h-[140px] w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-4 py-3 text-sm outline-none focus:border-amber-300"
         />
       </section>
 
@@ -61,7 +61,7 @@ function ToggleCard({
       variant="unstyled"
       size="none"
       onClick={() => onChange(!checked)}
-      className={`flex items-center justify-between rounded-2xl border px-4 py-4 text-left ${
+      className={`flex items-center justify-between rounded-[var(--theme-radius-card)] border px-4 py-4 text-left ${
         checked ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'
       }`}
     >

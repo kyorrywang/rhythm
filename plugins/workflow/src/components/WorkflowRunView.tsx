@@ -59,7 +59,7 @@ export function WorkflowRunView({ ctx, payload }: WorkbenchProps<WorkflowRunPayl
           variant="secondary"
           onClick={() => void cancel()}
           disabled={current.run.status !== 'running'}
-          className="rounded-xl"
+          className=""
         >
           <Square size={15} className="mr-1.5" />
           取消
@@ -68,7 +68,7 @@ export function WorkflowRunView({ ctx, payload }: WorkbenchProps<WorkflowRunPayl
 
       <div className="mt-6 space-y-3 overflow-y-auto">
         {Object.values(current.run.nodeRuns).map((nodeRun) => (
-          <article key={nodeRun.nodeId} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <article key={nodeRun.nodeId} className="rounded-[var(--theme-radius-card)] border border-slate-200 bg-white p-4 shadow-sm">
             <button type="button" className="w-full text-left" onClick={() => inspect(nodeRun)}>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
@@ -80,9 +80,9 @@ export function WorkflowRunView({ ctx, payload }: WorkbenchProps<WorkflowRunPayl
                 </div>
                 <div className="text-xs text-slate-400">{formatDate(nodeRun.endedAt || nodeRun.startedAt)}</div>
               </div>
-              {nodeRun.error && <div className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-xs text-rose-700">{nodeRun.error}</div>}
+              {nodeRun.error && <div className="mt-3 rounded-[var(--theme-radius-control)] bg-rose-50 px-3 py-2 text-xs text-rose-700">{nodeRun.error}</div>}
               {nodeRun.logs.length > 0 && (
-                <pre className="mt-3 max-h-40 overflow-auto rounded-2xl bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+                <pre className="mt-3 max-h-40 overflow-auto rounded-[var(--theme-radius-control)] bg-slate-950 p-3 text-xs leading-5 text-slate-100">
                   {nodeRun.logs.join('')}
                 </pre>
               )}

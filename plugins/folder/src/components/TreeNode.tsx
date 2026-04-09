@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderOpen } from 'lucide-react';
 import { Button } from '../../../../src/shared/ui';
 import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import type { BackendWorkspaceDirEntry } from '../../../../src/shared/types/api';
@@ -73,8 +73,9 @@ export function TreeNode({
         onOpen={() => actions.openFile(entry)}
         onRename={() => void actions.renamePath(entry)}
         onDelete={() => void actions.deletePath(entry)}
-        onReveal={() => void actions.revealPath(entry.path)}
+        onReveal={() => void actions.revealPath(entry)}
         onCopyPath={(path) => void actions.copyPath(path)}
+        onCopyRelativePath={(path) => void actions.copyRelativePath(path)}
         gitStatus={actions.gitStatusForPath(entry.path)}
       />
     );
@@ -88,8 +89,8 @@ export function TreeNode({
   return (
     <div>
       <div
-        className={`group relative flex items-center justify-between gap-1 rounded-md py-1 pr-1 transition-colors ${
-          active ? 'bg-[var(--theme-surface-muted)]' : 'hover:bg-[var(--theme-surface-subtle)]'
+        className={`group relative flex items-center justify-between gap-0.5 rounded-[calc(var(--theme-radius-control)*0.7)] py-[calc(var(--theme-row-padding-y)*0.28)] pr-[calc(var(--theme-toolbar-gap)*0.45)] transition-colors ${
+          active ? 'bg-[var(--theme-surface-subtle)]' : 'hover:bg-[var(--theme-surface-subtle)]'
         }`}
         style={{ paddingLeft: 12 + depth * 16 }}
       >
@@ -99,7 +100,7 @@ export function TreeNode({
           onClick={() => onToggle(entry.path)}
           className="min-w-0 flex-1 justify-start text-left focus:ring-0"
         >
-          <span className="flex min-w-0 items-center gap-1.5 truncate">
+          <span className="flex min-w-0 items-center gap-1 truncate">
             <span className="flex w-4 shrink-0 items-center justify-center">
               {expanded ? (
                 <ChevronDown size={14} className="text-[var(--theme-text-muted)]" />
@@ -118,7 +119,7 @@ export function TreeNode({
                 className="shrink-0 text-[var(--theme-text-muted)]"
               />
             )}
-            <span className={`truncate text-sm ${active ? 'font-semibold text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'}`}>
+            <span className={`truncate text-[12px] leading-4 ${active ? 'font-semibold text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'}`}>
               {entry.name}
             </span>
           </span>
@@ -127,12 +128,12 @@ export function TreeNode({
           <ActionMenu
             entry={entry}
             onCopyPath={(path) => void actions.copyPath(path)}
+            onCopyRelativePath={(path) => void actions.copyRelativePath(path)}
             onCreateFile={(basePath) => void actions.createFile(basePath)}
             onCreateDir={(basePath) => void actions.createDir(basePath)}
             onRename={() => void actions.renamePath(entry)}
             onDelete={() => void actions.deletePath(entry)}
-            onReveal={() => void actions.revealPath(entry.path)}
-            onRefresh={() => void actions.refreshPath(entry.path)}
+            onReveal={() => void actions.revealPath(entry)}
           />
         </span>
       </div>

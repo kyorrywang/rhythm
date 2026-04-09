@@ -1,25 +1,25 @@
-import { Clipboard, Eye, FilePlus2, FolderPlus, MoreHorizontal, Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import { Clipboard, FilePlus2, FolderOpen, FolderPlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import type { BackendWorkspaceDirEntry } from '../../../../src/shared/types/api';
-import { IconButton, MenuContent, MenuItem, MenuPortal, MenuRoot, MenuTrigger } from '../../../../src/shared/ui';
+import { IconButton, MenuContent, MenuDivider, MenuItem, MenuPortal, MenuRoot, MenuTrigger } from '../../../../src/shared/ui';
 
 export function ActionMenu({
   entry,
   onCopyPath,
+  onCopyRelativePath,
   onCreateFile,
   onCreateDir,
   onRename,
   onDelete,
   onReveal,
-  onRefresh,
 }: {
   entry: BackendWorkspaceDirEntry;
   onCopyPath: (path: string) => void;
+  onCopyRelativePath: (path: string) => void;
   onCreateFile?: (basePath?: string) => void;
   onCreateDir?: (basePath?: string) => void;
   onRename?: () => void;
   onDelete?: () => void;
   onReveal?: () => void;
-  onRefresh?: () => void;
 }) {
   return (
     <MenuRoot>
@@ -37,35 +37,35 @@ export function ActionMenu({
         <MenuContent align="end" sideOffset={8}>
           {entry.kind === 'directory' && onCreateFile && (
             <MenuItem icon={<FilePlus2 size={13} />} onSelect={() => onCreateFile(entry.path)}>
-              新建文件
+              New File...
             </MenuItem>
           )}
           {entry.kind === 'directory' && onCreateDir && (
             <MenuItem icon={<FolderPlus size={13} />} onSelect={() => onCreateDir(entry.path)}>
-              新建目录
-            </MenuItem>
-          )}
-          {onRefresh && entry.kind === 'directory' && (
-            <MenuItem icon={<RefreshCw size={13} />} onSelect={() => onRefresh()}>
-              刷新目录
-            </MenuItem>
-          )}
-          {onRename && (
-            <MenuItem icon={<Pencil size={13} />} onSelect={() => onRename()}>
-              重命名
+              New Folder...
             </MenuItem>
           )}
           {onReveal && (
-            <MenuItem icon={<Eye size={13} />} onSelect={() => onReveal()}>
-              在系统中显示
+            <MenuItem icon={<FolderOpen size={13} />} onSelect={() => onReveal()}>
+              Reveal in File Explorer
             </MenuItem>
           )}
+          <MenuDivider />
           <MenuItem icon={<Clipboard size={13} />} onSelect={() => onCopyPath(entry.path)}>
-            复制相对路径
+            Copy Path
           </MenuItem>
+          <MenuItem icon={<Clipboard size={13} />} onSelect={() => onCopyRelativePath(entry.path)}>
+            Copy Relative Path
+          </MenuItem>
+          <MenuDivider />
+          {onRename && (
+            <MenuItem icon={<Pencil size={13} />} onSelect={() => onRename()}>
+              Rename...
+            </MenuItem>
+          )}
           {onDelete && (
             <MenuItem icon={<Trash2 size={13} />} onSelect={() => onDelete()} danger>
-              删除
+              Delete
             </MenuItem>
           )}
         </MenuContent>

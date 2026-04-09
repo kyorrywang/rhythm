@@ -82,12 +82,9 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
       >
         <div className="border-b-[var(--theme-divider-width)] border-[var(--theme-border)] px-[var(--theme-panel-padding-x)] py-[var(--theme-panel-padding-y)]">
           <div className="flex items-center justify-between">
-            <div>
-              <div className={`flex items-center gap-2 ${themeRecipes.eyebrow()}`}>
-                <Box size={14} />
-                <span>Workbench</span>
-              </div>
-              <h3 className={`mt-[var(--theme-panel-header-gap)] ${themeRecipes.title()}`}>{activeItem.title}</h3>
+            <div className={`flex items-center gap-2 ${themeRecipes.eyebrow()}`}>
+              <Box size={14} />
+              <span>Workbench</span>
             </div>
             <div className={themeRecipes.toolbar()}>
               <IconButton
@@ -106,13 +103,18 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-hidden px-[var(--theme-shell-padding)] py-[var(--theme-shell-padding)]">
+        <div className="flex-1 overflow-hidden px-[var(--theme-shell-padding)] pt-[calc(var(--theme-shell-padding)*0.55)] pb-[var(--theme-shell-padding)]">
           <div className={`h-full overflow-hidden ${themeRecipes.workbenchSurface()}`}>
             <div className="flex items-center justify-between border-b-[var(--theme-divider-width)] border-[var(--theme-border)] px-[var(--theme-card-padding-x)] py-[var(--theme-card-padding-y)]">
               <div className={`flex items-center gap-2 ${themeRecipes.eyebrow()}`}>
                 <ScrollText size={14} />
                 <span>{view?.title || activeItem.viewType}</span>
               </div>
+              {activeItem.viewType === 'folder.file.preview' && activeItem.description ? (
+                <div className={`shrink-0 text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>
+                  {activeItem.description}
+                </div>
+              ) : null}
             </div>
             <div className="h-[calc(100%-calc(var(--theme-card-padding-y)*2+1.5rem))] overflow-hidden">
               {view ? (

@@ -3,10 +3,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
-  Check,
   ChevronDown,
   ChevronRight,
-  Copy,
   Sparkles,
 } from 'lucide-react';
 import { getToolPresentation } from '@/features/session/toolPresentation';
@@ -19,7 +17,7 @@ import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { approvePermission } from '@/shared/api/commands';
 import type { Message, MessageSegment, ToolCall } from '@/shared/types/schema';
-import { Badge, Button } from '@/shared/ui';
+import { Badge, Button, CopyIconButton } from '@/shared/ui';
 import { CodeBlock } from '@/shared/ui/CodeBlock';
 
 interface AgentMessageProps {
@@ -379,28 +377,15 @@ const ToolActionButtons = ({
 };
 
 export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: AgentMessageProps) => {
-  const [copied, setCopied] = useState(false);
   const isMessageRunning = Boolean(isSessionRunning && isLast);
   const isMessageComplete = !isSessionRunning && isLast;
   const segments = message.segments || [];
   const modelName = message.model || 'Rhythm AI';
   const messageActions = usePluginHostStore((s) => s.messageActions);
-
-  const handleCopy = async () => {
-    const text = segments
-      .filter((segment) => segment.type === 'text')
-      .map((segment) => segment.content)
-      .join('\n\n');
-
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Ignore clipboard failures in the presentation layer.
-    }
-  };
+  const copyText = segments
+    .filter((segment) => segment.type === 'text')
+    .map((segment) => segment.content)
+    .join('\n\n');
 
   return (
     <motion.div
@@ -451,7 +436,7 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
                               code={code}
                             />
                           ) : (
-                            <code className="rounded-md bg-[var(--theme-surface-muted)] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--theme-accent)]">
+                            <code className="rounded-[calc(var(--theme-radius-control)*0.7)] bg-[var(--theme-surface-muted)] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--theme-accent)]">
                               {children}
                             </code>
                           );
@@ -470,15 +455,7 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
 
       <div className="mt-[var(--theme-toolbar-gap)] h-6 flex-col justify-center">
         <div className="flex items-center text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleCopy}
-            className="text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]"
-            title="Copy"
-          >
-            {copied ? <Check size={14} className="text-[var(--theme-success-text)]" /> : <Copy size={14} />}
-          </Button>
+          <CopyIconButton text={copyText} />
           <span className="mx-2 text-[var(--theme-border-strong)]">|</span>
           <span>{modelName}</span>
           <span className="mx-2 text-[var(--theme-border-strong)]">·</span>

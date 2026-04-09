@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Play, Plus, RefreshCw, Workflow } from 'lucide-react';
+import { Play, Plus, RefreshCw } from 'lucide-react';
 import type { LeftPanelProps } from '../../../../src/plugin/sdk';
+import { themeRecipes } from '../../../../src/shared/theme/recipes';
 import { Button } from '../../../../src/shared/ui/Button';
 import { SidebarPage } from '../../../../src/shared/ui/SidebarPage';
 import { WORKFLOW_COMMANDS, WORKFLOW_EVENTS, WORKFLOW_VIEWS } from '../constants';
@@ -75,25 +76,20 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
 
   return (
     <SidebarPage width={width}>
-      <div className="px-4 pb-4 pt-5">
+      <div className="px-4 pb-3 pt-5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-slate-400">
-            <Workflow size={16} />
-            <span>Workflow</span>
-          </div>
+          <div className={`text-[11px] uppercase tracking-[0.18em] ${themeRecipes.eyebrow()}`}>Workflow</div>
           <Button
             variant="unstyled"
             size="none"
             onClick={() => void refresh()}
-            className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-white hover:text-slate-700"
+            className="rounded-[var(--theme-radius-control)] p-2 text-[var(--theme-text-muted)] transition-colors hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]"
             title="刷新工作流"
           >
             <RefreshCw size={15} />
           </Button>
         </div>
-        <h2 className="mt-3 text-[20px] font-semibold text-slate-900">Workflows</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-500">Create, edit and run lightweight workflows.</p>
-        <Button variant="secondary" size="sm" onClick={() => void createWorkflow()} className="mt-3 rounded-xl">
+        <Button variant="secondary" size="sm" onClick={() => void createWorkflow()} className="mt-3">
           <Plus size={14} className="mr-1.5" />
           新建工作流
         </Button>
@@ -101,17 +97,17 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
 
       <div className="flex-1 space-y-5 overflow-y-auto px-4 pb-5">
         {error && (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-700">
+          <div className="rounded-[var(--theme-radius-card)] border border-rose-200 bg-rose-50 px-4 py-3 text-xs leading-5 text-rose-700">
             {error}
           </div>
         )}
 
         <section>
           <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">Definitions</div>
-          {isLoading && <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-500">正在加载...</div>}
+          {isLoading && <div className="rounded-[var(--theme-radius-card)] border border-slate-200 bg-white px-4 py-4 text-sm text-slate-500">正在加载...</div>}
           <div className="space-y-2">
             {workflows.map((workflow) => (
-              <article key={workflow.id} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <article key={workflow.id} className="rounded-[var(--theme-radius-card)] border border-slate-200 bg-white p-3 shadow-sm">
                 <button
                   type="button"
                   onClick={() => openEditor(workflow)}
@@ -133,7 +129,7 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
             ))}
           </div>
           {!isLoading && workflows.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
+            <div className="rounded-[var(--theme-radius-card)] border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
               还没有工作流
             </div>
           )}
@@ -158,7 +154,7 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
                     });
                   }
                 }}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm hover:border-amber-200"
+                className="w-full rounded-[var(--theme-radius-card)] border border-slate-200 bg-white px-3 py-3 text-left shadow-sm hover:border-amber-200"
               >
                 <div className="text-sm font-medium text-slate-800">{run.workflowName}</div>
                 <div className="mt-1 text-xs text-slate-500">{run.status} · {formatDate(run.startedAt)}</div>

@@ -16,7 +16,13 @@ export function CoreSettingsOverview({ ctx }: WorkbenchProps) {
       eyebrow="Settings"
       title="设置总览"
       description="这里是设置体系的 landing page。先看总览和常用入口，再进入具体设置项。"
+      showHeader={false}
     >
+      <Card tone="muted" className="leading-7">
+        <div className={themeRecipes.description()}>
+          这里集中查看核心设置、插件设置与常用入口。顶部标题已经说明当前页面，内容区直接进入概览与导航。
+        </div>
+      </Card>
       <WorkbenchSection title="设置概况" description="核心设置决定全局行为，插件设置负责插件自己的业务偏好。">
         <div className="grid gap-[var(--theme-section-gap)] xl:grid-cols-[1.8fr_1fr]">
           <StatsGrid

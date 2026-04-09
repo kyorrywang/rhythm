@@ -24,26 +24,26 @@ export function CommandRunner({
       <textarea
         value={command}
         onChange={(event) => onCommandChange(event.target.value)}
-        className="min-h-[86px] w-full resize-none rounded-2xl border border-slate-200 bg-white px-3 py-3 font-mono text-xs leading-5 text-slate-700 outline-none focus:border-amber-300"
+        className="min-h-[86px] w-full resize-none rounded-[var(--theme-radius-control)] border border-slate-200 bg-white px-3 py-3 font-mono text-xs leading-5 text-slate-700 outline-none focus:border-amber-300"
       />
       {error && (
-        <div className="mt-2 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">
+        <div className="mt-2 rounded-[var(--theme-radius-control)] border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">
           {error}
         </div>
       )}
       <div className="mt-3 grid gap-2 md:grid-cols-2">
-        <Button variant="primary" size="sm" onClick={onRun} disabled={isRunning} className="justify-center rounded-2xl">
+        <Button variant="primary" size="sm" onClick={onRun} disabled={isRunning} className="justify-center">
           <Play size={14} />
           {isRunning ? 'Running...' : 'Run'}
         </Button>
-        <Button variant="secondary" size="sm" onClick={onValidate} disabled={isRunning} className="justify-center rounded-2xl">
+        <Button variant="secondary" size="sm" onClick={onValidate} disabled={isRunning} className="justify-center">
           <CheckCircle2 size={14} />
           Validate
         </Button>
       </div>
       {isRunning && (
         <div className="mt-2">
-          <Button variant="ghost" size="sm" onClick={onCancel} className="justify-center rounded-2xl">
+          <Button variant="ghost" size="sm" onClick={onCancel} className="justify-center">
             <Square size={14} />
             Cancel
           </Button>

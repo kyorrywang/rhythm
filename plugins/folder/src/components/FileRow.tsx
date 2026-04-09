@@ -67,6 +67,7 @@ export function FileRow({
   onReveal,
   onRefresh,
   onCopyPath,
+  onCopyRelativePath,
   gitStatus,
 }: {
   entry: BackendWorkspaceDirEntry;
@@ -82,6 +83,7 @@ export function FileRow({
   onReveal?: () => void;
   onRefresh?: () => void;
   onCopyPath: (path: string) => void;
+  onCopyRelativePath: (path: string) => void;
   gitStatus?: string;
 }) {
   const isTree = variant === 'tree';
@@ -89,8 +91,8 @@ export function FileRow({
   if (isTree) {
     return (
       <div
-        className={`group relative flex items-center justify-between gap-1.5 rounded-md py-1 pr-1 transition-colors ${
-          active ? 'bg-[var(--theme-surface-muted)]' : 'hover:bg-[var(--theme-surface-subtle)]'
+        className={`group relative flex items-center justify-between gap-0.5 rounded-[calc(var(--theme-radius-control)*0.7)] py-[calc(var(--theme-row-padding-y)*0.28)] pr-[calc(var(--theme-toolbar-gap)*0.45)] transition-colors ${
+          active ? 'bg-[var(--theme-surface-subtle)]' : 'hover:bg-[var(--theme-surface-subtle)]'
         }`}
         style={{ paddingLeft: 12 + depth * 16 }}
       >
@@ -100,10 +102,10 @@ export function FileRow({
           onClick={onOpen}
           className="min-w-0 flex-1 justify-start text-left focus:ring-0"
         >
-          <span className="flex min-w-0 items-center gap-2 truncate">
+          <span className="flex min-w-0 items-center gap-1.25 truncate">
             <span className="w-4 shrink-0" /> {/* Placeholder for alignment matching FolderTree icons */}
             {getFileIcon(entry.name)}
-            <span className={`truncate text-sm ${active ? 'font-semibold text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'}`}>
+            <span className={`truncate text-[12px] leading-4 ${active ? 'font-semibold text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-text-primary)]'}`}>
               {entry.name}
             </span>
             {gitStatus && <Badge tone="warning" className="px-1 py-0 text-[9px]">{gitStatus}</Badge>}
@@ -112,12 +114,12 @@ export function FileRow({
         <ActionMenu
           entry={entry}
           onCopyPath={onCopyPath}
+          onCopyRelativePath={onCopyRelativePath}
           onCreateFile={onCreateFile}
           onCreateDir={onCreateDir}
           onRename={onRename}
           onDelete={onDelete}
           onReveal={onReveal}
-          onRefresh={onRefresh}
         />
       </div>
     );
@@ -150,12 +152,12 @@ export function FileRow({
       <ActionMenu
         entry={entry}
         onCopyPath={onCopyPath}
+        onCopyRelativePath={onCopyRelativePath}
         onCreateFile={onCreateFile}
         onCreateDir={onCreateDir}
         onRename={onRename}
         onDelete={onDelete}
         onReveal={onReveal}
-        onRefresh={onRefresh}
       />
     </div>
   );

@@ -1,7 +1,7 @@
-import { openPath } from '@tauri-apps/plugin-opener';
+import { open } from '@tauri-apps/plugin-dialog';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { DEFAULT_WORKSPACE_PATH, useActiveWorkspace, useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
 import { useSessions, useSessionStore } from '@/shared/state/useSessionStore';
-import { useToast } from '@/shared/hooks/useToast';
 import { themeRecipes } from '@/shared/theme/recipes';
 import { EmptyState, SidebarPage } from '@/shared/ui';
 import { ProjectHeader } from './ProjectHeader';
@@ -11,11 +11,10 @@ export const SessionsPanel = ({ width }: { width: number }) => {
   const workspace = useActiveWorkspace();
   const workspacePath = workspace.path;
   const sessions = useSessions();
-  const removeWorkspace = useWorkspaceStore((state) => state.removeWorkspace);
+  const addWorkspace = useWorkspaceStore((state) => state.addWorkspace);
   const activeSessionId = useSessionStore((state) => state.activeSessionId);
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const closeWorkbench = useSessionStore((state) => state.closeWorkbench);
-  const toast = useToast();
 
   const workspaceSessions = sessions.filter((session) =>
     session.workspacePath === workspacePath ||
@@ -36,18 +35,20 @@ export const SessionsPanel = ({ width }: { width: number }) => {
     setActiveSession(sessionId);
   };
 
-  const handleCopyWorkspacePath = async () => {
-    await navigator.clipboard.writeText(workspacePath);
+  const handleChangeWorkspace = async () => {
+    const selectedPath = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: workspacePath,
+      title: 'Choose Workspace',
+    });
+
+    if (typeof selectedPath !== 'string' || !selectedPath.trim()) return;
+    addWorkspace(selectedPath);
   };
 
   const handleOpenWorkspace = () => {
-    void openPath(workspacePath);
-  };
-
-  const handleRemoveWorkspace = () => {
-    removeWorkspace(workspace.id);
-    setActiveSession(null);
-    toast.info(`已从列表移除工作区：${workspace.name}`);
+    void revealItemInDir(workspacePath);
   };
 
   return (
@@ -56,9 +57,8 @@ export const SessionsPanel = ({ width }: { width: number }) => {
         workspaceName={workspace.name}
         workspacePath={workspacePath}
         onNewSession={handleNewSession}
-        onCopyWorkspacePath={handleCopyWorkspacePath}
+        onChangeWorkspace={handleChangeWorkspace}
         onOpenWorkspace={handleOpenWorkspace}
-        onRemoveWorkspace={handleRemoveWorkspace}
       />
 
       <div className="flex-1 overflow-y-auto px-3 pb-4">

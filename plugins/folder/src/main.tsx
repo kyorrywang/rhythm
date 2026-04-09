@@ -4,6 +4,7 @@ import { FolderTree } from './components/FolderTree';
 import { FilePreview } from './components/FilePreview';
 import { readPreviewFile } from './preview';
 import type { FilePreviewPayload, FolderOpenFileInput } from './types';
+import { formatBytes } from './utils';
 
 export default definePlugin({
   activate(ctx) {
@@ -19,7 +20,7 @@ export default definePlugin({
         ctx.ui.workbench.open({
           viewId: FOLDER_VIEWS.filePreview,
           title: path,
-          description: line ? `Line ${line}${column ? `:${column}` : ''}` : undefined,
+          description: `大小 ${formatBytes(file.size)}`,
           payload,
           layoutMode: 'replace',
         });

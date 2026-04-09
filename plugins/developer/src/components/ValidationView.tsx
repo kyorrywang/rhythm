@@ -16,7 +16,7 @@ export function ValidationView({ ctx, payload }: WorkbenchProps<ValidationPayloa
 
   return (
     <div className="h-full overflow-auto px-5 py-4">
-      <div className={`mb-4 rounded-2xl px-4 py-3 text-sm ${payload.success ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>
+      <div className={`mb-4 rounded-[var(--theme-radius-card)] px-4 py-3 text-sm ${payload.success ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>
         <div className="flex items-center gap-2 font-semibold">
           {payload.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
           <span>{payload.success ? 'Validation passed' : 'Validation failed'}</span>
@@ -28,7 +28,7 @@ export function ValidationView({ ctx, payload }: WorkbenchProps<ValidationPayloa
         {payload.issues.length > 0 ? (
           <div className="space-y-2">
             {payload.issues.map((issue, index) => (
-              <div key={index} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm">
+              <div key={index} className="rounded-[var(--theme-radius-card)] border border-slate-200 px-4 py-3 text-sm">
                 <div className={issue.severity === 'error' ? 'text-rose-700' : 'text-amber-700'}>{issue.message}</div>
                 {issue.file && (
                   <button className="mt-1 text-left text-xs text-slate-500 hover:text-slate-900" onClick={() => void revealIssue(issue.file)}>
@@ -39,7 +39,7 @@ export function ValidationView({ ctx, payload }: WorkbenchProps<ValidationPayloa
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
+          <div className="rounded-[var(--theme-radius-card)] border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
             没有解析到结构化问题，详见日志。
           </div>
         )}

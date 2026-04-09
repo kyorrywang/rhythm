@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Code2 } from 'lucide-react';
 import type { LeftPanelProps, RunningCommand } from '../../../../src/plugin/sdk';
+import { themeRecipes } from '../../../../src/shared/theme/recipes';
 import { detectValidationCommands } from '../commands';
 import { DEVELOPER_COMMANDS, DEVELOPER_STORAGE_KEYS, DEVELOPER_VIEWS, DEFAULT_VALIDATION_COMMANDS } from '../constants';
 import { useCommandHistory } from '../hooks/useCommandHistory';
@@ -300,13 +300,8 @@ export function DeveloperPanel({ ctx, width }: LeftPanelProps) {
 
   return (
     <SidebarPage width={width}>
-      <div className="px-4 pb-4 pt-5">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-slate-400">
-          <Code2 size={16} />
-          <span>Developer</span>
-        </div>
-        <h2 className="mt-3 text-[20px] font-semibold text-slate-900">Development</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-500">Run validation, inspect logs and review git diff.</p>
+      <div className="px-4 pb-3 pt-5">
+        <div className={`text-[11px] uppercase tracking-[0.18em] ${themeRecipes.eyebrow()}`}>Developer</div>
       </div>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-4 pb-5">

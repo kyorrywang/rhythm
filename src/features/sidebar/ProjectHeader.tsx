@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Copy, FileEdit, FolderOpen, MoreHorizontal, Trash2 } from 'lucide-react';
+import { FileEdit, FolderOpen, FolderSearch, MoreHorizontal } from 'lucide-react';
 import { themeRecipes } from '@/shared/theme/recipes';
 import { Button, IconButton, MenuContent, MenuItem, MenuPortal, MenuRoot, MenuTrigger } from '@/shared/ui';
 
@@ -7,18 +7,16 @@ interface ProjectHeaderProps {
   workspaceName: string;
   workspacePath: string;
   onNewSession: () => void;
-  onCopyWorkspacePath: () => void;
+  onChangeWorkspace: () => void;
   onOpenWorkspace: () => void;
-  onRemoveWorkspace: () => void;
 }
 
 export const ProjectHeader = ({
   workspaceName,
   workspacePath,
   onNewSession,
-  onCopyWorkspacePath,
+  onChangeWorkspace,
   onOpenWorkspace,
-  onRemoveWorkspace,
 }: ProjectHeaderProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -54,11 +52,10 @@ export const ProjectHeader = ({
               align="end"
               sideOffset={8}
               collisionPadding={16}
-              className="w-48"
+              className="w-56"
             >
-              <WorkspaceMenuAction icon={<Copy size={13} />} label="复制工作区路径" onClick={onCopyWorkspacePath} />
-              <WorkspaceMenuAction icon={<FolderOpen size={13} />} label="在系统文件管理器打开" onClick={onOpenWorkspace} />
-              <WorkspaceMenuAction icon={<Trash2 size={13} />} label="从工作区列表移除" onClick={onRemoveWorkspace} danger />
+              <WorkspaceMenuAction icon={<FolderSearch size={13} />} label="Change Workspace" onClick={onChangeWorkspace} />
+              <WorkspaceMenuAction icon={<FolderOpen size={13} />} label="Reveal in File Explorer" onClick={onOpenWorkspace} />
             </MenuContent>
           </MenuPortal>
         </MenuRoot>

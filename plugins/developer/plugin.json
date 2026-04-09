@@ -6,9 +6,10 @@
   "dev": {
     "main": "src/main.tsx"
   },
-  "enabledByDefault": true,
+  "enabledByDefault": false,
   "permissions": [
-    "terminal.run"
+    "terminal.run",
+    "workspace.files.read"
   ],
   "requires": {
     "plugins": {

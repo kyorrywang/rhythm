@@ -104,8 +104,16 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
       eyebrow="Plugin"
       title={plugin.name}
       description={plugin.description || '暂无描述'}
-      actions={<Badge tone={statusTone(plugin.status)}>{statusLabel(plugin.status)}</Badge>}
+      showHeader={false}
     >
+      <ActionBar
+        leading={(
+          <div className={`text-[length:var(--theme-meta-size)] leading-7 ${themeRecipes.description()}`}>
+            {plugin.description || `${plugin.name} 的插件详情页。这里集中展示状态、权限、能力与运行时接入信息。`}
+          </div>
+        )}
+        trailing={<Badge tone={statusTone(plugin.status)}>{statusLabel(plugin.status)}</Badge>}
+      />
       <WorkbenchSection title="插件概况" description="先看这个插件是谁、当前状态如何，以及它在宿主里已经接入了哪些基础能力。">
         {plugin.status === 'blocked' && plugin.blocked_reason && (
           <div className="mt-[var(--theme-section-gap)]">

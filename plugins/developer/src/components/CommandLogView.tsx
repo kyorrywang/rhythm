@@ -24,7 +24,7 @@ function CommandSummary({ payload }: { payload: LogPayload }) {
         ? 'Success'
         : `Failed with exit code ${payload.exit_code}`;
   return (
-    <div className="mb-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
+    <div className="mb-4 rounded-[var(--theme-radius-card)] bg-slate-50 px-4 py-3 text-xs text-slate-500">
       <div className="font-medium text-slate-800">{payload.command}</div>
       <div className="mt-1">
         {statusLabel}
@@ -40,7 +40,7 @@ function LogBlock({ title, content, tone = 'default' }: { title: string; content
   return (
     <section className="mb-4">
       <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">{title}</div>
-      <pre className={`min-h-[120px] whitespace-pre-wrap rounded-2xl px-4 py-4 text-xs leading-6 ${
+      <pre className={`min-h-[120px] whitespace-pre-wrap rounded-[var(--theme-radius-control)] px-4 py-4 text-xs leading-6 ${
         tone === 'error' ? 'bg-rose-950 text-rose-50' : 'bg-slate-950 text-slate-100'
       }`}>
         {content || '无输出'}

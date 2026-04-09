@@ -19,7 +19,7 @@ export function ValidationPresets({
             variant="unstyled"
             size="none"
             onClick={() => onRun(item.command)}
-            className="flex w-full items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-50"
+            className="flex w-full items-center gap-2 rounded-[var(--theme-radius-card)] border border-slate-200 bg-white px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-50"
           >
             <ScrollText size={14} />
             <span className="truncate">{item.label}</span>

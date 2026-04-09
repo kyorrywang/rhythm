@@ -17,14 +17,14 @@ export function DiffView({ ctx, payload }: WorkbenchProps<DiffPayload>) {
   return (
     <div className="flex h-full min-h-0">
       <aside className="w-72 shrink-0 border-r border-slate-200 bg-slate-50 px-4 py-4">
-        <div className="rounded-2xl bg-white px-4 py-3 text-xs text-slate-500">
+        <div className="rounded-[var(--theme-radius-card)] bg-white px-4 py-3 text-xs text-slate-500">
           <div className="font-medium text-slate-800">{payload.title}</div>
           <div className="mt-1">{files.length} changed file(s) · +{additions} -{deletions}</div>
           <input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
             placeholder="Filter files"
-            className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:border-amber-300"
+            className="mt-3 w-full rounded-[var(--theme-radius-control)] border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:border-amber-300"
           />
         </div>
         <div className="mt-4 space-y-2 overflow-auto">
@@ -32,7 +32,7 @@ export function DiffView({ ctx, payload }: WorkbenchProps<DiffPayload>) {
             <button
               key={file.path}
               onClick={() => setActiveFile(file.path)}
-              className={`w-full rounded-2xl border px-3 py-3 text-left text-xs ${
+              className={`w-full rounded-[var(--theme-radius-card)] border px-3 py-3 text-left text-xs ${
                 currentFile?.path === file.path
                   ? 'border-amber-300 bg-amber-50 text-slate-900'
                   : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -47,7 +47,7 @@ export function DiffView({ ctx, payload }: WorkbenchProps<DiffPayload>) {
 
       <div className="min-w-0 flex-1 overflow-auto px-5 py-4">
         {currentFile ? (
-          <div className="overflow-hidden rounded-2xl border border-slate-200">
+          <div className="overflow-hidden rounded-[var(--theme-radius-card)] border border-slate-200">
             <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-medium text-slate-700">
               <span className="truncate">{currentFile.path}</span>
               <div className="flex items-center gap-3">
@@ -83,7 +83,7 @@ export function DiffView({ ctx, payload }: WorkbenchProps<DiffPayload>) {
             </div>
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
+          <div className="rounded-[var(--theme-radius-card)] border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
             当前没有 git diff。
           </div>
         )}

@@ -30,7 +30,7 @@ export function WorkflowGraphCanvas({
   const maxY = Math.max(...nodes.map((node) => node.position.y), 0) + NODE_HEIGHT + 80;
 
   return (
-    <div className="relative min-h-[360px] overflow-auto rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="relative min-h-[360px] overflow-auto rounded-[var(--theme-radius-shell)] border border-slate-200 bg-white p-4 shadow-sm">
       <svg width={maxX} height={maxY} className="absolute left-0 top-0">
         <defs>
           <marker id="workflow-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
@@ -118,7 +118,7 @@ function GraphNodeCard({
 
   return (
     <div
-      className={`absolute rounded-3xl border bg-white px-4 py-3 text-left shadow-sm transition-all ${
+      className={`absolute rounded-[var(--theme-radius-card)] border bg-white px-4 py-3 text-left shadow-sm transition-all ${
         selected ? 'border-amber-400 ring-4 ring-amber-100' : edgeStart ? 'border-sky-400 ring-4 ring-sky-100' : 'border-slate-200 hover:border-slate-300'
       }`}
       style={{ left: node.position.x, top: node.position.y, width: NODE_WIDTH, minHeight: NODE_HEIGHT }}

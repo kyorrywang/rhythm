@@ -11,6 +11,7 @@ export function WorkbenchPage({
   actions,
   children,
   className,
+  showHeader = true,
 }: {
   icon?: ReactNode;
   eyebrow?: string;
@@ -19,12 +20,13 @@ export function WorkbenchPage({
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  showHeader?: boolean;
 }) {
   return (
     <div className={cn('h-full overflow-y-auto px-6 py-6', className)}>
       <div className="mx-auto w-full max-w-[1120px]">
-        <WorkbenchHeader icon={icon} eyebrow={eyebrow} title={title} description={description} actions={actions} />
-        <div className="mt-[calc(var(--theme-panel-content-gap)*1.1)] space-y-[var(--theme-section-gap)]">{children}</div>
+        {showHeader ? <WorkbenchHeader icon={icon} eyebrow={eyebrow} title={title} description={description} actions={actions} /> : null}
+        <div className={cn(showHeader ? 'mt-[calc(var(--theme-panel-content-gap)*1.1)]' : '', 'space-y-[var(--theme-section-gap)]')}>{children}</div>
       </div>
     </div>
   );

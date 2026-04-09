@@ -61,7 +61,7 @@ export function WorkflowSettingsSection({ ctx }: SettingsSectionProps) {
           max={100}
           value={settings.maxRunHistory}
           onChange={(event) => setSettings((current) => ({ ...current, maxRunHistory: Number(event.target.value) || 20 }))}
-          className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 outline-none focus:border-amber-300"
+          className="mt-2 w-full rounded-[var(--theme-radius-control)] border border-slate-200 px-3 py-2 outline-none focus:border-amber-300"
         />
       </label>
       <div className="flex items-center gap-3">

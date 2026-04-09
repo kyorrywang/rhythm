@@ -4,12 +4,12 @@ import type { DeveloperTaskSummary } from '../types';
 export function TaskSummaryView({ payload }: WorkbenchProps<DeveloperTaskSummary>) {
   return (
     <div className="h-full overflow-auto px-5 py-4">
-      <div className="mb-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
+      <div className="mb-4 rounded-[var(--theme-radius-card)] bg-slate-50 px-4 py-3 text-xs text-slate-500">
         <div className="font-medium text-slate-800">{payload.title}</div>
         <div className="mt-1">Updated {new Date(payload.updatedAt).toLocaleString()}</div>
       </div>
 
-      <section className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-4">
+      <section className="mb-4 rounded-[var(--theme-radius-card)] border border-slate-200 bg-white px-4 py-4">
         <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">Latest Command</div>
         {payload.latestLog ? (
           <div className="text-sm text-slate-700">
@@ -29,7 +29,7 @@ export function TaskSummaryView({ payload }: WorkbenchProps<DeveloperTaskSummary
       </section>
 
       <section className="mb-4 grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+        <div className="rounded-[var(--theme-radius-card)] border border-slate-200 bg-white px-4 py-4">
           <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">Latest Validation</div>
           {payload.latestValidation ? (
             <div className="text-sm text-slate-700">
@@ -43,7 +43,7 @@ export function TaskSummaryView({ payload }: WorkbenchProps<DeveloperTaskSummary
           )}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+        <div className="rounded-[var(--theme-radius-card)] border border-slate-200 bg-white px-4 py-4">
           <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">Latest Diff</div>
           {payload.latestDiff ? (
             <div className="text-sm text-slate-700">
@@ -58,12 +58,12 @@ export function TaskSummaryView({ payload }: WorkbenchProps<DeveloperTaskSummary
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+      <section className="rounded-[var(--theme-radius-card)] border border-slate-200 bg-white px-4 py-4">
         <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-slate-400">Changed Files</div>
         {payload.changedFiles.length > 0 ? (
           <div className="space-y-2">
             {payload.changedFiles.map((file) => (
-              <div key={`${file.path}:${file.status}`} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 text-sm">
+              <div key={`${file.path}:${file.status}`} className="flex items-center justify-between gap-3 rounded-[var(--theme-radius-control)] bg-slate-50 px-3 py-2 text-sm">
                 <span className="truncate text-slate-800">{file.path}</span>
                 <span className="shrink-0 text-xs text-slate-500">{file.status}</span>
               </div>

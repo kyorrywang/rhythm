@@ -1,29 +1,16 @@
-import { Check, Copy, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useState } from 'react';
 import { Message } from '@/shared/types/schema';
-import { Button } from '@/shared/ui/Button';
+import { CopyIconButton } from '@/shared/ui';
 
 interface UserMessageProps {
   message: Message;
 }
 
 export const UserMessage = ({ message }: UserMessageProps) => {
-  const [copied, setCopied] = useState(false);
   const mode = (message.mode || 'Chat').toUpperCase();
   const time = new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   const attachments = message.attachments || [];
-
-  const handleCopy = async () => {
-    if (!message.content) return;
-    try {
-      await navigator.clipboard.writeText(message.content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Ignore clipboard failures in the read-only presentation layer.
-    }
-  };
 
   return (
     <motion.div 
@@ -58,15 +45,7 @@ export const UserMessage = ({ message }: UserMessageProps) => {
           <span className="text-[var(--theme-border-strong)]">·</span>
           <span>{time}</span>
           <span className="text-[var(--theme-border-strong)]">|</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleCopy}
-            className="text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]"
-            title="Copy"
-          >
-            {copied ? <Check size={14} className="text-[var(--theme-success-text)]" /> : <Copy size={14}/>}
-          </Button>
+          <CopyIconButton text={message.content || ''} />
         </div>
       </div>
     </motion.div>

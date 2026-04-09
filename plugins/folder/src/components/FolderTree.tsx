@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FilePlus2, Folder, FolderPlus, RefreshCw } from 'lucide-react';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import type { BackendWorkspaceDirEntry } from '../../../../src/shared/types/api';
-import { Badge, Button, EmptyState, IconButton, NavSectionLabel, SidebarFooter, SidebarHeader, SidebarPage } from '../../../../src/shared/ui';
+import { Badge, Button, EmptyState, IconButton, NavSectionLabel, SidebarPage } from '../../../../src/shared/ui';
+import { themeRecipes } from '../../../../src/shared/theme/recipes';
 import { FOLDER_COMMANDS, FOLDER_VIEWS } from '../constants';
 import { useExpandedPaths } from '../hooks/useExpandedPaths';
 import { readPreviewFile } from '../preview';
 import type { FilePreviewPayload, FolderGitStatusEntry, FolderListInput, FolderReadInput, FolderTreeFileActions } from '../types';
-import { basename, dirname, fileStatusDescription, joinPath, sortEntries } from '../utils';
+import { basename, dirname, formatBytes, joinPath, sortEntries } from '../utils';
 import { TreeNode } from './TreeNode';
+import { useActiveWorkspace } from '../../../../src/shared/state/useWorkspaceStore';
 
 export function FolderTree({ ctx, width }: LeftPanelProps) {
+  const workspace = useActiveWorkspace();
   const [rootEntries, setRootEntries] = useState<BackendWorkspaceDirEntry[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [query, _setQuery] = useState('');
@@ -57,7 +61,7 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
       ctx.ui.workbench.open({
         viewId: FOLDER_VIEWS.filePreview,
         title: file.path,
-        description: fileStatusDescription(file),
+        description: `大小 ${formatBytes(file.size)}`,
         payload: file,
         layoutMode: 'replace',
       });
@@ -67,6 +71,13 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
   }, [ctx.ui.workbench]);
 
   const copyPath = useCallback(async (path: string) => {
+    const absolutePath = path === '.'
+      ? workspace.path
+      : `${workspace.path}\\${path.replace(/\//g, '\\')}`;
+    await navigator.clipboard.writeText(absolutePath);
+  }, [workspace.path]);
+
+  const copyRelativePath = useCallback(async (path: string) => {
     await navigator.clipboard.writeText(path);
   }, []);
 
@@ -144,19 +155,23 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
     }
   }, [activePath, ctx.commands, loadRoot]);
 
-  const revealPath = useCallback(async (path: string) => {
+  const revealPath = useCallback(async (entry: BackendWorkspaceDirEntry) => {
     setError(null);
     try {
-      await ctx.commands.execute(FOLDER_COMMANDS.reveal, { path });
+      const targetPath = entry.path === '.'
+        ? workspace.path
+        : `${workspace.path}\\${entry.path.replace(/\//g, '\\')}`;
+      await revealItemInDir(targetPath);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : String(actionError || 'Reveal 失败'));
     }
-  }, [ctx.commands]);
+  }, [workspace.path]);
 
   const actions = useMemo<FolderTreeFileActions>(
     () => ({
       openFile: (entry) => void openFile(entry),
       copyPath,
+      copyRelativePath,
       createFile,
       createDir,
       renamePath,
@@ -165,21 +180,19 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
       refreshPath: async () => refreshPath(),
       gitStatusForPath: (path) => gitStatuses.get(path),
     }),
-    [copyPath, createDir, createFile, deletePath, gitStatuses, openFile, refreshPath, renamePath, revealPath],
+    [copyPath, copyRelativePath, createDir, createFile, deletePath, gitStatuses, openFile, refreshPath, renamePath, revealPath],
   );
 
   return (
     <SidebarPage width={width}>
-      <SidebarHeader
-        icon={<Folder size={16} />}
-        title="Files"
-        subtitle="浏览目录并快速打开文件。"
-        actions={(
+      <div className="px-4 pb-3 pt-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className={`text-[11px] uppercase tracking-[0.18em] ${themeRecipes.eyebrow()}`}>Explorer</div>
           <IconButton onClick={() => void loadRoot()} title="刷新工作区目录">
             <RefreshCw size={15} />
           </IconButton>
-        )}
-      />
+        </div>
+      </div>
       <div className="flex flex-col gap-3 px-4 pb-4">
         <div className="flex items-center gap-2">
           <Button

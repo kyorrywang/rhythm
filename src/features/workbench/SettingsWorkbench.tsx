@@ -270,17 +270,25 @@ export const SettingsWorkbench = ({ section }: { section: SettingsSection }) => 
       eyebrow="Settings"
       title={sectionMeta[section].title}
       description={sectionMeta[section].description}
-      actions={(
-        <Button
-          variant="primary"
-          onClick={() => void saveToBackend()}
-          disabled={isLoading}
-          className="disabled:opacity-50"
-        >
-          保存到后端
-        </Button>
-      )}
+      showHeader={false}
     >
+      <ActionBar
+        leading={(
+          <div className={`text-[length:var(--theme-meta-size)] leading-7 ${themeRecipes.description()}`}>
+            {sectionMeta[section].description}
+          </div>
+        )}
+        trailing={(
+          <Button
+            variant="primary"
+            onClick={() => void saveToBackend()}
+            disabled={isLoading}
+            className="disabled:opacity-50"
+          >
+            保存到后端
+          </Button>
+        )}
+      />
       {views[section]}
       <WorkbenchSection title="保存与同步" description="设置详情负责编辑，页头负责保存；这里补充同步语义，避免保存动作埋在页面最底部。">
         <ActionBar

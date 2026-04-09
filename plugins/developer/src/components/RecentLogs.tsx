@@ -20,7 +20,7 @@ export function RecentLogs({
             variant="unstyled"
             size="none"
             onClick={onClear}
-            className="rounded-lg p-1 text-slate-300 hover:bg-white hover:text-slate-600"
+            className="rounded-[var(--theme-radius-control)] p-1 text-slate-300 hover:bg-white hover:text-slate-600"
             title="清空最近日志"
           >
             <Trash2 size={12} />
@@ -34,7 +34,7 @@ export function RecentLogs({
             variant="unstyled"
             size="none"
             onClick={() => onOpen(result)}
-            className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left text-xs text-slate-600 hover:bg-slate-50"
+            className="w-full rounded-[var(--theme-radius-card)] border border-slate-200 bg-white px-3 py-3 text-left text-xs text-slate-600 hover:bg-slate-50"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="truncate font-medium text-slate-800">{result.command}</span>
@@ -42,7 +42,7 @@ export function RecentLogs({
             </div>
           </Button>
         )) : (
-          <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-5 text-center text-xs text-slate-500">
+          <div className="rounded-[var(--theme-radius-card)] border border-dashed border-slate-300 px-4 py-5 text-center text-xs text-slate-500">
             暂无命令结果
           </div>
         )}

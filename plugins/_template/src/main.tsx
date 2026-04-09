@@ -38,7 +38,7 @@ function ExamplePanel({ ctx, width }: LeftPanelProps) {
     <div className="h-full bg-[#f8f7f3] px-4 py-5" style={{ width }}>
       <h2 className="text-lg font-semibold text-slate-900">My Plugin</h2>
       <button
-        className="mt-4 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white"
+        className="mt-4 rounded-[var(--theme-radius-control)] bg-slate-900 px-3 py-2 text-sm text-white"
         onClick={() => ctx.ui.workbench.open({
           viewId: 'my-plugin.preview',
           title: 'My Plugin',

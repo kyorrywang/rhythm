@@ -90,7 +90,7 @@ function GeneralSettings({ settings, onUpdate, onReset }: { settings: AppSetting
                 size="none"
                 key={theme.value}
                 onClick={() => onUpdate({ theme: theme.value as AppSettings['theme'] })}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 border rounded-lg text-sm transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 border rounded-[var(--theme-radius-control)] text-sm transition-colors ${
                   settings.theme === theme.value
                     ? 'border-gray-800 bg-gray-50 text-gray-800'
                     : 'border-gray-200 text-gray-500 hover:border-gray-300'
@@ -110,7 +110,7 @@ function GeneralSettings({ settings, onUpdate, onReset }: { settings: AppSetting
           本地偏好
         </h3>
         <div className="space-y-2">
-          <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg">
+          <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-[var(--theme-radius-card)]">
             <input
               type="checkbox"
               checked={settings.autoSaveSessions}
@@ -158,7 +158,7 @@ function DisplaySettings({ preferences, onUpdate, onReset }: { preferences: Disp
         </h3>
         <div className="space-y-4">
           {segments.map((seg) => (
-            <div key={seg.key} className="p-4 border border-gray-100 rounded-lg">
+            <div key={seg.key} className="p-4 border border-gray-100 rounded-[var(--theme-radius-card)]">
               <p className="text-sm font-medium text-gray-700 mb-3">{seg.label}</p>
               <div className="grid grid-cols-2 gap-4">
                 <div>

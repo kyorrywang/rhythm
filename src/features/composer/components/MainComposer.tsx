@@ -175,7 +175,7 @@ export const MainComposer = ({
               {attachments.map((attachment) => (
                 <div key={attachment.id} className={`group relative flex max-w-[220px] items-center gap-[var(--theme-toolbar-gap)] ${themeRecipes.mutedCard()} px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*0.75)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-secondary)]`}>
                   {attachment.kind === 'image' && attachment.previewUrl ? (
-                    <img src={attachment.previewUrl} alt={attachment.name} className="h-9 w-9 shrink-0 rounded-xl object-cover" />
+                    <img src={attachment.previewUrl} alt={attachment.name} className="h-9 w-9 shrink-0 rounded-[var(--theme-radius-control)] object-cover" />
                   ) : (
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--theme-radius-control)] bg-[var(--theme-surface)] text-[var(--theme-text-muted)]">
                       <FileText size={15} />
@@ -189,7 +189,7 @@ export const MainComposer = ({
                     variant="unstyled"
                     size="none"
                     onClick={() => onRemoveAttachment(attachment.id)}
-                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--theme-accent)] text-[var(--theme-accent-contrast)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-[var(--theme-radius-control)] bg-[var(--theme-accent)] text-[var(--theme-accent-contrast)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
                     title="移除附件"
                   >
                     <X size={11} />
@@ -273,7 +273,7 @@ export const MainComposer = ({
               onClick={isBusy ? onInterrupt : onSend}
               disabled={!isBusy && !canSubmit}
               className={cn(
-                "flex h-[var(--theme-icon-button-size)] w-[var(--theme-icon-button-size)] items-center justify-center rounded-full transition-colors",
+                "flex h-[var(--theme-icon-button-size)] w-[var(--theme-icon-button-size)] items-center justify-center rounded-[var(--theme-radius-control)] transition-colors",
                 canSubmit || isBusy
                   ? "bg-[var(--theme-accent)] text-[var(--theme-accent-contrast)] shadow-[var(--theme-shadow-soft)] hover:bg-[var(--theme-accent-hover)]"
                   : "cursor-not-allowed bg-[var(--theme-border)] text-[var(--theme-accent-contrast)]",
@@ -316,7 +316,7 @@ export const MainComposer = ({
             size="none"
             onClick={onToggleFullAuto}
             className={cn(
-              'inline-flex min-h-[var(--theme-control-height-sm)] items-center gap-[var(--theme-toolbar-gap)] rounded-full px-[var(--theme-control-padding-x-sm)] transition-colors',
+              'inline-flex min-h-[var(--theme-control-height-sm)] items-center gap-[var(--theme-toolbar-gap)] rounded-[var(--theme-radius-control)] px-[var(--theme-control-padding-x-sm)] transition-colors',
               controls.fullAuto
                 ? 'bg-[var(--theme-success-surface)] text-[var(--theme-success-text)]'
                 : 'bg-[var(--theme-surface)] text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]',

@@ -64,7 +64,13 @@ export function CorePluginsOverview({ ctx }: WorkbenchProps) {
       eyebrow="Plugins"
       title="插件概览"
       description="这里是插件生态的 landing page。先看安装、运行和风险摘要，再从左侧进入具体插件。"
+      showHeader={false}
     >
+      <Card tone="muted">
+        <div className="text-[length:var(--theme-meta-size)] leading-7 text-[var(--theme-text-secondary)]">
+          这里集中查看插件生态状态、常用操作和索引入口。顶部标题已经负责说明当前页，内容区直接进入概览。
+        </div>
+      </Card>
       <WorkbenchSection title="当前工作区生态" description="先看全局状态，再决定是安装插件、刷新列表，还是继续进入某个具体插件。">
         <div className="grid gap-[var(--theme-section-gap)] xl:grid-cols-[1.7fr_1fr]">
           <StatsGrid

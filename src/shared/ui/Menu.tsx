@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 export const MenuRoot = DropdownMenu.Root;
 export const MenuTrigger = DropdownMenu.Trigger;
 export const MenuPortal = DropdownMenu.Portal;
+export const MenuSeparator = DropdownMenu.Separator;
 
 export function MenuContent({
   children,
@@ -43,8 +44,17 @@ export function MenuItem({
       )}
       {...props}
     >
-      {icon}
-      <span className={themeRecipes.description()}>{children}</span>
+      {icon ? <span className="flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span> : null}
+      <span className={cn('min-w-0 flex-1 leading-5', themeRecipes.description())}>{children}</span>
     </DropdownMenu.Item>
+  );
+}
+
+export function MenuDivider({ className, ...props }: DropdownMenu.DropdownMenuSeparatorProps) {
+  return (
+    <MenuSeparator
+      className={cn('my-[calc(var(--theme-floating-group-gap)*0.75)] h-px bg-[var(--theme-floating-header-border)]', className)}
+      {...props}
+    />
   );
 }

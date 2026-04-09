@@ -2,7 +2,8 @@ import { createPluginContext } from '@/plugin/host/createPluginContext';
 import { PluginErrorBoundary } from '@/plugin/host/PluginErrorBoundary';
 import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
 import type { WorkbenchProps } from '@/plugin/sdk';
-import { EmptyState, WorkbenchPage, WorkbenchSection } from '@/shared/ui';
+import { Card, EmptyState, WorkbenchPage, WorkbenchSection } from '@/shared/ui';
+import { themeRecipes } from '@/shared/theme/recipes';
 
 export function CorePluginSettingsSection({ payload }: WorkbenchProps<{ sectionId?: string }>) {
   const section = usePluginHostStore((state) => payload.sectionId ? state.settingsSections[payload.sectionId] : undefined);
@@ -18,13 +19,17 @@ export function CorePluginSettingsSection({ payload }: WorkbenchProps<{ sectionI
   return (
     <PluginErrorBoundary pluginId={pluginId} surface={section.id}>
       <WorkbenchPage
-          eyebrow="Plugin Settings"
-          title={section.title}
-          description={section.description || pluginId}
+        eyebrow="Plugin Settings"
+        title={section.title}
+        description={section.description || pluginId}
+        showHeader={false}
         >
-          <WorkbenchSection title={section.title} description={section.description || pluginId}>
-            <Section ctx={createPluginContext(pluginId)} />
-          </WorkbenchSection>
+        <Card tone="muted" className={`leading-7 ${themeRecipes.description()}`}>
+          {section.description || `${pluginId} 提供的设置区域。这里直接展示配置内容，不再重复页面标题。`}
+        </Card>
+        <WorkbenchSection title="配置内容" description="在这里查看和调整这个插件暴露出来的设置项。">
+          <Section ctx={createPluginContext(pluginId)} />
+        </WorkbenchSection>
       </WorkbenchPage>
     </PluginErrorBoundary>
   );
