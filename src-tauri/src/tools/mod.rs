@@ -151,7 +151,7 @@ impl ToolRegistry {
         registry.register(Box::new(skill::SkillTool));
 
         for plugin in plugins {
-            if !plugin.enabled {
+            if !plugin.is_runtime_active() {
                 continue;
             }
             for declaration in &plugin.manifest.contributes.agent_tools {

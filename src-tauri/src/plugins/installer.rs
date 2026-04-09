@@ -1,4 +1,4 @@
-use super::types::{PluginManifest, PluginStatus, PluginSummary};
+use super::types::{PluginManifest, PluginSource, PluginStatus, PluginSummary};
 use crate::infrastructure::paths;
 use crate::shared::error::RhythmError;
 use std::path::Path;
@@ -89,6 +89,10 @@ pub fn install_plugin(source: &Path) -> Result<PluginSummary, RhythmError> {
         name: manifest.name,
         version: manifest.version,
         description: manifest.description,
+        source: PluginSource::Global,
+        installed: true,
+        is_active: true,
+        shadowed_by: None,
         enabled: manifest.enabled_by_default,
         configured_enabled: manifest.enabled_by_default,
         status: if manifest.enabled_by_default {

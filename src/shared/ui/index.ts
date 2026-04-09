@@ -13,7 +13,7 @@ export { InfoList } from './InfoList';
 export { Input } from './Input';
 export { JsonPreview } from './JsonPreview';
 export { LogPanel } from './LogPanel';
-export { MenuContent, MenuDivider, MenuItem, MenuPortal, MenuRoot, MenuTrigger } from './Menu';
+export { MenuContent, MenuDivider, MenuItem, MenuPortal, MenuRoot, MenuSub, MenuSubContent, MenuSubTrigger, MenuSubmenuContent, MenuSubmenuTrigger, MenuTrigger } from './Menu';
 export { NavItem, NavList, NavSectionLabel } from './NavList';
 export { Panel } from './Panel';
 export { Pill } from './Pill';

@@ -12,6 +12,7 @@ import {
   downloadJson,
   exportWorkflow,
   importWorkflow,
+  isStarterWorkflow,
   readJsonFile,
 } from '../utils';
 import { WorkflowGraphCanvas } from './WorkflowGraphCanvas';
@@ -29,6 +30,7 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
     () => workflow.nodes.find((node) => node.id === selectedNodeId) || workflow.nodes[0],
     [selectedNodeId, workflow.nodes],
   );
+  const showStarterGuide = useMemo(() => isStarterWorkflow(workflow), [workflow]);
 
   useEffect(() => {
     const disposable = ctx.events.on(WORKFLOW_EVENTS.nodeTypesChanged, () => {
@@ -231,6 +233,15 @@ export function WorkflowEditorView({ ctx, payload }: WorkbenchProps<WorkflowEdit
           </Button>
         ))}
       </div>
+
+      {showStarterGuide && (
+        <div className="mt-4 rounded-[var(--theme-radius-card)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+          <div className="font-medium">Getting Started</div>
+          <div className="mt-1">
+            This starter workflow already includes a trigger and a command node. Rename the flow, edit the command, or add more nodes to continue.
+          </div>
+        </div>
+      )}
 
       <div className="mt-5 grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <WorkflowGraphCanvas

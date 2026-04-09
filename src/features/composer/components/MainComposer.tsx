@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, ArrowUp, Shield, ChevronDown, Square, Sparkles, Bot, BrainCircuit, FileText, Image as ImageIcon, X } from 'lucide-react';
+import { Plus, ArrowUp, Shield, ChevronDown, Square, Sparkles, Bot, BrainCircuit, FileText, Image as ImageIcon, SlidersHorizontal, X } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { themeRecipes } from '@/shared/theme/recipes';
-import { Button, PopoverArrow, PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from '@/shared/ui';
+import { Button, MenuContent, MenuItem, MenuPortal, MenuRoot, MenuSub, MenuSubmenuContent, MenuSubmenuTrigger, MenuTrigger, PopoverArrow, PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from '@/shared/ui';
 import type { ComposerModelSelection, MainComposerProps, DockType } from '../types';
 import type { Attachment } from '@/shared/types/schema';
 
@@ -141,6 +141,8 @@ export const MainComposer = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [isCompactControls, setIsCompactControls] = useState(false);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -148,6 +150,18 @@ export const MainComposer = ({
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
   }, [text]);
+
+  useEffect(() => {
+    const element = composerRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      setIsCompactControls(entry.contentRect.width < 640);
+    });
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const handleFiles = async (files: File[]) => {
     if (files.length === 0) return;
@@ -158,7 +172,7 @@ export const MainComposer = ({
   };
 
   return (
-    <div className="relative z-20 mx-auto w-full max-w-[868px] px-6 pb-3">
+    <div ref={composerRef} className="relative z-20 mx-auto w-full max-w-[868px] px-6 pb-3">
       <div className={`text-left ${themeRecipes.workbenchSurface()} focus-within:border-[var(--theme-accent)] focus-within:ring-4 focus-within:ring-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] transition-all flex flex-col pointer-events-auto relative overflow-hidden`}>
         {headerContent}
 
@@ -286,30 +300,44 @@ export const MainComposer = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-[var(--theme-toolbar-gap)] border-t-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-panel-bg)_0%,var(--theme-shell-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[calc(var(--theme-panel-padding-y)*0.45)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-secondary)]">
-          <ControlPopover
-            icon={<Sparkles size={13} />}
-            label={controls.mode}
-            title="选择模式"
-            options={MODE_OPTIONS}
-            value={controls.mode}
-            onSelect={onSetMode}
-          />
-          <ModelPopover
-            icon={<Bot size={13} />}
-            label={controls.modelName || '无可用模型'}
-            title="选择模型"
-            groups={modelGroups}
-            value={{ providerId: controls.providerId, modelId: controls.modelId, modelName: controls.modelName }}
-            onSelect={onSetModel}
-          />
-          <ControlPopover
-            icon={<BrainCircuit size={13} />}
-            label={controls.reasoning}
-            title="思考强度"
-            options={REASONING_OPTIONS}
-            value={controls.reasoning}
-            onSelect={onSetReasoning}
-          />
+          {isCompactControls ? (
+            <CompactControlsPopover
+              mode={controls.mode}
+              reasoning={controls.reasoning}
+              modelGroups={modelGroups}
+              selectedModel={{ providerId: controls.providerId, modelId: controls.modelId, modelName: controls.modelName }}
+              onSetMode={onSetMode}
+              onSetModel={onSetModel}
+              onSetReasoning={onSetReasoning}
+            />
+          ) : (
+            <>
+              <ControlPopover
+                icon={<Sparkles size={13} />}
+                label={controls.mode}
+                title="选择模式"
+                options={MODE_OPTIONS}
+                value={controls.mode}
+                onSelect={onSetMode}
+              />
+              <ModelPopover
+                icon={<Bot size={13} />}
+                label={controls.modelName || '无可用模型'}
+                title="选择模型"
+                groups={modelGroups}
+                value={{ providerId: controls.providerId, modelId: controls.modelId, modelName: controls.modelName }}
+                onSelect={onSetModel}
+              />
+              <ControlPopover
+                icon={<BrainCircuit size={13} />}
+                label={controls.reasoning}
+                title="思考强度"
+                options={REASONING_OPTIONS}
+                value={controls.reasoning}
+                onSelect={onSetReasoning}
+              />
+            </>
+          )}
           <div className="flex-1" />
           <Button
             variant="unstyled"
@@ -329,6 +357,126 @@ export const MainComposer = ({
         </div>
       </div>
     </div>
+  );
+};
+
+const CompactControlsPopover = ({
+  mode,
+  reasoning,
+  modelGroups,
+  selectedModel,
+  onSetMode,
+  onSetModel,
+  onSetReasoning,
+}: {
+  mode: MainComposerProps['controls']['mode'];
+  reasoning: MainComposerProps['controls']['reasoning'];
+  modelGroups: MainComposerProps['modelGroups'];
+  selectedModel: ComposerModelSelection;
+  onSetMode: (mode: MainComposerProps['controls']['mode']) => void;
+  onSetModel: (model: ComposerModelSelection) => void;
+  onSetReasoning: (reasoning: MainComposerProps['controls']['reasoning']) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  return (
+    <MenuRoot
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          triggerRef.current?.blur();
+        }
+      }}
+    >
+      <MenuTrigger asChild>
+        <Button
+          ref={triggerRef}
+          variant="unstyled"
+          size="none"
+          className={cn(themeRecipes.chipToggle(), 'focus:ring-0')}
+        >
+          <SlidersHorizontal size={13} />
+          <span>Controls</span>
+          <ChevronDown size={12} className="transition-transform data-[state=open]:rotate-180" />
+        </Button>
+      </MenuTrigger>
+      <MenuPortal>
+        <MenuContent
+          align="start"
+          sideOffset={10}
+          collisionPadding={16}
+          className="w-48"
+        >
+          <MenuSub>
+            <MenuSubmenuTrigger icon={<Sparkles size={13} />}>
+              Mode
+            </MenuSubmenuTrigger>
+            <MenuPortal>
+              <MenuSubmenuContent>
+                {MODE_OPTIONS.map((option) => (
+                  <MenuItem
+                    key={option.value}
+                    onSelect={() => onSetMode(option.value)}
+                    className={option.value === mode ? 'bg-[var(--theme-menu-item-hover-bg)] text-[var(--theme-menu-item-hover-text)]' : undefined}
+                  >
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </MenuSubmenuContent>
+            </MenuPortal>
+          </MenuSub>
+
+          <MenuSub>
+            <MenuSubmenuTrigger icon={<Bot size={13} />}>
+              Model
+            </MenuSubmenuTrigger>
+            <MenuPortal>
+              <MenuSubmenuContent className="w-56">
+                {modelGroups.length === 0 ? (
+                  <MenuItem disabled>无可用模型</MenuItem>
+                ) : (
+                  modelGroups.flatMap((group) =>
+                    group.models.map((model) => {
+                      const selected = group.providerId === selectedModel.providerId && model.id === selectedModel.modelId;
+                      return (
+                        <MenuItem
+                          key={`${group.providerId}:${model.id}`}
+                          onSelect={() => onSetModel({ providerId: group.providerId, modelId: model.id, modelName: model.name })}
+                          className={selected ? 'bg-[var(--theme-menu-item-hover-bg)] text-[var(--theme-menu-item-hover-text)]' : undefined}
+                        >
+                          {group.providerName} / {model.name}
+                        </MenuItem>
+                      );
+                    }),
+                  )
+                )}
+              </MenuSubmenuContent>
+            </MenuPortal>
+          </MenuSub>
+
+          <MenuSub>
+            <MenuSubmenuTrigger icon={<BrainCircuit size={13} />}>
+              Reasoning
+            </MenuSubmenuTrigger>
+            <MenuPortal>
+              <MenuSubmenuContent>
+                {REASONING_OPTIONS.map((option) => (
+                  <MenuItem
+                    key={option.value}
+                    onSelect={() => onSetReasoning(option.value)}
+                    className={option.value === reasoning ? 'bg-[var(--theme-menu-item-hover-bg)] text-[var(--theme-menu-item-hover-text)]' : undefined}
+                  >
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </MenuSubmenuContent>
+            </MenuPortal>
+          </MenuSub>
+        </MenuContent>
+      </MenuPortal>
+    </MenuRoot>
   );
 };
 

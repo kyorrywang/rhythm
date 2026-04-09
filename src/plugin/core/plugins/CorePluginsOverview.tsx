@@ -18,9 +18,18 @@ export function CorePluginsOverview({ ctx }: WorkbenchProps) {
   const enabledCount = plugins.filter((plugin) => plugin.status === 'enabled').length;
   const blockedCount = plugins.filter((plugin) => plugin.status === 'blocked').length;
   const errorCount = plugins.filter((plugin) => plugin.status === 'error').length;
-  const installedNames = useMemo(() => plugins.map((plugin) => `${plugin.name} · ${plugin.version}`), [plugins]);
+  const installedCount = plugins.filter((plugin) => plugin.installed).length;
+  const activeCount = plugins.filter((plugin) => plugin.is_active).length;
+  const shadowedCount = plugins.filter((plugin) => !plugin.is_active && !!plugin.shadowed_by).length;
+  const installedNames = useMemo(
+    () => plugins.map((plugin) => `${plugin.name} · ${plugin.version} · ${formatPluginSource(plugin.source)}${plugin.installed ? ' · 已安装' : ''}${plugin.is_active ? ' · 当前生效' : ''}`),
+    [plugins],
+  );
   const blockedNames = useMemo(() => plugins.filter((plugin) => plugin.status === 'blocked').map((plugin) => `${plugin.name} · ${plugin.blocked_reason || '依赖不满足'}`), [plugins]);
-  const enabledNames = useMemo(() => plugins.filter((plugin) => plugin.status === 'enabled').map((plugin) => `${plugin.name} · ${plugin.version}`), [plugins]);
+  const enabledNames = useMemo(
+    () => plugins.filter((plugin) => plugin.status === 'enabled').map((plugin) => `${plugin.name} · ${plugin.version} · ${formatPluginSource(plugin.source)}${plugin.is_active ? ' · 当前生效' : ''}`),
+    [plugins],
+  );
   const topPlugin = plugins[0];
   const blockedPlugin = plugins.find((plugin) => plugin.status === 'blocked');
 
@@ -76,11 +85,14 @@ export function CorePluginsOverview({ ctx }: WorkbenchProps) {
           <StatsGrid
             items={[
               { label: '已安装', value: String(plugins.length) },
+              { label: '全局已安装', value: String(installedCount) },
               { label: '已启用', value: String(enabledCount), tone: 'success' },
+              { label: '当前生效', value: String(activeCount) },
+              { label: '已覆盖', value: String(shadowedCount), tone: shadowedCount > 0 ? 'warning' : 'default' },
               { label: '阻塞', value: String(blockedCount), tone: blockedCount > 0 ? 'warning' : 'default' },
               { label: '错误', value: String(errorCount), tone: errorCount > 0 ? 'danger' : 'default' },
             ]}
-            columnsClassName="md:grid-cols-2 xl:grid-cols-4"
+            columnsClassName="md:grid-cols-2 xl:grid-cols-3"
           />
           <Card tone={blockedCount > 0 || errorCount > 0 ? 'warning' : 'muted'}>
             <div className="space-y-[var(--theme-toolbar-gap)]">
@@ -108,7 +120,7 @@ export function CorePluginsOverview({ ctx }: WorkbenchProps) {
           <Card>
             <div className="space-y-[var(--theme-toolbar-gap)]">
               <div className="text-[length:var(--theme-section-title-size)] font-[var(--theme-title-weight)] text-[var(--theme-text-primary)]">安装新插件</div>
-              <div className="text-[length:var(--theme-meta-size)] leading-6 text-[var(--theme-text-secondary)]">从本地文件夹读取插件 manifest，预检后安装到当前工作区。</div>
+              <div className="text-[length:var(--theme-meta-size)] leading-6 text-[var(--theme-text-secondary)]">从本地文件夹读取插件 manifest，预检后安装到全局插件目录。</div>
               <Button variant="secondary" onClick={() => void handleInstall()}>
                 <PackagePlus size={15} />
                 安装本地插件
@@ -196,4 +208,15 @@ export function CorePluginsOverview({ ctx }: WorkbenchProps) {
       </WorkbenchSection>
     </WorkbenchPage>
   );
+}
+
+function formatPluginSource(source: 'global' | 'project' | 'workspace_dev') {
+  switch (source) {
+    case 'global':
+      return 'Global';
+    case 'project':
+      return 'Project';
+    default:
+      return 'Workspace Dev';
+  }
 }

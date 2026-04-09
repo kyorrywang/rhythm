@@ -5,6 +5,14 @@ use crate::infrastructure::config::HookConfig;
 use crate::mcp::types::McpServerConfig;
 use crate::skills::types::SkillDefinition;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginSource {
+    Global,
+    Project,
+    WorkspaceDev,
+}
+
 // ─── Plugin Manifest ─────────────────────────────────────────────────────────
 
 /// Parsed contents of `plugin.json` at the root of every plugin directory.
@@ -143,6 +151,10 @@ pub struct LoadedPlugin {
     pub manifest: PluginManifest,
     /// Absolute path to the plugin's root directory.
     pub path: PathBuf,
+    pub source: PluginSource,
+    pub is_installed: bool,
+    pub is_active: bool,
+    pub shadowed_by: Option<String>,
     /// Whether the user/default settings requested this plugin to be enabled.
     pub configured_enabled: bool,
     /// Effective runtime state. This is false for disabled and blocked plugins.
@@ -167,6 +179,10 @@ impl LoadedPlugin {
     pub fn description(&self) -> &str {
         &self.manifest.description
     }
+
+    pub fn is_runtime_active(&self) -> bool {
+        self.is_active && self.enabled && self.status != PluginStatus::Blocked
+    }
 }
 
 /// Summary suitable for serialisation to the frontend.
@@ -175,6 +191,10 @@ pub struct PluginSummary {
     pub name: String,
     pub version: String,
     pub description: String,
+    pub source: PluginSource,
+    pub installed: bool,
+    pub is_active: bool,
+    pub shadowed_by: Option<String>,
     pub enabled: bool,
     pub configured_enabled: bool,
     pub status: PluginStatus,
@@ -199,6 +219,10 @@ impl From<&LoadedPlugin> for PluginSummary {
             name: p.manifest.name.clone(),
             version: p.manifest.version.clone(),
             description: p.manifest.description.clone(),
+            source: p.source,
+            installed: p.is_installed,
+            is_active: p.is_active,
+            shadowed_by: p.shadowed_by.clone(),
             enabled: p.enabled,
             configured_enabled: p.configured_enabled,
             status: p.status,

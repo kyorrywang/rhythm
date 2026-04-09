@@ -202,9 +202,7 @@ pub async fn plugin_runtime_info(
     let cwd_path = crate::commands::workspace::resolve_workspace_path(Some(&cwd))?;
     let settings = config::load_settings();
     let loaded = plugins::load_plugins(&settings, &cwd_path);
-    let plugin = loaded
-        .iter()
-        .find(|entry| entry.name() == plugin_name)
+    let plugin = find_preferred_plugin(&loaded, &plugin_name)
         .ok_or_else(|| format!("Plugin '{}' is not installed", plugin_name))?;
     let storage_path = paths::get_workspace_plugin_data_dir(&cwd_path, plugin.name());
     paths::ensure_dir(&storage_path).map_err(|e| e.to_string())?;
@@ -467,9 +465,7 @@ fn resolve_enabled_plugin_storage_dir(
     let cwd_path = crate::commands::workspace::resolve_workspace_path(Some(cwd))?;
     let settings = config::load_settings();
     let loaded = plugins::load_plugins(&settings, &cwd_path);
-    let plugin = loaded
-        .iter()
-        .find(|entry| entry.name() == plugin_name)
+    let plugin = find_preferred_plugin(&loaded, plugin_name)
         .ok_or_else(|| format!("Plugin '{}' is not installed", plugin_name))?;
 
     if !plugin.enabled {
@@ -525,6 +521,16 @@ fn relative_plugin_storage_path(base: &std::path::Path, path: &std::path::Path) 
     path.strip_prefix(base)
         .map(|path| path.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"))
+}
+
+fn find_preferred_plugin<'a>(
+    loaded: &'a [plugins::LoadedPlugin],
+    plugin_name: &str,
+) -> Option<&'a plugins::LoadedPlugin> {
+    loaded
+        .iter()
+        .find(|entry| entry.name() == plugin_name && entry.is_active)
+        .or_else(|| loaded.iter().find(|entry| entry.name() == plugin_name))
 }
 
 fn set_plugin_enabled(name: &str, enabled: bool) -> Result<(), String> {

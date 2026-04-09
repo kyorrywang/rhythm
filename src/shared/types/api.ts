@@ -52,6 +52,10 @@ export interface BackendPluginSummary {
   name: string;
   version: string;
   description: string;
+  source: "global" | "project" | "workspace_dev";
+  installed: boolean;
+  is_active: boolean;
+  shadowed_by?: string | null;
   enabled: boolean;
   configured_enabled: boolean;
   status: "enabled" | "disabled" | "blocked" | "error";

@@ -10,20 +10,21 @@ export function createDefaultWorkflow(name = 'Untitled Workflow'): WorkflowDefin
   const manual: WorkflowNode = {
     id: createId('node'),
     type: 'manual',
-    title: 'Manual Trigger',
+    title: 'Start',
     config: {},
     position: { x: 0, y: 0 },
   };
   const shell: WorkflowNode = {
     id: createId('node'),
     type: 'shell',
-    title: 'Echo Hello',
-    config: { command: 'echo hello from workflow' },
-    position: { x: 180, y: 0 },
+    title: 'Run Command',
+    config: { command: 'echo "hello from workflow"' },
+    position: { x: 220, y: 0 },
   };
   return {
     id: createId('wf'),
     name,
+    description: 'Start with a trigger, then run a command or add more nodes.',
     version: 1,
     nodes: [manual, shell],
     edges: [{ id: createId('edge'), from: manual.id, to: shell.id }],
@@ -141,6 +142,17 @@ export function parseInputJson(inputJson?: string): unknown {
 export function formatDate(value?: number) {
   if (!value) return '-';
   return new Date(value).toLocaleString();
+}
+
+export function isStarterWorkflow(workflow: WorkflowDefinition) {
+  if (workflow.nodes.length !== 2 || workflow.edges.length !== 1) return false;
+  const [first, second] = workflow.nodes;
+  return (
+    first?.type === 'manual' &&
+    second?.type === 'shell' &&
+    workflow.edges[0]?.from === first.id &&
+    workflow.edges[0]?.to === second.id
+  );
 }
 
 export function exportWorkflow(workflow: WorkflowDefinition): WorkflowExportEnvelope {

@@ -186,12 +186,7 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
   return (
     <SidebarPage width={width}>
       <div className="px-4 pb-3 pt-5">
-        <div className="flex items-center justify-between gap-3">
-          <div className={`text-[11px] uppercase tracking-[0.18em] ${themeRecipes.eyebrow()}`}>Explorer</div>
-          <IconButton onClick={() => void loadRoot()} title="刷新工作区目录">
-            <RefreshCw size={15} />
-          </IconButton>
-        </div>
+        <div className={`text-[11px] uppercase tracking-[0.18em] ${themeRecipes.eyebrow()}`}>Explorer</div>
       </div>
       <div className="flex flex-col gap-3 px-4 pb-4">
         <div className="flex items-center gap-2">
@@ -210,6 +205,13 @@ export function FolderTree({ ctx, width }: LeftPanelProps) {
             className="border border-[var(--theme-border)] bg-[var(--theme-surface)]"
           >
             <FolderPlus size={14} />
+          </IconButton>
+          <IconButton
+            onClick={() => void loadRoot()}
+            title="刷新工作区目录"
+            className="border border-[var(--theme-border)] bg-[var(--theme-surface)]"
+          >
+            <RefreshCw size={14} />
           </IconButton>
         </div>
       </div>

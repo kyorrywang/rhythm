@@ -111,7 +111,7 @@ pub fn load_skill_registry_for_cwd(settings: &RhythmSettings, cwd: &Path) -> Ski
         registry.register(skill); // user skills override bundled with same name
     }
     for plugin in crate::plugins::loader::load_plugins(settings, cwd) {
-        if plugin.enabled {
+        if plugin.is_runtime_active() {
             for skill in plugin.skills {
                 registry.register(skill); // enabled plugins override previous skills with same name
             }

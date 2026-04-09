@@ -46,7 +46,7 @@ impl PluginCommandRegistry {
         let mut commands = HashMap::new();
         register_builtin_tool_commands(&mut commands);
         for plugin in plugins {
-            if !plugin.enabled {
+            if !plugin.is_runtime_active() {
                 continue;
             }
             for declaration in &plugin.manifest.contributes.commands {
@@ -110,10 +110,10 @@ impl PluginCommandRegistry {
             .clone();
         let provider = plugins
             .iter()
-            .find(|plugin| plugin.name() == command.plugin_name);
+            .find(|plugin| plugin.name() == command.plugin_name && plugin.is_active);
         let caller = plugins
             .iter()
-            .find(|plugin| plugin.name() == caller_plugin)
+            .find(|plugin| plugin.name() == caller_plugin && plugin.is_active)
             .ok_or_else(|| format!("Calling plugin '{}' is not installed", caller_plugin))?;
 
         if let Some(provider) = provider.filter(|provider| !provider.enabled) {

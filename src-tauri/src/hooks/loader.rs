@@ -58,7 +58,7 @@ pub fn load_hook_registry_for_cwd(settings: &RhythmSettings, cwd: &Path) -> Hook
     let mut registry = load_hook_registry(&settings.hooks);
 
     for plugin in crate::plugins::load_plugins(settings, cwd) {
-        if !plugin.enabled {
+        if !plugin.is_runtime_active() {
             continue;
         }
 

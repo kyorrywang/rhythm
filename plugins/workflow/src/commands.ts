@@ -19,6 +19,7 @@ export function registerWorkflowCommands(ctx: PluginContext) {
         title: workflow.name,
         description: 'New workflow',
         payload: { workflow },
+        layoutMode: 'replace',
       });
       return workflow;
     },

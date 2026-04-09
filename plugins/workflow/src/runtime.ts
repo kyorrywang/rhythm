@@ -46,6 +46,7 @@ export async function runWorkflow(ctx: PluginContext, workflow: WorkflowDefiniti
       description: 'Workflow is running',
       payload: { workflow, run },
       lifecycle: 'live',
+      layoutMode: 'replace',
     });
   }
 
@@ -140,5 +141,6 @@ async function persistAndEmit(ctx: PluginContext, workflow: WorkflowDefinition, 
     description: `Status: ${run.status}`,
     payload: { workflow, run },
     lifecycle: run.status === 'running' ? 'live' : 'snapshot',
+    layoutMode: 'replace',
   });
 }

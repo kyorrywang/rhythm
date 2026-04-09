@@ -1,22 +1,23 @@
 import { useCallback, type KeyboardEvent, type PointerEvent } from 'react';
-import { ScrollText } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, ScrollText } from 'lucide-react';
 import { createPluginContext } from '@/plugin/host/createPluginContext';
 import { PluginErrorBoundary } from '@/plugin/host/PluginErrorBoundary';
 import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { themeRecipes } from '@/shared/theme/recipes';
-import { EmptyState } from '@/shared/ui';
+import { EmptyState, IconButton } from '@/shared/ui';
 import { WorkbenchResizeHandle } from './WorkbenchResizeHandle';
 
 const DEFAULT_WORKBENCH_SPLIT_WIDTH = 400;
 const MIN_WORKBENCH_SPLIT_WIDTH = 280;
 const MAX_WORKBENCH_SPLIT_WIDTH = 1200;
-const MIN_MAIN_SESSION_WIDTH = 220;
+const MIN_MAIN_SESSION_WIDTH = 420;
 const WORKBENCH_VIEWPORT_PADDING = 80;
 
 export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
   const workbench = useSessionStore((s) => s.workbench);
   const workbenchSplitWidth = useSessionStore((s) => s.workbenchSplitWidth);
+  const setWorkbenchLayoutMode = useSessionStore((s) => s.setWorkbenchLayoutMode);
   const setWorkbenchSplitWidth = useSessionStore((s) => s.setWorkbenchSplitWidth);
   const workbenchViews = usePluginHostStore((s) => s.workbenchViews);
 
@@ -85,11 +86,19 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
                 <ScrollText size={14} />
                 <span>{view?.title || activeItem.viewType}</span>
               </div>
-              {activeItem.viewType === 'folder.file.preview' && activeItem.description ? (
-                <div className={`shrink-0 text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>
-                  {activeItem.description}
-                </div>
-              ) : null}
+              <div className="flex items-center gap-[var(--theme-toolbar-gap)]">
+                {activeItem.viewType === 'folder.file.preview' && activeItem.description ? (
+                  <div className={`shrink-0 text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>
+                    {activeItem.description}
+                  </div>
+                ) : null}
+                <IconButton
+                  onClick={() => setWorkbenchLayoutMode(isReplace ? 'split' : 'replace')}
+                  title={isReplace ? 'Switch to Split View' : 'Switch to Replace View'}
+                >
+                  {isReplace ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+                </IconButton>
+              </div>
             </div>
             <div className="h-[calc(100%-calc(var(--theme-card-padding-y)*2+1.5rem))] overflow-hidden">
               {view ? (

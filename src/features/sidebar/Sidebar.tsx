@@ -20,6 +20,7 @@ export const Sidebar = () => {
     setActiveLeftPanelView,
   } = useSessionStore();
   const pluginActivityItems = usePluginHostStore((state) => state.activityBarItems);
+  const leftPanels = usePluginHostStore((state) => state.leftPanels);
   const workspaceActivityItems = pluginActivityItems.filter((item) => (item.scope || 'workspace') === 'workspace');
   const globalActivityItems = pluginActivityItems.filter((item) => item.scope === 'global');
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_PANEL_WIDTH);
@@ -30,6 +31,11 @@ export const Sidebar = () => {
       setLeftPanelWidth(clampPanelWidth(savedWidth));
     }
   }, []);
+
+  useEffect(() => {
+    if (leftPanels[activeLeftPanelViewId]) return;
+    setActiveLeftPanelView('core.sessions.panel');
+  }, [activeLeftPanelViewId, leftPanels, setActiveLeftPanelView]);
 
   const handleOpenPluginActivity = (item: ActivityBarContribution) => {
     if (item.opens === 'core.sessions.panel') {

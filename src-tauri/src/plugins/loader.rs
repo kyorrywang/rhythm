@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use super::types::{LoadedPlugin, PluginManifest, PluginStatus};
+use super::types::{LoadedPlugin, PluginManifest, PluginSource, PluginStatus};
 use crate::infrastructure::config::{HookConfig, RhythmSettings};
 use crate::infrastructure::paths;
 use crate::mcp::types::McpServerConfig;
@@ -28,15 +28,15 @@ pub fn get_workspace_plugins_dir(cwd: &Path) -> PathBuf {
 
 /// Collect all plugin root directories from both user and project locations.
 /// A directory qualifies if it contains a `plugin.json` file.
-pub fn discover_plugin_paths(cwd: &Path) -> Vec<PathBuf> {
+pub fn discover_plugin_paths(cwd: &Path) -> Vec<(PluginSource, PathBuf)> {
     let roots = [
-        get_user_plugins_dir(),
-        get_project_plugins_dir(cwd),
-        get_workspace_plugins_dir(cwd),
+        (PluginSource::Global, get_user_plugins_dir()),
+        (PluginSource::Project, get_project_plugins_dir(cwd)),
+        (PluginSource::WorkspaceDev, get_workspace_plugins_dir(cwd)),
     ];
-    let mut paths: Vec<PathBuf> = Vec::new();
+    let mut paths: Vec<(PluginSource, PathBuf)> = Vec::new();
 
-    for root in &roots {
+    for (source, root) in &roots {
         if !root.exists() {
             continue;
         }
@@ -54,7 +54,7 @@ pub fn discover_plugin_paths(cwd: &Path) -> Vec<PathBuf> {
             })
             .collect();
         entries.sort();
-        paths.extend(entries);
+        paths.extend(entries.into_iter().map(|entry| (*source, entry)));
     }
 
     paths
@@ -64,7 +64,11 @@ pub fn discover_plugin_paths(cwd: &Path) -> Vec<PathBuf> {
 
 /// Attempt to load one plugin directory.
 /// Returns `None` if `plugin.json` is missing or unparseable.
-pub fn load_plugin(path: &Path, enabled_plugins: &HashMap<String, bool>) -> Option<LoadedPlugin> {
+pub fn load_plugin(
+    source: PluginSource,
+    path: &Path,
+    enabled_plugins: &HashMap<String, bool>,
+) -> Option<LoadedPlugin> {
     let manifest_path = path.join("plugin.json");
     let manifest_text = std::fs::read_to_string(&manifest_path).ok()?;
     let manifest: PluginManifest = serde_json::from_str(&manifest_text).ok()?;
@@ -87,6 +91,10 @@ pub fn load_plugin(path: &Path, enabled_plugins: &HashMap<String, bool>) -> Opti
     Some(LoadedPlugin {
         manifest,
         path: path.to_path_buf(),
+        source,
+        is_installed: matches!(source, PluginSource::Global),
+        is_active: true,
+        shadowed_by: None,
         configured_enabled,
         enabled: configured_enabled,
         status: if configured_enabled {
@@ -106,8 +114,10 @@ pub fn load_plugin(path: &Path, enabled_plugins: &HashMap<String, bool>) -> Opti
 pub fn load_plugins(settings: &RhythmSettings, cwd: &Path) -> Vec<LoadedPlugin> {
     let mut plugins: Vec<LoadedPlugin> = discover_plugin_paths(cwd)
         .iter()
-        .filter_map(|p| load_plugin(p, &settings.enabled_plugins))
+        .filter_map(|(source, path)| load_plugin(*source, path, &settings.enabled_plugins))
         .collect();
+
+    resolve_plugin_activity(&mut plugins);
 
     for plugin in &mut plugins {
         plugin.granted_permissions = settings
@@ -159,12 +169,18 @@ fn resolve_plugin_states(plugins: &mut [LoadedPlugin]) {
         let plugin_index: HashMap<String, usize> = plugins
             .iter()
             .enumerate()
-            .map(|(idx, plugin)| (plugin.manifest.name.clone(), idx))
+            .filter_map(|(idx, plugin)| {
+                if plugin.is_active {
+                    Some((plugin.manifest.name.clone(), idx))
+                } else {
+                    None
+                }
+            })
             .collect();
         let capabilities = available_capabilities(plugins);
 
         for idx in 0..plugins.len() {
-            if !plugins[idx].configured_enabled {
+            if !plugins[idx].configured_enabled || !plugins[idx].is_active {
                 continue;
             }
 
@@ -208,7 +224,7 @@ fn blocked_reason_for(
             return Some(format!("缺少依赖插件：{}", dependency_name));
         };
         let dependency = &plugins[dependency_idx];
-        if !dependency.configured_enabled {
+        if !dependency.configured_enabled || !dependency.is_active {
             return Some(format!("依赖插件未启用：{}", dependency_name));
         }
         if dependency.status == PluginStatus::Blocked {
@@ -252,7 +268,7 @@ fn available_capabilities(plugins: &[LoadedPlugin]) -> HashSet<String> {
         .collect();
 
     for plugin in plugins {
-        if plugin.configured_enabled && plugin.status != PluginStatus::Blocked {
+        if plugin.is_runtime_active() {
             capabilities.extend(plugin.manifest.provides.capabilities.iter().cloned());
         }
     }
@@ -263,7 +279,7 @@ fn available_capabilities(plugins: &[LoadedPlugin]) -> HashSet<String> {
 fn available_commands(plugins: &[LoadedPlugin]) -> HashSet<String> {
     let mut commands: HashSet<String> = core_commands().into_iter().map(str::to_string).collect();
     for plugin in plugins {
-        if plugin.configured_enabled && plugin.status != PluginStatus::Blocked {
+        if plugin.is_runtime_active() {
             for command in &plugin.manifest.contributes.commands {
                 if let Some(id) = command.get("id").and_then(|value| value.as_str()) {
                     commands.insert(id.to_string());
@@ -277,7 +293,7 @@ fn available_commands(plugins: &[LoadedPlugin]) -> HashSet<String> {
 fn available_tools(plugins: &[LoadedPlugin]) -> HashSet<String> {
     let mut tools: HashSet<String> = core_tools().into_iter().map(str::to_string).collect();
     for plugin in plugins {
-        if plugin.configured_enabled && plugin.status != PluginStatus::Blocked {
+        if plugin.is_runtime_active() {
             for tool in &plugin.manifest.contributes.agent_tools {
                 if let Some(id) = tool.get("id").and_then(|value| value.as_str()) {
                     tools.insert(id.to_string());
@@ -286,6 +302,59 @@ fn available_tools(plugins: &[LoadedPlugin]) -> HashSet<String> {
         }
     }
     tools
+}
+
+fn resolve_plugin_activity(plugins: &mut [LoadedPlugin]) {
+    let mut winners: HashMap<String, usize> = HashMap::new();
+
+    for idx in 0..plugins.len() {
+        let plugin_name = plugins[idx].manifest.name.clone();
+        match winners.get(&plugin_name).copied() {
+            Some(current_idx)
+                if source_priority(plugins[idx].source) > source_priority(plugins[current_idx].source) =>
+            {
+                winners.insert(plugin_name, idx);
+            }
+            None => {
+                winners.insert(plugin_name, idx);
+            }
+            _ => {}
+        }
+    }
+
+    for idx in 0..plugins.len() {
+        let plugin_name = plugins[idx].manifest.name.clone();
+        let winner_idx = winners.get(&plugin_name).copied();
+        let is_winner = winner_idx == Some(idx);
+        plugins[idx].is_active = is_winner;
+        plugins[idx].shadowed_by = if is_winner {
+            None
+        } else {
+            winner_idx.map(|winner| {
+                format!(
+                    "{}:{}",
+                    plugin_source_label(plugins[winner].source),
+                    plugins[winner].path.to_string_lossy()
+                )
+            })
+        };
+    }
+}
+
+fn source_priority(source: PluginSource) -> u8 {
+    match source {
+        PluginSource::WorkspaceDev => 3,
+        PluginSource::Project => 2,
+        PluginSource::Global => 1,
+    }
+}
+
+fn plugin_source_label(source: PluginSource) -> &'static str {
+    match source {
+        PluginSource::Global => "global",
+        PluginSource::Project => "project",
+        PluginSource::WorkspaceDev => "workspace_dev",
+    }
 }
 
 fn core_commands() -> Vec<&'static str> {
@@ -557,4 +626,80 @@ fn load_plugin_mcp(plugin_root: &Path, mcp_file: &str) -> HashMap<String, McpSer
 
     // Fall back to flat format
     serde_json::from_str(&text).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugins::types::{
+        PluginContributions, PluginDevConfig, PluginManifest, PluginProvides, PluginRequires,
+    };
+
+    fn make_plugin(name: &str, source: PluginSource, path: &str) -> LoadedPlugin {
+        LoadedPlugin {
+            manifest: PluginManifest {
+                name: name.to_string(),
+                version: "0.1.0".to_string(),
+                description: String::new(),
+                enabled_by_default: true,
+                entry: Some("dist/main.js".to_string()),
+                dev: PluginDevConfig {
+                    main: Some("src/main.tsx".to_string()),
+                },
+                permissions: vec![],
+                requires: PluginRequires::default(),
+                provides: PluginProvides::default(),
+                contributes: PluginContributions::default(),
+                skills_dir: "skills".to_string(),
+                hooks_file: "hooks.json".to_string(),
+                mcp_file: "mcp.json".to_string(),
+            },
+            path: PathBuf::from(path),
+            source,
+            is_installed: matches!(source, PluginSource::Global),
+            is_active: true,
+            shadowed_by: None,
+            configured_enabled: true,
+            enabled: true,
+            status: PluginStatus::Enabled,
+            blocked_reason: None,
+            granted_permissions: vec![],
+            skills: vec![],
+            hooks: HashMap::new(),
+            mcp_servers: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn workspace_dev_plugin_overrides_global_plugin_with_same_name() {
+        let mut plugins = vec![
+            make_plugin("folder", PluginSource::Global, "C:/Users/test/.rhythm/plugins/folder"),
+            make_plugin("folder", PluginSource::WorkspaceDev, "C:/repo/plugins/folder"),
+        ];
+
+        resolve_plugin_activity(&mut plugins);
+
+        assert!(!plugins[0].is_active);
+        assert!(plugins[0]
+            .shadowed_by
+            .as_deref()
+            .unwrap_or_default()
+            .contains("workspace_dev"));
+        assert!(plugins[1].is_active);
+        assert_eq!(plugins[1].shadowed_by, None);
+    }
+
+    #[test]
+    fn single_plugin_instance_remains_active() {
+        let mut plugins = vec![make_plugin(
+            "developer",
+            PluginSource::Project,
+            "C:/repo/.rhythm/plugins/developer",
+        )];
+
+        resolve_plugin_activity(&mut plugins);
+
+        assert!(plugins[0].is_active);
+        assert_eq!(plugins[0].shadowed_by, None);
+    }
 }

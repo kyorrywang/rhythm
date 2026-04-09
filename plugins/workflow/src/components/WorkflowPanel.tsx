@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Play, Plus, RefreshCw } from 'lucide-react';
+import { Play, Plus } from 'lucide-react';
 import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import { themeRecipes } from '../../../../src/shared/theme/recipes';
 import { Button } from '../../../../src/shared/ui/Button';
@@ -63,6 +63,7 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
       title: workflow.name,
       description: `${workflow.nodes.length} node(s)`,
       payload: { workflow },
+      layoutMode: 'replace',
     });
   };
 
@@ -77,20 +78,14 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
   return (
     <SidebarPage width={width}>
       <div className="px-4 pb-3 pt-5">
-        <div className="flex items-center justify-between">
-          <div className={`text-[11px] uppercase tracking-[0.18em] ${themeRecipes.eyebrow()}`}>Workflow</div>
-          <Button
-            variant="unstyled"
-            size="none"
-            onClick={() => void refresh()}
-            className="rounded-[var(--theme-radius-control)] p-2 text-[var(--theme-text-muted)] transition-colors hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]"
-            title="刷新工作流"
-          >
-            <RefreshCw size={15} />
-          </Button>
-        </div>
-        <Button variant="secondary" size="sm" onClick={() => void createWorkflow()} className="mt-3">
-          <Plus size={14} className="mr-1.5" />
+        <div className={`text-[11px] uppercase tracking-[0.18em] ${themeRecipes.eyebrow()}`}>Workflow</div>
+        <Button
+          variant="primary"
+          size="md"
+          onClick={() => void createWorkflow()}
+          className="mt-3 flex w-full items-center justify-center gap-[var(--theme-toolbar-gap)]"
+        >
+          <Plus size={14} opacity={0.7} />
           新建工作流
         </Button>
       </div>
@@ -151,6 +146,7 @@ export function WorkflowPanel({ ctx, width }: LeftPanelProps) {
                       title: `Run: ${workflow.name}`,
                       description: `Status: ${run.status}`,
                       payload: { workflow, run },
+                      layoutMode: 'replace',
                     });
                   }
                 }}

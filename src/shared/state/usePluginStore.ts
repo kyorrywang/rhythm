@@ -29,12 +29,16 @@ export const usePluginStore = create<PluginState>((set) => ({
   error: null,
 
   fetchPlugins: async (cwd) => {
-    set({ isLoading: true, error: null });
+    set({ plugins: [], isLoading: true, error: null });
     try {
       const plugins = await listPlugins(cwd);
       set({ plugins, isLoading: false });
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : '加载插件失败', isLoading: false });
+      set({
+        plugins: [],
+        error: error instanceof Error ? error.message : '加载插件失败',
+        isLoading: false,
+      });
     }
   },
 

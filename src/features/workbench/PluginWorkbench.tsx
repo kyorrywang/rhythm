@@ -25,6 +25,7 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
   const togglePlugin = usePluginStore((s) => s.togglePlugin);
   const setPluginPermission = usePluginStore((s) => s.setPluginPermission);
   const fetchPlugins = usePluginStore((s) => s.fetchPlugins);
+  const installPluginFromPath = usePluginStore((s) => s.installPluginFromPath);
   const uninstallPluginByName = usePluginStore((s) => s.uninstallPluginByName);
   const runtime = usePluginHostStore((s) => s.runtime[plugin.name]);
   const activityBarItems = usePluginHostStore((s) => s.activityBarItems);
@@ -82,6 +83,15 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
     }
   };
 
+  const handleInstallToGlobal = async () => {
+    try {
+      const installed = await installPluginFromPath(workspace.path, plugin.path);
+      success(`已安装到全局：${installed.name}`);
+    } catch (installError) {
+      error(installError instanceof Error ? installError.message : '插件安装失败');
+    }
+  };
+
   const handleUninstall = async () => {
     const shouldDeleteStorage = window.confirm(`卸载插件“${plugin.name}”时是否同时删除所有 workspace 下的插件 storage？\n\n确定：删除插件 storage\n取消：保留插件 storage`);
     const confirmed = window.confirm(`确认卸载插件“${plugin.name}”？\n\n插件文件会被移除。Storage 策略：${shouldDeleteStorage ? '删除 storage' : '保留 storage'}。`);
@@ -126,10 +136,15 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
             <PropertyList
               items={[
                 { label: '版本', value: plugin.version },
+                { label: '来源', value: formatPluginSource(plugin.source) },
+                { label: '安装', value: plugin.installed ? '已安装到全局' : '未安装到全局' },
+                { label: '当前生效', value: plugin.is_active ? '是' : '否' },
                 { label: '状态', value: statusLabel(plugin.status) },
                 { label: '入口', value: plugin.main || plugin.entry || '未声明' },
                 { label: '运行时', value: runtime?.status || 'not_loaded' },
                 { label: '安装路径', value: plugin.path.split('\\').slice(-2).join('\\') },
+                { label: '完整路径', value: plugin.path },
+                { label: '覆盖关系', value: plugin.shadowed_by || '无' },
               ]}
             />
           </Card>
@@ -160,7 +175,11 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
               <div className={themeRecipes.sectionTitle()}>
                 {plugin.configured_enabled ? '插件已请求启用' : '插件当前已停用'}
               </div>
-              <div className={`mt-1 text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>如果依赖或 capability 不满足，插件会保持 blocked，不会进入运行时。</div>
+              <div className={`mt-1 text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>
+                {!plugin.is_active && plugin.shadowed_by
+                  ? '这个插件实例已被更高优先级的同名插件覆盖，当前不会进入运行时。'
+                  : '如果依赖或 capability 不满足，插件会保持 blocked，不会进入运行时。'}
+              </div>
             </div>
           )}
           trailing={(
@@ -168,12 +187,19 @@ export const PluginWorkbench = ({ plugin }: { plugin: BackendPluginSummary }) =>
               <Button variant="secondary" onClick={handleRefresh}>
                 刷新
               </Button>
+              {!plugin.installed ? (
+                <Button variant="secondary" onClick={handleInstallToGlobal}>
+                  安装到全局
+                </Button>
+              ) : null}
               <Button variant={plugin.enabled ? 'primary' : 'secondary'} onClick={handleToggle}>
                 {plugin.configured_enabled ? '禁用' : '启用'}
               </Button>
-              <Button variant="danger" onClick={handleUninstall}>
-                卸载
-              </Button>
+              {plugin.installed ? (
+                <Button variant="danger" onClick={handleUninstall}>
+                  卸载
+                </Button>
+              ) : null}
             </>
           )}
         />
@@ -319,4 +345,15 @@ function formatContribution(contribution: { id?: string; title?: string; descrip
   const id = contribution.id || contribution.title || 'unknown';
   const suffix = contribution.description ? ` · ${contribution.description}` : '';
   return `${id}${suffix}`;
+}
+
+function formatPluginSource(source: BackendPluginSummary['source']) {
+  switch (source) {
+    case 'global':
+      return 'Global';
+    case 'project':
+      return 'Project';
+    default:
+      return 'Workspace Dev';
+  }
 }
