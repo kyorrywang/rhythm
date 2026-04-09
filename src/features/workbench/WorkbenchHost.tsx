@@ -1,11 +1,11 @@
 import { useCallback, type KeyboardEvent, type PointerEvent } from 'react';
-import { Box, PanelLeftClose, PanelLeftOpen, ScrollText, X } from 'lucide-react';
+import { ScrollText } from 'lucide-react';
 import { createPluginContext } from '@/plugin/host/createPluginContext';
 import { PluginErrorBoundary } from '@/plugin/host/PluginErrorBoundary';
 import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { themeRecipes } from '@/shared/theme/recipes';
-import { EmptyState, IconButton } from '@/shared/ui';
+import { EmptyState } from '@/shared/ui';
 import { WorkbenchResizeHandle } from './WorkbenchResizeHandle';
 
 const DEFAULT_WORKBENCH_SPLIT_WIDTH = 400;
@@ -17,8 +17,6 @@ const WORKBENCH_VIEWPORT_PADDING = 80;
 export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
   const workbench = useSessionStore((s) => s.workbench);
   const workbenchSplitWidth = useSessionStore((s) => s.workbenchSplitWidth);
-  const closeWorkbench = useSessionStore((s) => s.closeWorkbench);
-  const setWorkbenchLayoutMode = useSessionStore((s) => s.setWorkbenchLayoutMode);
   const setWorkbenchSplitWidth = useSessionStore((s) => s.setWorkbenchSplitWidth);
   const workbenchViews = usePluginHostStore((s) => s.workbenchViews);
 
@@ -80,31 +78,8 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
         }`}
         style={isReplace ? undefined : { width: splitWidth }}
       >
-        <div className="border-b-[var(--theme-divider-width)] border-[var(--theme-border)] px-[var(--theme-panel-padding-x)] py-[var(--theme-panel-padding-y)]">
-          <div className="flex items-center justify-between">
-            <div className={`flex items-center gap-2 ${themeRecipes.eyebrow()}`}>
-              <Box size={14} />
-              <span>Workbench</span>
-            </div>
-            <div className={themeRecipes.toolbar()}>
-              <IconButton
-                onClick={() => setWorkbenchLayoutMode(isReplace ? 'split' : 'replace')}
-                title={isReplace ? '切换为 split' : '切换为 replace'}
-              >
-                {isReplace ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-              </IconButton>
-              <IconButton
-                onClick={closeWorkbench}
-                title="关闭 Workbench"
-              >
-                <X size={16} />
-              </IconButton>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-hidden px-[var(--theme-shell-padding)] pt-[calc(var(--theme-shell-padding)*0.55)] pb-[var(--theme-shell-padding)]">
-          <div className={`h-full overflow-hidden ${themeRecipes.workbenchSurface()}`}>
+        <div className="flex-1 overflow-hidden px-[var(--theme-shell-padding)] py-[var(--theme-shell-padding)]">
+          <div className="h-full overflow-hidden">
             <div className="flex items-center justify-between border-b-[var(--theme-divider-width)] border-[var(--theme-border)] px-[var(--theme-card-padding-x)] py-[var(--theme-card-padding-y)]">
               <div className={`flex items-center gap-2 ${themeRecipes.eyebrow()}`}>
                 <ScrollText size={14} />

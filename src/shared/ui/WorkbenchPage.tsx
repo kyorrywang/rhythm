@@ -23,10 +23,10 @@ export function WorkbenchPage({
   showHeader?: boolean;
 }) {
   return (
-    <div className={cn('h-full overflow-y-auto px-6 py-6', className)}>
-      <div className="mx-auto w-full max-w-[1120px]">
+    <div className={cn('relative h-full overflow-y-auto px-6 py-6', className)}>
+      <div className="mx-auto flex h-full w-full max-w-[1120px] flex-col">
         {showHeader ? <WorkbenchHeader icon={icon} eyebrow={eyebrow} title={title} description={description} actions={actions} /> : null}
-        <div className={cn(showHeader ? 'mt-[calc(var(--theme-panel-content-gap)*1.1)]' : '', 'space-y-[var(--theme-section-gap)]')}>{children}</div>
+        <div className={cn(showHeader ? 'mt-[calc(var(--theme-panel-content-gap)*1.1)]' : '', 'min-h-0 flex-1 space-y-[var(--theme-section-gap)]')}>{children}</div>
       </div>
     </div>
   );

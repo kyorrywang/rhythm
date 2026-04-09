@@ -1,4 +1,4 @@
-import { Code2, FolderTree, Globe, MessageSquare, Puzzle, Settings2, Workflow } from 'lucide-react';
+import { Code2, FolderOpen, Globe, MessageSquare, Puzzle, Settings2, Workflow } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { themeRecipes } from '@/shared/theme/recipes';
 import { Button } from '@/shared/ui/Button';
@@ -53,7 +53,7 @@ function ActivityGroup({
           size="none"
           key={`${item.pluginId || 'plugin'}:${item.id}`}
           onClick={() => onOpenActivity(item)}
-          title={`${item.title}\n${item.pluginId || 'plugin'}`}
+          title={activityTooltip(item)}
           className={cn(themeRecipes.activityItem(activeViewId === item.opens))}
         >
           {iconForPluginActivity(item.icon, item.title)}
@@ -67,10 +67,28 @@ function iconForPluginActivity(icon: string | undefined, title: string) {
   const normalized = (icon || title).toLowerCase();
   const iconClassName = 'h-[var(--theme-activity-icon-size)] w-[var(--theme-activity-icon-size)]';
   if (normalized.includes('message') || normalized.includes('session') || normalized.includes('会话')) return <MessageSquare className={iconClassName} />;
-  if (normalized.includes('folder') || normalized.includes('file')) return <FolderTree className={iconClassName} />;
+  if (normalized.includes('folder') || normalized.includes('file')) return <FolderOpen className={iconClassName} />;
   if (normalized.includes('workflow') || normalized.includes('flow')) return <Workflow className={iconClassName} />;
   if (normalized.includes('web') || normalized.includes('browser')) return <Globe className={iconClassName} />;
   if (normalized.includes('code') || normalized.includes('dev')) return <Code2 className={iconClassName} />;
   if (normalized.includes('settings')) return <Settings2 className={iconClassName} />;
   return <Puzzle className={iconClassName} />;
+}
+
+function activityTooltip(item: ActivityBarContribution) {
+  const normalized = `${item.id} ${item.opens} ${item.title} ${item.icon || ''}`.toLowerCase();
+
+  if (normalized.includes('session') || normalized.includes('message') || normalized.includes('会话')) {
+    return 'SESSION\nOpen and manage your conversations';
+  }
+
+  if (normalized.includes('folder') || normalized.includes('file')) {
+    return 'EXPLORER\nBrowse files and folders in the workspace';
+  }
+
+  if (normalized.includes('workflow') || normalized.includes('flow')) {
+    return 'WORKFLOW\nBuild and run workflow graphs';
+  }
+
+  return `${item.title.toUpperCase()}\n${item.pluginId || 'plugin'}`;
 }
