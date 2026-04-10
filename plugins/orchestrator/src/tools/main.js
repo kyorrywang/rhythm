@@ -1,22 +1,46 @@
-const fs = require('node:fs/promises');
-const path = require('node:path');
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import readline from 'node:readline';
 
 const handlers = {
+  createPlanDraft,
+  createPlanDraftFromSession,
+  updatePlanDraft,
+  confirmPlanDraft,
+  getPlanDraft,
+  listPlanDrafts,
   createTemplate,
   createSampleNovelTemplate,
   createSampleSoftwareTemplate,
   updateTemplate,
+  renameTemplate,
+  updateStage,
+  updateAgent,
+  localizeNovelTemplate,
   duplicateTemplate,
   deleteTemplate,
   matchTemplates,
-  createRun,
+  wakeRun,
   pauseRun,
   resumeRun,
   cancelRun,
+  completeTask,
+  overrideReview,
+  updateTask,
+  retryTask,
+  skipTask,
   getRun,
   listTemplates,
   listRuns,
+  listTasks,
 };
+
+const commandResponseReader = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+let rpcSequence = 0;
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
@@ -35,36 +59,166 @@ async function main() {
 }
 
 async function createTemplate(input, call) {
-  const template = createDefaultTemplate(input.name || 'Untitled Template');
-  const templates = await readJson(call, 'templates.json', []);
-  await writeJson(call, 'templates.json', [template, ...templates]);
-  return template;
+  return executePluginCommand('orchestrator.createTemplate', input);
+}
+
+async function createPlanDraft(input) {
+  return executePluginCommand('orchestrator.createPlanDraft', input);
+}
+
+async function createPlanDraftFromSession(input) {
+  return executePluginCommand('orchestrator.createPlanDraftFromSession', input);
+}
+
+async function updatePlanDraft(input) {
+  return executePluginCommand('orchestrator.updatePlanDraft', input);
+}
+
+async function confirmPlanDraft(input) {
+  return executePluginCommand('orchestrator.confirmPlanDraft', input);
+}
+
+async function getPlanDraft(input) {
+  return executePluginCommand('orchestrator.getPlanDraft', input);
+}
+
+async function listPlanDrafts() {
+  return executePluginCommand('orchestrator.listPlanDrafts', {});
 }
 
 async function createSampleNovelTemplate(input, call) {
-  const template = createNovelTemplate(input.name || 'Novel Writing Basic');
-  const templates = await readJson(call, 'templates.json', []);
-  await writeJson(call, 'templates.json', [template, ...templates]);
-  return template;
+  return executePluginCommand('orchestrator.createSampleNovelTemplate', input);
 }
 
 async function createSampleSoftwareTemplate(input, call) {
-  const template = createSoftwareTemplate(input.name || 'Software Delivery Basic');
-  const templates = await readJson(call, 'templates.json', []);
-  await writeJson(call, 'templates.json', [template, ...templates]);
-  return template;
+  return executePluginCommand('orchestrator.createSampleSoftwareTemplate', input);
 }
 
 async function updateTemplate(input, call) {
+  return executePluginCommand('orchestrator.updateTemplate', input);
+}
+
+async function renameTemplate(input, call) {
   if (!input.templateId) throw new Error("'templateId' is required");
-  if (!input.patch || typeof input.patch !== 'object') throw new Error("'patch' is required");
   const templates = await readJson(call, 'templates.json', []);
   const index = templates.findIndex((item) => item.id === input.templateId);
   if (index < 0) throw new Error(`Template not found: ${input.templateId}`);
   const current = templates[index];
   const nextTemplate = {
     ...current,
-    ...input.patch,
+    ...(typeof input.name === 'string' ? { name: input.name } : {}),
+    ...(typeof input.description === 'string' ? { description: input.description } : {}),
+    ...(typeof input.domain === 'string' ? { domain: input.domain } : {}),
+    ...(typeof input.version === 'string' ? { version: input.version } : {}),
+    updatedAt: Date.now(),
+  };
+  const next = templates.slice();
+  next[index] = nextTemplate;
+  await writeJson(call, 'templates.json', next);
+  return nextTemplate;
+}
+
+async function updateStage(input, call) {
+  if (!input.templateId) throw new Error("'templateId' is required");
+  if (!input.stageId) throw new Error("'stageId' is required");
+  if (!input.patch || typeof input.patch !== 'object') throw new Error("'patch' is required");
+  const templates = await readJson(call, 'templates.json', []);
+  const index = templates.findIndex((item) => item.id === input.templateId);
+  if (index < 0) throw new Error(`Template not found: ${input.templateId}`);
+  const current = templates[index];
+  let found = false;
+  const nextStageRows = (current.stageRows || []).map((row) => ({
+    ...row,
+    stages: (row.stages || []).map((stage) => {
+      if (stage.id !== input.stageId) return stage;
+      found = true;
+      return {
+        ...stage,
+        ...pickDefined(input.patch, ['name', 'goal', 'description']),
+      };
+    }),
+  }));
+  if (!found) throw new Error(`Stage not found: ${input.stageId}`);
+  const nextTemplate = {
+    ...current,
+    stageRows: nextStageRows,
+    updatedAt: Date.now(),
+  };
+  const next = templates.slice();
+  next[index] = nextTemplate;
+  await writeJson(call, 'templates.json', next);
+  return nextTemplate;
+}
+
+async function updateAgent(input, call) {
+  if (!input.templateId) throw new Error("'templateId' is required");
+  if (!input.agentId) throw new Error("'agentId' is required");
+  if (!input.patch || typeof input.patch !== 'object') throw new Error("'patch' is required");
+  const templates = await readJson(call, 'templates.json', []);
+  const index = templates.findIndex((item) => item.id === input.templateId);
+  if (index < 0) throw new Error(`Template not found: ${input.templateId}`);
+  const current = templates[index];
+  let found = false;
+  const nextStageRows = (current.stageRows || []).map((row) => ({
+    ...row,
+    stages: (row.stages || []).map((stage) => ({
+      ...stage,
+      agentRows: (stage.agentRows || []).map((agentRow) => ({
+        ...agentRow,
+        agents: (agentRow.agents || []).map((agent) => {
+          if (agent.id !== input.agentId) return agent;
+          found = true;
+          return {
+            ...agent,
+            ...pickDefined(input.patch, [
+              'name',
+              'role',
+              'goal',
+              'description',
+              'executionMode',
+              'workflowId',
+              'allowSubAgents',
+              'tools',
+              'skills',
+              'inputSources',
+              'outputArtifacts',
+              'completionCondition',
+              'failurePolicy',
+            ]),
+          };
+        }),
+      })),
+    })),
+  }));
+  if (!found) throw new Error(`Agent not found: ${input.agentId}`);
+  const nextTemplate = {
+    ...current,
+    stageRows: nextStageRows,
+    updatedAt: Date.now(),
+  };
+  const next = templates.slice();
+  next[index] = nextTemplate;
+  await writeJson(call, 'templates.json', next);
+  return nextTemplate;
+}
+
+async function localizeNovelTemplate(input, call) {
+  if (!input.templateId) throw new Error("'templateId' is required");
+  const templates = await readJson(call, 'templates.json', []);
+  const index = templates.findIndex((item) => item.id === input.templateId);
+  if (index < 0) throw new Error(`Template not found: ${input.templateId}`);
+  const current = templates[index];
+  const style = typeof input.style === 'string' ? input.style : '';
+  const platform = typeof input.platform === 'string' ? input.platform : '';
+  const nextTemplate = {
+    ...current,
+    name: input.name || current.name,
+    domain: 'novel',
+    description:
+      input.description ||
+      [platform, style].filter(Boolean).join(' ') ||
+      '用于长篇小说创作的编排模板。',
+    stageRows: buildLocalizedNovelStageRows(current),
     updatedAt: Date.now(),
   };
   const next = templates.slice();
@@ -92,241 +246,97 @@ async function deleteTemplate(input, call) {
 }
 
 async function matchTemplates(input, call) {
-  if (!input.goal) throw new Error("'goal' is required");
-  const templates = await readJson(call, 'templates.json', []);
-  return matchTemplatesByGoal(templates, input);
+  return executePluginCommand('orchestrator.matchTemplates', input);
 }
 
-async function createRun(input, call) {
-  if (!input.templateId) throw new Error("'templateId' is required");
-  if (!input.goal) throw new Error("'goal' is required");
-
-  const templates = await readJson(call, 'templates.json', []);
-  const template = templates.find((item) => item.id === input.templateId);
-  if (!template) throw new Error(`Template not found: ${input.templateId}`);
-
-  const now = Date.now();
-  const firstStage = template.stageRows?.[0]?.stages?.[0];
-  const firstAgent = firstStage?.agentRows?.[0]?.agents?.[0];
-
-  const run = {
-    id: createId('run'),
-    templateId: template.id,
-    templateName: template.name,
-    goal: input.goal,
-    status: 'running',
-    source: input.source || 'chat',
-    activeTaskCount: firstAgent ? 1 : 0,
-    currentStageId: firstStage?.id,
-    currentStageName: firstStage?.name,
-    currentAgentId: firstAgent?.id,
-    currentAgentName: firstAgent?.name,
-    lastWakeAt: now,
-    lastDecisionAt: now,
-    lastDecisionSummary: firstAgent
-      ? `Dispatch ${firstAgent.name} in ${firstStage?.name || 'the first stage'}`
-      : 'No executable stage found. Run completed.',
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const events = await readJson(call, 'events.json', []);
-  const tasks = await readJson(call, 'tasks.json', []);
-  const runs = await readJson(call, 'runs.json', []);
-
-  const nextEvents = [
-    {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'task.created',
-      title: 'Agent task created',
-      detail: firstAgent ? `${firstAgent.name} is ready to execute.` : 'No agent found.',
-      createdAt: now,
-    },
-    {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'agent.decision',
-      title: 'Main agent made a decision',
-      detail: run.lastDecisionSummary,
-      createdAt: now,
-    },
-    {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'agent.wake',
-      title: 'Main agent woke up',
-      detail: 'Reason: start',
-      createdAt: now,
-    },
-    {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'run.started',
-      title: 'Run started',
-      detail: `Main agent entered ${run.currentStageName || 'the first stage'}.`,
-      createdAt: now,
-    },
-    {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'run.created',
-      title: 'Run created',
-      detail: `Template: ${run.templateName}`,
-      createdAt: now,
-    },
-    ...events,
-  ];
-
-  const nextTasks = firstAgent ? [
-    {
-      id: createId('task'),
-      runId: run.id,
-      stageId: firstStage?.id,
-      stageName: firstStage?.name,
-      agentId: firstAgent?.id,
-      agentName: firstAgent?.name,
-      title: `${firstAgent.name} task`,
-      status: 'pending',
-      summary: firstAgent?.goal,
-      createdAt: now,
-      updatedAt: now,
-    },
-    ...tasks,
-  ] : tasks;
-
-  const nextRuns = [run, ...runs];
-
-  await writeJson(call, 'runs.json', nextRuns);
-  await writeJson(call, 'events.json', nextEvents);
-  await writeJson(call, 'tasks.json', nextTasks);
-  return run;
+async function wakeRun(input) {
+  return executePluginCommand('orchestrator.wakeRun', input);
 }
 
 async function getRun(input, call) {
-  if (!input.runId) throw new Error("'runId' is required");
-  const runs = await readJson(call, 'runs.json', []);
-  return runs.find((item) => item.id === input.runId) || null;
+  return executePluginCommand('orchestrator.getRun', input);
 }
 
 async function pauseRun(input, call) {
-  if (!input.runId) throw new Error("'runId' is required");
-  const runs = await readJson(call, 'runs.json', []);
-  const run = runs.find((item) => item.id === input.runId);
-  if (!run) throw new Error(`Run not found: ${input.runId}`);
-  if (run.status === 'paused' || run.status === 'completed' || run.status === 'cancelled') {
-    return run;
-  }
-
-  const now = Date.now();
-  const nextRun = {
-    ...run,
-    status: run.activeTaskCount > 0 ? 'pause_requested' : 'paused',
-    pauseRequestedAt: now,
-    pausedAt: run.activeTaskCount > 0 ? run.pausedAt : now,
-    updatedAt: now,
-  };
-  const nextRuns = runs.map((item) => (item.id === run.id ? nextRun : item));
-  const events = await readJson(call, 'events.json', []);
-  const nextEvents = [
-    {
-      id: createId('evt'),
-      runId: run.id,
-      type: run.activeTaskCount > 0 ? 'run.pause_requested' : 'run.paused',
-      title: run.activeTaskCount > 0 ? 'Pause requested' : 'Run paused',
-      detail: run.activeTaskCount > 0
-        ? `Waiting for ${run.activeTaskCount} active task(s) to finish.`
-        : 'No active tasks. Run paused immediately.',
-      createdAt: now,
-    },
-    ...events,
-  ];
-  await writeJson(call, 'runs.json', nextRuns);
-  await writeJson(call, 'events.json', nextEvents);
-  return nextRun;
+  return executePluginCommand('orchestrator.pauseRun', input);
 }
 
 async function resumeRun(input, call) {
-  if (!input.runId) throw new Error("'runId' is required");
-  const runs = await readJson(call, 'runs.json', []);
-  const run = runs.find((item) => item.id === input.runId);
-  if (!run) throw new Error(`Run not found: ${input.runId}`);
-  if (run.status !== 'paused') throw new Error(`Run is not paused: ${input.runId}`);
-
-  const now = Date.now();
-  const nextRun = {
-    ...run,
-    status: 'running',
-    pausedAt: undefined,
-    pauseRequestedAt: undefined,
-    lastWakeAt: now,
-    lastDecisionAt: now,
-    updatedAt: now,
-  };
-  const nextRuns = runs.map((item) => (item.id === run.id ? nextRun : item));
-  const events = await readJson(call, 'events.json', []);
-  const nextEvents = [
-    {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'run.resumed',
-      title: 'Run resumed',
-      detail: 'Main agent will be awakened again.',
-      createdAt: now,
-    },
-    {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'agent.wake',
-      title: 'Main agent woke up',
-      detail: 'Reason: resume',
-      createdAt: now,
-    },
-    ...events,
-  ];
-  await writeJson(call, 'runs.json', nextRuns);
-  await writeJson(call, 'events.json', nextEvents);
-  return nextRun;
+  return executePluginCommand('orchestrator.resumeRun', input);
 }
 
 async function cancelRun(input, call) {
-  if (!input.runId) throw new Error("'runId' is required");
-  const runs = await readJson(call, 'runs.json', []);
-  const run = runs.find((item) => item.id === input.runId);
-  if (!run) throw new Error(`Run not found: ${input.runId}`);
-  if (run.status === 'completed' || run.status === 'cancelled') return run;
+  return executePluginCommand('orchestrator.cancelRun', input);
+}
 
-  const now = Date.now();
-  const nextRun = {
-    ...run,
-    status: 'cancelled',
-    activeTaskCount: 0,
-    updatedAt: now,
-  };
-  const nextRuns = runs.map((item) => (item.id === run.id ? nextRun : item));
-  const events = await readJson(call, 'events.json', []);
-  const nextEvents = [
-    {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'run.updated',
-      title: 'Run cancelled',
-      detail: 'Further orchestration has been stopped.',
-      createdAt: now,
-    },
-    ...events,
-  ];
-  await writeJson(call, 'runs.json', nextRuns);
-  await writeJson(call, 'events.json', nextEvents);
-  return nextRun;
+async function completeTask(input) {
+  return executePluginCommand('orchestrator.completeTask', input);
+}
+
+async function overrideReview(input) {
+  return executePluginCommand('orchestrator.overrideReview', input);
+}
+
+async function updateTask(input) {
+  return executePluginCommand('orchestrator.updateTask', input);
+}
+
+async function retryTask(input) {
+  return executePluginCommand('orchestrator.retryTask', input);
+}
+
+async function skipTask(input) {
+  return executePluginCommand('orchestrator.skipTask', input);
 }
 
 async function listTemplates(_input, call) {
-  return readJson(call, 'templates.json', []);
+  return executePluginCommand('orchestrator.listTemplates', {});
 }
 
 async function listRuns(_input, call) {
-  return readJson(call, 'runs.json', []);
+  return executePluginCommand('orchestrator.listRuns', {});
+}
+
+async function listTasks() {
+  return executePluginCommand('orchestrator.listTasks', {});
+}
+
+async function executePluginCommand(commandId, input) {
+  const rpcId = `rpc_${Date.now().toString(36)}_${rpcSequence++}`;
+  process.stdout.write(`${JSON.stringify({
+    id: rpcId,
+    method: 'command.execute',
+    params: {
+      commandId,
+      input,
+    },
+  })}\n`);
+
+  const responseLine = await new Promise((resolve, reject) => {
+    const onLine = (line) => {
+      let payload;
+      try {
+        payload = JSON.parse(line);
+      } catch {
+        reject(new Error(`Invalid RPC response from host: ${line}`));
+        return;
+      }
+      if (payload?.id !== rpcId) {
+        commandResponseReader.off('line', onLine);
+        reject(new Error(`Mismatched RPC response id for ${commandId}`));
+        return;
+      }
+      commandResponseReader.off('line', onLine);
+      resolve(payload);
+    };
+    commandResponseReader.on('line', onLine);
+  });
+
+  if (!responseLine?.ok) {
+    throw new Error(responseLine?.error?.message || `Command failed: ${commandId}`);
+  }
+
+  return responseLine.data ?? null;
 }
 
 async function readJson(call, file, fallback) {
@@ -346,9 +356,15 @@ async function writeJson(call, file, value) {
 }
 
 function storageFile(call, file) {
-  const pluginDataDir = call?.context?.pluginDataDir;
-  if (!pluginDataDir) throw new Error('Missing pluginDataDir in plugin call context.');
-  return path.join(pluginDataDir, file);
+  const storagePath = call?.context?.plugin_storage_path;
+  if (!storagePath) throw new Error('Missing plugin storage path.');
+  const base = path.resolve(storagePath);
+  const target = path.resolve(base, file);
+  const relative = path.relative(base, target);
+  if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) {
+    return target;
+  }
+  throw new Error(`Path escapes plugin storage: ${file}`);
 }
 
 function createDefaultTemplate(name) {
@@ -570,6 +586,69 @@ function createAgent(name, role, goal) {
     outputArtifacts: [],
     failurePolicy: 'pause',
   };
+}
+
+function pickDefined(source, keys) {
+  const target = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(source, key) && source[key] !== undefined) {
+      target[key] = source[key];
+    }
+  }
+  return target;
+}
+
+function buildLocalizedNovelStageRows(template) {
+  const stageRows = JSON.parse(JSON.stringify(template.stageRows || []));
+  const stageNameMap = [
+    ['灵感定位', '明确题材、读者和故事钩子。'],
+    ['世界观设定', '建立世界规则、背景与约束。'],
+    ['人物设定', '设计主角、配角、反派与动机。'],
+    ['长线大纲', '形成长线故事与章节规划。'],
+    ['正文写作', '按规划推进章节草稿写作。'],
+  ];
+  const agentMap = {
+    'Concept Agent': ['题材代理', 'planner', '提炼小说 premise、卖点和核心钩子。'],
+    'World Agent': ['世界观代理', 'worldbuilder', '补全世界设定、规则与背景细节。'],
+    'Character Agent': ['角色代理', 'character_designer', '设计人物阵容、关系和动机。'],
+    'Outline Agent': ['大纲代理', 'planner', '生成长线剧情和章节大纲。'],
+    'Review Agent': ['审查代理', 'reviewer', '审查结构、节奏与逻辑一致性。'],
+    'Writer Agent': ['写作代理', 'writer', '输出目标章节草稿。'],
+    'Consistency Agent': ['一致性代理', 'reviewer', '检查人物、设定和文风的一致性。'],
+  };
+
+  stageRows.forEach((row, rowIndex) => {
+    row.stages = (row.stages || []).map((stage, stageIndex) => {
+      const mapped =
+        rowIndex === 1 && stageIndex === 1
+          ? stageNameMap[2]
+          : rowIndex === 1 && stageIndex === 0
+            ? stageNameMap[1]
+            : stageNameMap[Math.min(rowIndex + (rowIndex > 1 ? 1 : 0), stageNameMap.length - 1)];
+
+      const nextStage = {
+        ...stage,
+        name: mapped?.[0] || stage.name,
+        goal: mapped?.[1] || stage.goal,
+      };
+      nextStage.agentRows = (nextStage.agentRows || []).map((agentRow) => ({
+        ...agentRow,
+        agents: (agentRow.agents || []).map((agent) => {
+          const localized = agentMap[agent.name];
+          if (!localized) return agent;
+          return {
+            ...agent,
+            name: localized[0],
+            role: localized[1],
+            goal: localized[2],
+          };
+        }),
+      }));
+      return nextStage;
+    });
+  });
+
+  return stageRows;
 }
 
 function createId(prefix) {

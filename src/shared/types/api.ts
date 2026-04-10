@@ -297,9 +297,6 @@ export interface BackendSettings {
   memoryMaxEntrypointLines: number;
   hooks: BackendHookConfig[];
   mcpServers: BackendMcpServerConfig[];
-  autoCompactEnabled: boolean;
-  autoCompactThresholdRatio: number;
-  autoCompactMaxMicroCompacts: number;
   enabledPlugins: string[];
 }
 

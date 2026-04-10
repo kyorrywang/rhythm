@@ -56,6 +56,7 @@ impl PluginToolAdapter {
                 .unwrap_or(false),
             implementation: declaration
                 .get("implementation")
+                .or_else(|| declaration.get("runtime"))
                 .and_then(Value::as_str)
                 .map(str::to_string),
             entry: declaration
@@ -193,11 +194,13 @@ pub async fn run_plugin_runtime(
     };
     let entry_path =
         crate::tools::context::resolve_and_validate_path(&plugin_root.to_path_buf(), entry)?;
+    let process_plugin_root = normalize_process_path(plugin_root);
+    let process_entry_path = normalize_process_path(&entry_path);
     let runtime_call = serde_json::to_string(call).map_err(|e| e.to_string())?;
     let mut child = tokio::process::Command::new(executable)
-        .arg(entry_path)
+        .arg(&process_entry_path)
         .arg(handler)
-        .current_dir(plugin_root)
+        .current_dir(&process_plugin_root)
         .env("RHYTHM_PLUGIN_CALL", &runtime_call)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -279,6 +282,24 @@ pub async fn run_plugin_runtime(
     }
     serde_json::from_str(&stdout)
         .map_err(|e| format!("Plugin runtime returned invalid JSON: {}", e))
+}
+
+fn normalize_process_path(path: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        use std::path::PathBuf;
+
+        let value = path.to_string_lossy();
+        if let Some(stripped) = value.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+        path.to_path_buf()
+    }
+
+    #[cfg(not(windows))]
+    {
+        path.to_path_buf()
+    }
 }
 
 async fn handle_runtime_rpc(value: &Value, host: Option<&PluginRuntimeHost<'_>>) -> Value {

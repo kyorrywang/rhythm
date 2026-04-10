@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { WorkbenchProps } from '../../../../src/plugin/sdk';
 import { ORCHESTRATOR_COMMANDS } from '../constants';
 import { getTemplate } from '../storage';
-import type { OrchestratorAgent, OrchestratorStage, OrchestratorTemplate, OrchestratorTemplatePayload } from '../types';
+import type { OrchestratorAgent, OrchestratorStage, OrchestratorTemplate, OrchestratorTemplateParameter, OrchestratorTemplatePayload } from '../types';
 import { createId } from '../utils';
 import { AgentBoard } from './AgentBoard';
 import { AgentConfigDrawer } from './AgentConfigDrawer';
@@ -15,6 +15,7 @@ export function TemplateView({ ctx, payload }: WorkbenchProps<OrchestratorTempla
     domain: payload.template.domain,
     version: payload.template.version,
     description: payload.template.description || '',
+    parameters: payload.template.parameters || [],
   });
   const [selectedStageId, setSelectedStageId] = useState<string | undefined>(payload.template.stageRows[0]?.stages[0]?.id);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(
@@ -28,6 +29,7 @@ export function TemplateView({ ctx, payload }: WorkbenchProps<OrchestratorTempla
       domain: payload.template.domain,
       version: payload.template.version,
       description: payload.template.description || '',
+      parameters: payload.template.parameters || [],
     });
     setSelectedStageId(payload.template.stageRows[0]?.stages[0]?.id);
     setSelectedAgentId(payload.template.stageRows[0]?.stages[0]?.agentRows[0]?.agents[0]?.id);
@@ -43,6 +45,7 @@ export function TemplateView({ ctx, payload }: WorkbenchProps<OrchestratorTempla
         domain: latest.domain,
         version: latest.version,
         description: latest.description || '',
+        parameters: latest.parameters || [],
       });
       setSelectedStageId((current) => current || latest.stageRows[0]?.stages[0]?.id);
       setSelectedAgentId((current) => current || latest.stageRows[0]?.stages[0]?.agentRows[0]?.agents[0]?.id);
@@ -52,7 +55,8 @@ export function TemplateView({ ctx, payload }: WorkbenchProps<OrchestratorTempla
   const isDirty = draft.name !== template.name
     || draft.domain !== template.domain
     || draft.version !== template.version
-    || draft.description !== (template.description || '');
+    || draft.description !== (template.description || '')
+    || JSON.stringify(draft.parameters) !== JSON.stringify(template.parameters || []);
 
   async function saveMeta() {
     const next = await ctx.commands.execute<unknown, OrchestratorTemplate>(ORCHESTRATOR_COMMANDS.updateTemplate, {
@@ -62,6 +66,7 @@ export function TemplateView({ ctx, payload }: WorkbenchProps<OrchestratorTempla
         domain: draft.domain,
         version: draft.version,
         description: draft.description,
+        parameters: draft.parameters,
       },
     });
     setTemplate(next);
@@ -337,13 +342,19 @@ export function TemplateView({ ctx, payload }: WorkbenchProps<OrchestratorTempla
           </div>
           <button
             className="rounded-[var(--theme-radius-control)] bg-slate-900 px-3 py-2 text-sm text-white"
-            onClick={() => void ctx.commands.execute(ORCHESTRATOR_COMMANDS.createRun, {
-              templateId: template.id,
-              goal: `${template.name} run`,
-              source: 'workbench',
+            onClick={() => void ctx.commands.execute(ORCHESTRATOR_COMMANDS.createPlanDraft, {
+              title: template.name,
+              goal: template.description || `${template.name} plan`,
+              overview: template.description || `Use ${template.name} as a starting scaffold for a confirmed plan.`,
+              reviewPolicy: 'Each major stage must be reviewed before orchestration continues.',
+              stages: template.stageRows.flatMap((row) => row.stages.map((stage) => ({
+                name: stage.name,
+                goal: stage.goal,
+                deliverables: stage.agentRows.flatMap((agentRow) => agentRow.agents.flatMap((agent) => agent.outputArtifacts || [])),
+              }))),
             })}
           >
-            Start Run
+            Create Plan Draft
           </button>
         </div>
 
@@ -410,6 +421,13 @@ export function TemplateView({ ctx, payload }: WorkbenchProps<OrchestratorTempla
                 onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
               />
             </label>
+            <div className="block md:col-span-2">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Run Parameters</div>
+              <TemplateParametersEditor
+                parameters={draft.parameters}
+                onChange={(parameters) => setDraft((current) => ({ ...current, parameters }))}
+              />
+            </div>
           </div>
         </section>
 
@@ -450,6 +468,93 @@ export function TemplateView({ ctx, payload }: WorkbenchProps<OrchestratorTempla
             onChange={(patch) => void updateAgent(patch)}
           />
         </section>
+      </div>
+    </div>
+  );
+}
+
+function TemplateParametersEditor({
+  parameters,
+  onChange,
+}: {
+  parameters: OrchestratorTemplateParameter[];
+  onChange: (parameters: OrchestratorTemplateParameter[]) => void;
+}) {
+  function updateParameter(parameterId: string, patch: Partial<OrchestratorTemplateParameter>) {
+    onChange(parameters.map((parameter) => (
+      parameter.id === parameterId ? { ...parameter, ...patch } : parameter
+    )));
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
+      {parameters.map((parameter) => (
+        <div key={parameter.id} className="grid gap-3 rounded-xl border border-slate-200 p-3 md:grid-cols-2">
+          <label className="block">
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Name</div>
+            <input
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-500"
+              value={parameter.name}
+              onChange={(event) => updateParameter(parameter.id, { name: event.target.value })}
+            />
+          </label>
+          <label className="block">
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Label</div>
+            <input
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-500"
+              value={parameter.label}
+              onChange={(event) => updateParameter(parameter.id, { label: event.target.value })}
+            />
+          </label>
+          <label className="block">
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Default Value</div>
+            <input
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-500"
+              value={parameter.defaultValue || ''}
+              onChange={(event) => updateParameter(parameter.id, { defaultValue: event.target.value || undefined })}
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-700 md:mt-6">
+            <input
+              type="checkbox"
+              checked={parameter.required}
+              onChange={(event) => updateParameter(parameter.id, { required: event.target.checked })}
+            />
+            Required
+          </label>
+          <label className="block md:col-span-2">
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">Description</div>
+            <input
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-500"
+              value={parameter.description || ''}
+              onChange={(event) => updateParameter(parameter.id, { description: event.target.value || undefined })}
+            />
+          </label>
+        </div>
+      ))}
+      <div className="flex gap-2">
+        <button
+          className="rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+          onClick={() => onChange([
+            ...parameters,
+            {
+              id: createId('param'),
+              name: 'parameter_name',
+              label: 'Parameter Label',
+              required: false,
+            },
+          ])}
+        >
+          Add Parameter
+        </button>
+        {parameters.length > 0 ? (
+          <button
+            className="rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+            onClick={() => onChange(parameters.slice(0, -1))}
+          >
+            Remove Last
+          </button>
+        ) : null}
       </div>
     </div>
   );

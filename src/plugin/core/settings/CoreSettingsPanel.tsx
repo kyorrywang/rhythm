@@ -90,7 +90,6 @@ export function CoreSettingsPanel({ ctx, width }: LeftPanelProps) {
       memory: `${settings.memoryEnabled ? 'enabled' : 'disabled'} · ${settings.memoryMaxFiles} files`,
       hooks: `${hookCount} hooks`,
       mcp: `${settings.mcpServers.length} servers · ${mcpEnabledCount} enabled`,
-      auto_compact: `${settings.autoCompactEnabled ? 'enabled' : 'disabled'} · ${settings.autoCompactThresholdRatio}`,
       plugin: `${settings.enabledPlugins.length} enabled plugins`,
       cron: `${settings.cronJobs.length} jobs · ${cronEnabledCount} enabled`,
       frontend: `${settings.theme} · ${settings.themePreset}`,

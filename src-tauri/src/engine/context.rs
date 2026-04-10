@@ -30,14 +30,6 @@ pub struct QueryContext {
     pub system_prompt: String,
     /// Optional hard cap on agent turns. None means unlimited.
     pub agent_turn_limit: Option<usize>,
-    /// Whether auto compaction is enabled for this query.
-    pub auto_compact_enabled: bool,
-    /// Maximum tokens per LLM response (used by AutoCompact threshold).
-    pub max_tokens: u32,
-    /// Fraction of max_tokens at which compaction should trigger.
-    pub auto_compact_threshold_ratio: f32,
-    /// Maximum number of micro-compacts before escalating to full LLM summary.
-    pub max_micro_compacts: usize,
     /// Agent ID (for event_bus routing).
     pub agent_id: String,
     /// Session ID (for event_bus routing and state lookups).

@@ -21,26 +21,8 @@ pub async fn llm_complete(
         return Err("Cannot complete an empty message list".to_string());
     }
 
-    let mut settings = config::load_settings();
-    if let Some(provider_id) = provider_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        if provider_id != settings.llm.name {
-            return Err(format!(
-                "Provider '{}' is not available in the active backend config '{}'",
-                provider_id, settings.llm.name
-            ));
-        }
-    }
-    if let Some(model) = model
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        settings.llm.model = model.to_string();
-    }
+    let settings = config::load_settings();
+    let llm_config = config::resolve_llm_config(&settings, provider_id.as_deref(), model.as_deref())?;
 
     let chat_messages = messages
         .into_iter()
@@ -52,7 +34,7 @@ pub async fn llm_complete(
         })
         .collect::<Vec<_>>();
 
-    let client = llm::create_client(&settings.llm);
+    let client = llm::create_client(&llm_config);
     tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs.unwrap_or(30)),
         async move {

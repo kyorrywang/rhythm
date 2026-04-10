@@ -64,9 +64,6 @@ export interface AppSettings {
   memoryMaxEntrypointLines: number;
   hooks: HookConfig[];
   mcpServers: MCPServerConfig[];
-  autoCompactEnabled: boolean;
-  autoCompactThresholdRatio: number;
-  autoCompactMaxMicroCompacts: number;
   enabledPlugins: string[];
   cronJobs: CronJobConfig[];
 }
@@ -116,9 +113,6 @@ const DEFAULT_SETTINGS: AppSettings = {
     { id: 'mcp-1', name: 'filesystem', transport: 'stdio', endpoint: 'npx @modelcontextprotocol/server-filesystem', enabled: true },
     { id: 'mcp-2', name: 'browser', transport: 'http', endpoint: 'http://127.0.0.1:8787/mcp', enabled: false },
   ],
-  autoCompactEnabled: true,
-  autoCompactThresholdRatio: 0.72,
-  autoCompactMaxMicroCompacts: 3,
   enabledPlugins: ['runtime-tools'],
   cronJobs: [
     { id: 'cron-1', name: 'Morning Digest', schedule: 'Every weekday 09:00', prompt: 'Summarize repo changes and open issues.', cwd: 'C:\\Users\\Administrator\\Documents\\dev\\rhythm', enabled: true },
@@ -153,9 +147,6 @@ function mapBackendSettings(input: BackendSettings, cronJobs: BackendCronJobConf
     memoryMaxEntrypointLines: input.memoryMaxEntrypointLines,
     hooks: input.hooks,
     mcpServers: input.mcpServers,
-    autoCompactEnabled: input.autoCompactEnabled,
-    autoCompactThresholdRatio: input.autoCompactThresholdRatio,
-    autoCompactMaxMicroCompacts: input.autoCompactMaxMicroCompacts,
     enabledPlugins: input.enabledPlugins,
     cronJobs: cronJobs.map((job) => ({
       id: job.id,
@@ -184,9 +175,6 @@ function toBackendSettings(settings: AppSettings): BackendSettings {
     memoryMaxEntrypointLines: settings.memoryMaxEntrypointLines,
     hooks: settings.hooks,
     mcpServers: settings.mcpServers,
-    autoCompactEnabled: settings.autoCompactEnabled,
-    autoCompactThresholdRatio: settings.autoCompactThresholdRatio,
-    autoCompactMaxMicroCompacts: settings.autoCompactMaxMicroCompacts,
     enabledPlugins: settings.enabledPlugins,
   };
 }

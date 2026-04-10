@@ -19,6 +19,32 @@ pub struct LlmConfig {
     pub max_tokens: Option<u32>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProviderModelConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub is_default: bool,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProviderConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default = "default_llm_provider")]
+    pub provider: String,
+    pub base_url: String,
+    pub api_key: String,
+    #[serde(default)]
+    pub is_default: bool,
+    #[serde(default)]
+    pub models: Vec<ProviderModelConfig>,
+}
+
 fn default_llm_name() -> String {
     "Anthropic".to_string()
 }
@@ -164,44 +190,14 @@ pub struct HooksConfig {
     pub session_end: Vec<HookConfig>,
 }
 
-// ─── AutoCompact Config ─────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AutoCompactConfig {
-    /// Whether to auto-compact message history when approaching token limits.
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    /// Fraction of max_tokens at which compaction triggers (e.g. 0.8 → 80%).
-    #[serde(default = "default_threshold_ratio")]
-    pub threshold_ratio: f32,
-    /// How many micro-compacts to attempt before escalating to a full LLM summary.
-    #[serde(default = "default_max_micro_compacts")]
-    pub max_micro_compacts: usize,
-}
-
-fn default_threshold_ratio() -> f32 {
-    0.8
-}
-
-fn default_max_micro_compacts() -> usize {
-    3
-}
-
-impl Default for AutoCompactConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            threshold_ratio: 0.8,
-            max_micro_compacts: 3,
-        }
-    }
-}
-
 // ─── Root Settings ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RhythmSettings {
+    #[serde(default, skip_serializing)]
     pub llm: LlmConfig,
+    #[serde(default)]
+    pub providers: Vec<ProviderConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_turn_limit: Option<usize>,
     pub system_prompt: Option<String>,
@@ -213,9 +209,6 @@ pub struct RhythmSettings {
     pub hooks: HooksConfig,
     #[serde(default)]
     pub mcp_servers: HashMap<String, McpServerConfig>,
-    /// AutoCompact configuration (Phase 9).
-    #[serde(default)]
-    pub auto_compact: AutoCompactConfig,
     /// Plugin enable/disable map keyed by plugin name (Phase 10).
     #[serde(default)]
     pub enabled_plugins: HashMap<String, bool>,
@@ -228,13 +221,27 @@ impl Default for RhythmSettings {
     fn default() -> Self {
         Self {
             llm: LlmConfig::default(),
+            providers: vec![ProviderConfig {
+                id: "anthropic".to_string(),
+                name: "Anthropic".to_string(),
+                provider: "anthropic".to_string(),
+                base_url: "https://api.anthropic.com".to_string(),
+                api_key: "".to_string(),
+                is_default: true,
+                models: vec![ProviderModelConfig {
+                    id: "claude-opus-4-5".to_string(),
+                    name: "claude-opus-4-5".to_string(),
+                    is_default: true,
+                    enabled: true,
+                    note: None,
+                }],
+            }],
             agent_turn_limit: None,
             system_prompt: None,
             permission: PermissionConfig::default(),
             memory: MemoryConfig::default(),
             hooks: HooksConfig::default(),
             mcp_servers: HashMap::new(),
-            auto_compact: AutoCompactConfig::default(),
             enabled_plugins: HashMap::new(),
             plugin_permissions: HashMap::new(),
         }
@@ -280,6 +287,7 @@ pub fn load_settings() -> RhythmSettings {
         }
     };
 
+    normalize_provider_settings(&mut settings);
     apply_env_overrides(&mut settings);
     settings
 }
@@ -318,7 +326,136 @@ pub fn save_settings(settings: &RhythmSettings) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    let mut normalized = settings.clone();
+    normalize_provider_settings(&mut normalized);
+    let json = serde_json::to_string_pretty(&normalized).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+pub fn resolve_llm_config(
+    settings: &RhythmSettings,
+    provider_id: Option<&str>,
+    model_id: Option<&str>,
+) -> Result<LlmConfig, String> {
+    if settings.providers.is_empty() {
+        let mut resolved = settings.llm.clone();
+        if let Some(model) = model_id.map(str::trim).filter(|value| !value.is_empty()) {
+            resolved.model = model.to_string();
+        }
+        return Ok(resolved);
+    }
+
+    let provider = if let Some(provider_id) = provider_id.map(str::trim).filter(|value| !value.is_empty()) {
+        settings
+            .providers
+            .iter()
+            .find(|provider| {
+                provider.enabled_for_runtime()
+                    && (provider.id.eq_ignore_ascii_case(provider_id)
+                        || provider.name.eq_ignore_ascii_case(provider_id))
+            })
+            .ok_or_else(|| format!("Provider '{}' is not available", provider_id))?
+    } else {
+        default_provider(settings)
+            .ok_or_else(|| "No enabled provider is configured".to_string())?
+    };
+
+    let model = if let Some(model_id) = model_id.map(str::trim).filter(|value| !value.is_empty()) {
+        provider
+            .models
+            .iter()
+            .find(|model| {
+                model.enabled
+                    && (model.id.eq_ignore_ascii_case(model_id)
+                        || model.name.eq_ignore_ascii_case(model_id))
+            })
+            .ok_or_else(|| {
+                format!(
+                    "Model '{}' is not available under provider '{}'",
+                    model_id, provider.id
+                )
+            })?
+    } else {
+        default_model(provider)
+            .ok_or_else(|| format!("Provider '{}' has no enabled model", provider.id))?
+    };
+
+    Ok(LlmConfig {
+        name: provider.name.clone(),
+        provider: provider.provider.clone(),
+        base_url: provider.base_url.clone(),
+        api_key: provider.api_key.clone(),
+        model: model.name.clone(),
+        max_tokens: settings.llm.max_tokens,
+    })
+}
+
+fn normalize_provider_settings(settings: &mut RhythmSettings) {
+    if settings.providers.is_empty() {
+        settings.providers = RhythmSettings::default().providers;
+    }
+
+    if !settings.providers.iter().any(|provider| provider.is_default) {
+        if let Some(first) = settings.providers.first_mut() {
+            first.is_default = true;
+        }
+    }
+
+    for provider in &mut settings.providers {
+        if provider.models.is_empty() {
+            provider.models.push(ProviderModelConfig {
+                id: provider.name.clone(),
+                name: provider.name.clone(),
+                is_default: true,
+                enabled: true,
+                note: None,
+            });
+        }
+        if !provider.models.iter().any(|model| model.is_default && model.enabled) {
+            if let Some(first_enabled) = provider.models.iter_mut().find(|model| model.enabled) {
+                first_enabled.is_default = true;
+            } else if let Some(first) = provider.models.first_mut() {
+                first.enabled = true;
+                first.is_default = true;
+            }
+        }
+    }
+
+    if let Some(default_provider) = default_provider(settings) {
+        if let Some(default_model) = default_model(default_provider) {
+            settings.llm = LlmConfig {
+                name: default_provider.name.clone(),
+                provider: default_provider.provider.clone(),
+                base_url: default_provider.base_url.clone(),
+                api_key: default_provider.api_key.clone(),
+                model: default_model.name.clone(),
+                max_tokens: settings.llm.max_tokens,
+            };
+        }
+    }
+}
+
+fn default_provider(settings: &RhythmSettings) -> Option<&ProviderConfig> {
+    settings
+        .providers
+        .iter()
+        .find(|provider| provider.is_default && provider.enabled_for_runtime())
+        .or_else(|| settings.providers.iter().find(|provider| provider.enabled_for_runtime()))
+}
+
+fn default_model(provider: &ProviderConfig) -> Option<&ProviderModelConfig> {
+    provider
+        .models
+        .iter()
+        .find(|model| model.is_default && model.enabled)
+        .or_else(|| provider.models.iter().find(|model| model.enabled))
+}
+
+impl ProviderConfig {
+    fn enabled_for_runtime(&self) -> bool {
+        !self.base_url.trim().is_empty()
+            && !self.api_key.trim().is_empty()
+            && self.models.iter().any(|model| model.enabled)
+    }
 }

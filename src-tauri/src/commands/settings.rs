@@ -81,12 +81,6 @@ pub struct FrontendSettings {
     pub hooks: Vec<FrontendHookConfig>,
     #[serde(rename = "mcpServers")]
     pub mcp_servers: Vec<FrontendMcpServerConfig>,
-    #[serde(rename = "autoCompactEnabled")]
-    pub auto_compact_enabled: bool,
-    #[serde(rename = "autoCompactThresholdRatio")]
-    pub auto_compact_threshold_ratio: f32,
-    #[serde(rename = "autoCompactMaxMicroCompacts")]
-    pub auto_compact_max_micro_compacts: usize,
     #[serde(rename = "enabledPlugins")]
     pub enabled_plugins: Vec<String>,
 }
@@ -102,28 +96,32 @@ pub async fn save_settings(settings: FrontendSettings) -> Result<(), String> {
 }
 
 fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
-    let provider_id = settings.llm.name.clone();
-    let provider_name = settings.llm.name.clone();
-    let provider_model = FrontendProviderModel {
-        id: settings.llm.model.clone(),
-        name: settings.llm.model.clone(),
-        is_default: true,
-        enabled: true,
-        note: Some("来自当前后端配置".to_string()),
-    };
-
     FrontendSettings {
         theme: "system".to_string(),
         auto_save_sessions: true,
-        providers: vec![FrontendProviderConfig {
-            id: provider_id.clone(),
-            name: provider_name,
-            provider: settings.llm.provider.clone(),
-            base_url: settings.llm.base_url.clone(),
-            api_key: settings.llm.api_key.clone(),
-            is_default: true,
-            models: vec![provider_model],
-        }],
+        providers: settings
+            .providers
+            .into_iter()
+            .map(|provider| FrontendProviderConfig {
+                id: provider.id,
+                name: provider.name,
+                provider: provider.provider,
+                base_url: provider.base_url,
+                api_key: provider.api_key,
+                is_default: provider.is_default,
+                models: provider
+                    .models
+                    .into_iter()
+                    .map(|model| FrontendProviderModel {
+                        id: model.id,
+                        name: model.name,
+                        is_default: model.is_default,
+                        enabled: model.enabled,
+                        note: model.note,
+                    })
+                    .collect(),
+            })
+            .collect(),
         system_prompt: settings.system_prompt.unwrap_or_default(),
         permission_mode: match settings.permission.mode {
             crate::permissions::modes::PermissionMode::Default => "default".to_string(),
@@ -176,9 +174,6 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
                 },
             })
             .collect(),
-        auto_compact_enabled: settings.auto_compact.enabled,
-        auto_compact_threshold_ratio: settings.auto_compact.threshold_ratio,
-        auto_compact_max_micro_compacts: settings.auto_compact.max_micro_compacts,
         enabled_plugins: settings
             .enabled_plugins
             .iter()
@@ -189,24 +184,51 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
 
 fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
     let existing = config::load_settings();
-    let provider = settings.providers.first();
-    let model = provider.and_then(|p| p.models.first());
+    let providers = settings
+        .providers
+        .into_iter()
+        .map(|provider| {
+            let provider_format =
+                resolve_provider_format(&provider).unwrap_or_else(|| "openai".to_string());
+            config::ProviderConfig {
+                id: provider.id,
+                name: provider.name,
+                provider: provider_format,
+                base_url: provider.base_url,
+                api_key: provider.api_key,
+                is_default: provider.is_default,
+                models: provider
+                .models
+                .into_iter()
+                .map(|model| config::ProviderModelConfig {
+                    id: model.id,
+                    name: model.name,
+                    is_default: model.is_default,
+                    enabled: model.enabled,
+                    note: model.note,
+                })
+                .collect(),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let active = config::resolve_llm_config(&RhythmSettings {
+        llm: existing.llm.clone(),
+        providers: providers.clone(),
+        agent_turn_limit: existing.agent_turn_limit,
+        system_prompt: existing.system_prompt.clone(),
+        permission: existing.permission.clone(),
+        memory: existing.memory.clone(),
+        hooks: existing.hooks.clone(),
+        mcp_servers: existing.mcp_servers.clone(),
+        enabled_plugins: existing.enabled_plugins.clone(),
+        plugin_permissions: existing.plugin_permissions.clone(),
+    }, None, None)
+    .unwrap_or_else(|_| existing.llm.clone());
 
     RhythmSettings {
-        llm: config::LlmConfig {
-            name: provider
-                .map(|p| p.name.clone())
-                .unwrap_or_else(|| "OpenAI".to_string()),
-            provider: provider
-                .and_then(|p| resolve_provider_format(p))
-                .unwrap_or_else(|| "openai".to_string()),
-            base_url: provider.map(|p| p.base_url.clone()).unwrap_or_default(),
-            api_key: provider.map(|p| p.api_key.clone()).unwrap_or_default(),
-            model: model
-                .map(|m| m.name.clone())
-                .unwrap_or_else(|| "gpt-5.4".to_string()),
-            max_tokens: None,
-        },
+        llm: active,
+        providers,
         agent_turn_limit: None,
         system_prompt: if settings.system_prompt.trim().is_empty() {
             None
@@ -263,11 +285,6 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
                 (server.name, config)
             })
             .collect::<HashMap<_, _>>(),
-        auto_compact: config::AutoCompactConfig {
-            enabled: settings.auto_compact_enabled,
-            threshold_ratio: settings.auto_compact_threshold_ratio,
-            max_micro_compacts: settings.auto_compact_max_micro_compacts,
-        },
         enabled_plugins: settings
             .enabled_plugins
             .into_iter()

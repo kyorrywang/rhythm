@@ -386,19 +386,6 @@ export const reduceSessionChunk = (
         permissionPending: true,
         phase: 'waiting_for_permission',
       };
-    } else if (chunk.type === 'context_compacted') {
-      nextSession = {
-        ...nextSession,
-        messages: [
-          ...nextSession.messages,
-          {
-            id: `system-${Date.now()}-compact`,
-            role: 'system',
-            content: `上下文已执行${chunk.compactType === 'micro' ? '微压缩' : '完整压缩'}${chunk.tokensSaved ? `，预计节省 ${chunk.tokensSaved} tokens` : ''}。`,
-            createdAt: Date.now(),
-          },
-        ],
-      };
     } else if (chunk.type === 'usage_update') {
       nextSession = {
         ...nextSession,

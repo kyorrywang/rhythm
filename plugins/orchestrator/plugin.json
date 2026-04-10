@@ -17,6 +17,91 @@
   "contributes": {
     "commands": [
       {
+        "id": "orchestrator.createPlanDraft",
+        "description": "Create an orchestrator plan draft.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "goal": { "type": "string" },
+            "overview": { "type": "string" }
+          },
+          "required": ["goal"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.createPlanDraft"
+      },
+      {
+        "id": "orchestrator.createPlanDraftFromSession",
+        "description": "Create a plan draft from a conversation session.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sessionId": { "type": "string" },
+            "messageId": { "type": "string" }
+          },
+          "required": ["sessionId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.createPlanDraftFromSession"
+      },
+      {
+        "id": "orchestrator.updatePlanDraft",
+        "description": "Update an orchestrator plan draft.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "planDraftId": { "type": "string" },
+            "patch": { "type": "object" }
+          },
+          "required": ["planDraftId", "patch"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.updatePlanDraft"
+      },
+      {
+        "id": "orchestrator.confirmPlanDraft",
+        "description": "Confirm a plan draft and create a run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "planDraftId": { "type": "string" }
+          },
+          "required": ["planDraftId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.confirmPlanDraft"
+      },
+      {
+        "id": "orchestrator.getPlanDraft",
+        "description": "Get an orchestrator plan draft.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "planDraftId": { "type": "string" }
+          },
+          "required": ["planDraftId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.getPlanDraft"
+      },
+      {
+        "id": "orchestrator.listPlanDrafts",
+        "description": "List orchestrator plan drafts.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.listPlanDrafts"
+      },
+      {
         "id": "orchestrator.createTemplate",
         "description": "Create an orchestrator template.",
         "parameters": {
@@ -115,21 +200,6 @@
         "handler": "orchestrator.matchTemplates"
       },
       {
-        "id": "orchestrator.createRun",
-        "description": "Create an orchestrator run.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "templateId": { "type": "string" },
-            "goal": { "type": "string" }
-          },
-          "required": ["templateId", "goal"]
-        },
-        "implementation": "ui",
-        "entry": "dist/main.js",
-        "handler": "orchestrator.createRun"
-      },
-      {
         "id": "orchestrator.wakeRun",
         "description": "Wake an orchestrator run.",
         "parameters": {
@@ -201,6 +271,68 @@
         "handler": "orchestrator.completeTask"
       },
       {
+        "id": "orchestrator.overrideReview",
+        "description": "Apply a human review override to a review task.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": { "type": "string" },
+            "decision": {
+              "type": "string",
+              "enum": ["approved", "needs_changes", "rejected"]
+            },
+            "feedback": { "type": "string" }
+          },
+          "required": ["taskId", "decision"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.overrideReview"
+      },
+      {
+        "id": "orchestrator.updateTask",
+        "description": "Update an orchestrator task with human guidance.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": { "type": "string" },
+            "summary": { "type": "string" }
+          },
+          "required": ["taskId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.updateTask"
+      },
+      {
+        "id": "orchestrator.retryTask",
+        "description": "Retry an orchestrator task.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": { "type": "string" }
+          },
+          "required": ["taskId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.retryTask"
+      },
+      {
+        "id": "orchestrator.skipTask",
+        "description": "Skip an orchestrator task.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": { "type": "string" }
+          },
+          "required": ["taskId"]
+        },
+        "implementation": "ui",
+        "entry": "dist/main.js",
+        "handler": "orchestrator.skipTask"
+      },
+      {
         "id": "orchestrator.getRun",
         "description": "Get an orchestrator run.",
         "parameters": {
@@ -249,6 +381,101 @@
       }
     ],
     "tools": [
+      {
+        "id": "orchestrator.createPlanDraft",
+        "description": "Create a plan draft for user confirmation before orchestration starts.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "goal": { "type": "string" },
+            "overview": { "type": "string" },
+            "constraints": { "type": "array", "items": { "type": "string" } },
+            "successCriteria": { "type": "array", "items": { "type": "string" } },
+            "reviewPolicy": { "type": "string" },
+            "stages": { "type": "array", "items": { "type": "object" } }
+          },
+          "required": ["goal"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "createPlanDraft"
+      },
+      {
+        "id": "orchestrator.createPlanDraftFromSession",
+        "description": "Create a plan draft from the current conversation.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sessionId": { "type": "string" },
+            "messageId": { "type": "string" }
+          },
+          "required": ["sessionId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "createPlanDraftFromSession"
+      },
+      {
+        "id": "orchestrator.updatePlanDraft",
+        "description": "Update a plan draft before confirmation.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "planDraftId": { "type": "string" },
+            "patch": { "type": "object" }
+          },
+          "required": ["planDraftId", "patch"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "updatePlanDraft"
+      },
+      {
+        "id": "orchestrator.confirmPlanDraft",
+        "description": "Confirm a plan draft and hand it off to the orchestrator.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "planDraftId": { "type": "string" }
+          },
+          "required": ["planDraftId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "confirmPlanDraft"
+      },
+      {
+        "id": "orchestrator.getPlanDraft",
+        "description": "Get an orchestrator plan draft.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "planDraftId": { "type": "string" }
+          },
+          "required": ["planDraftId"]
+        },
+        "readOnly": true,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "getPlanDraft"
+      },
+      {
+        "id": "orchestrator.listPlanDrafts",
+        "description": "List orchestrator plan drafts.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "readOnly": true,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "listPlanDrafts"
+      },
       {
         "id": "orchestrator.createTemplate",
         "description": "Create a new orchestrator template.",
@@ -308,6 +535,78 @@
         "handler": "updateTemplate"
       },
       {
+        "id": "orchestrator.renameTemplate",
+        "description": "Rename or update top-level metadata for an orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" },
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "domain": { "type": "string" },
+            "version": { "type": "string" }
+          },
+          "required": ["templateId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "renameTemplate"
+      },
+      {
+        "id": "orchestrator.updateStage",
+        "description": "Update one stage inside an orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" },
+            "stageId": { "type": "string" },
+            "patch": { "type": "object" }
+          },
+          "required": ["templateId", "stageId", "patch"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "updateStage"
+      },
+      {
+        "id": "orchestrator.updateAgent",
+        "description": "Update one agent inside an orchestrator template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" },
+            "agentId": { "type": "string" },
+            "patch": { "type": "object" }
+          },
+          "required": ["templateId", "agentId", "patch"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "updateAgent"
+      },
+      {
+        "id": "orchestrator.localizeNovelTemplate",
+        "description": "Convert a sample novel template into a localized Chinese novel authoring template.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "templateId": { "type": "string" },
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "platform": { "type": "string" },
+            "style": { "type": "string" }
+          },
+          "required": ["templateId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "localizeNovelTemplate"
+      },
+      {
         "id": "orchestrator.duplicateTemplate",
         "description": "Duplicate an orchestrator template.",
         "parameters": {
@@ -355,21 +654,20 @@
         "handler": "matchTemplates"
       },
       {
-        "id": "orchestrator.createRun",
-        "description": "Create and start a new orchestrator run from a template.",
+        "id": "orchestrator.wakeRun",
+        "description": "Wake the main orchestrator agent for a run.",
         "parameters": {
           "type": "object",
           "properties": {
-            "templateId": { "type": "string" },
-            "goal": { "type": "string" },
-            "source": { "type": "string" }
+            "runId": { "type": "string" },
+            "reason": { "type": "string" }
           },
-          "required": ["templateId", "goal"]
+          "required": ["runId"]
         },
         "readOnly": false,
         "runtime": "node",
         "entry": "src/tools/main.js",
-        "handler": "createRun"
+        "handler": "wakeRun"
       },
       {
         "id": "orchestrator.pauseRun",
@@ -417,6 +715,87 @@
         "handler": "cancelRun"
       },
       {
+        "id": "orchestrator.completeTask",
+        "description": "Mark an orchestrator task as completed.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": { "type": "string" }
+          },
+          "required": ["taskId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "completeTask"
+      },
+      {
+        "id": "orchestrator.overrideReview",
+        "description": "Apply a human review override to a review task.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": { "type": "string" },
+            "decision": {
+              "type": "string",
+              "enum": ["approved", "needs_changes", "rejected"]
+            },
+            "feedback": { "type": "string" }
+          },
+          "required": ["taskId", "decision"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "overrideReview"
+      },
+      {
+        "id": "orchestrator.updateTask",
+        "description": "Update an orchestrator task with human guidance.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": { "type": "string" },
+            "summary": { "type": "string" }
+          },
+          "required": ["taskId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "updateTask"
+      },
+      {
+        "id": "orchestrator.retryTask",
+        "description": "Retry an orchestrator task.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": { "type": "string" }
+          },
+          "required": ["taskId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "retryTask"
+      },
+      {
+        "id": "orchestrator.skipTask",
+        "description": "Skip an orchestrator task.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "taskId": { "type": "string" }
+          },
+          "required": ["taskId"]
+        },
+        "readOnly": false,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "skipTask"
+      },
+      {
         "id": "orchestrator.getRun",
         "description": "Get the current status of an orchestrator run.",
         "parameters": {
@@ -454,6 +833,30 @@
         "runtime": "node",
         "entry": "src/tools/main.js",
         "handler": "listRuns"
+      },
+      {
+        "id": "orchestrator.listTasks",
+        "description": "List orchestrator tasks.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        },
+        "readOnly": true,
+        "runtime": "node",
+        "entry": "src/tools/main.js",
+        "handler": "listTasks"
+      }
+    ],
+    "skills": [
+      {
+        "id": "orchestrator-plan-intake",
+        "title": "计划生成与移交",
+        "description": "在主会话中澄清需求，生成待确认的 plan draft，并在确认后移交给编排引擎。"
+      },
+      {
+        "id": "orchestrator-template-authoring",
+        "title": "编排模板创建",
+        "description": "创建、派生和修改 Agent 编排模板。"
       }
     ],
     "views": [
@@ -468,8 +871,18 @@
         "location": "workbench"
       },
       {
+        "id": "orchestrator.plan-draft",
+        "title": "Plan Draft",
+        "location": "workbench"
+      },
+      {
         "id": "orchestrator.run",
         "title": "Run",
+        "location": "workbench"
+      },
+      {
+        "id": "orchestrator.agent-run",
+        "title": "Agent",
         "location": "workbench"
       }
     ]

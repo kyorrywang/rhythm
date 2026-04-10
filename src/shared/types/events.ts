@@ -13,7 +13,6 @@ export type InternalEventType =
   | 'INTERRUPTED'
   | 'PERMISSION_REQUEST'
   | 'USAGE_UPDATE'
-  | 'CONTEXT_COMPACTED'
   | 'CRON_JOB_TRIGGERED'
   | 'CRON_JOB_COMPLETED';
 
@@ -105,11 +104,6 @@ export interface PermissionRequestEventInternal extends InternalEvent {
   };
 }
 
-export interface ContextCompactedEvent extends InternalEvent {
-  type: 'CONTEXT_COMPACTED';
-  payload: { compactType: 'micro' | 'full'; tokensSaved?: number };
-}
-
 export interface UsageUpdateEvent extends InternalEvent {
   type: 'USAGE_UPDATE';
   payload: { inputTokens: number; outputTokens: number };
@@ -140,6 +134,5 @@ export type InternalEventUnion =
   | InterruptedEvent
   | PermissionRequestEventInternal
   | UsageUpdateEvent
-  | ContextCompactedEvent
   | CronJobTriggeredEvent
   | CronJobCompletedEvent;

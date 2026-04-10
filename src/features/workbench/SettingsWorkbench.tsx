@@ -1,4 +1,4 @@
-import { BrainCircuit, Database, HardDrive, LockKeyhole, Monitor, Puzzle, Repeat, Server, TimerReset, Type } from 'lucide-react';
+import { BrainCircuit, Database, LockKeyhole, Monitor, Puzzle, Repeat, Server, TimerReset, Type } from 'lucide-react';
 import { themePresets } from '@/shared/theme';
 import { themeRecipes } from '@/shared/theme/recipes';
 import { useDisplayStore } from '@/shared/state/useDisplayStore';
@@ -13,7 +13,6 @@ export type SettingsSection =
   | 'memory'
   | 'hooks'
   | 'mcp'
-  | 'auto_compact'
   | 'plugin'
   | 'cron'
   | 'frontend';
@@ -30,7 +29,6 @@ export const SettingsWorkbench = ({ section }: { section: SettingsSection }) => 
     memory: { title: '记忆设置', description: '控制 memory 入口是否开启，以及采样规模。', icon: <Database size={16} /> },
     hooks: { title: 'Hooks 设置', description: '展示各类 hook 的触发阶段、匹配器和失败策略。', icon: <Repeat size={16} /> },
     mcp: { title: 'MCP 设置', description: '管理当前 MCP server 列表与连接方式。', icon: <Server size={16} /> },
-    auto_compact: { title: '自动压缩设置', description: '控制上下文压缩阈值和 micro compact 次数。', icon: <HardDrive size={16} /> },
     plugin: { title: '插件设置', description: '配置视角查看已启用插件，完整安装卸载建议走插件页。', icon: <Puzzle size={16} /> },
     cron: { title: '定时任务设置', description: '展示 cron job 列表、时间计划与工作目录。', icon: <TimerReset size={16} /> },
     frontend: { title: '前端显示设置', description: '这里聚合主题、本地偏好和消息段默认展开规则。', icon: <Monitor size={16} /> },
@@ -157,19 +155,6 @@ export const SettingsWorkbench = ({ section }: { section: SettingsSection }) => 
               />
             </Card>
           ))}
-        </div>
-      </WorkbenchSection>
-    ),
-    auto_compact: (
-      <WorkbenchSection title="自动压缩策略" description="控制上下文压缩阈值和 micro compact 次数。">
-        <div className="grid gap-[var(--theme-section-gap)] md:grid-cols-2">
-          <ToggleCard title="启用自动压缩" checked={settings.autoCompactEnabled} onChange={(checked) => updateSettings({ autoCompactEnabled: checked })} />
-          <Field label="Threshold ratio">
-            <Input type="number" step="0.01" value={settings.autoCompactThresholdRatio} onChange={(event) => updateSettings({ autoCompactThresholdRatio: Number(event.target.value) || 0 })} />
-          </Field>
-          <Field label="Max micro compacts">
-            <Input type="number" value={settings.autoCompactMaxMicroCompacts} onChange={(event) => updateSettings({ autoCompactMaxMicroCompacts: Number(event.target.value) || 0 })} />
-          </Field>
         </div>
       </WorkbenchSection>
     ),

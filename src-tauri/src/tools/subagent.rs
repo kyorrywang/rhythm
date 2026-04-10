@@ -161,10 +161,6 @@ impl BaseTool for SubagentTool {
                 .as_ref()
                 .and_then(|a| a.max_turns)
                 .or(settings.agent_turn_limit),
-            auto_compact_enabled: settings.auto_compact.enabled,
-            max_tokens: settings.llm.max_tokens.unwrap_or(16384),
-            auto_compact_threshold_ratio: settings.auto_compact.threshold_ratio,
-            max_micro_compacts: settings.auto_compact.max_micro_compacts,
             agent_id: sub_agent_id.clone(),
             session_id: sub_session_id.clone(),
         };

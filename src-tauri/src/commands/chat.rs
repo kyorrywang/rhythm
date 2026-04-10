@@ -31,26 +31,8 @@ pub async fn chat_stream(
     mode: Option<String>,
     on_event: Channel<ServerEventChunk>,
 ) -> Result<(), String> {
-    let mut settings = config::load_settings();
-    if let Some(provider_id) = provider_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        if provider_id != settings.llm.name {
-            return Err(format!(
-                "Provider '{}' is not available in the active backend config '{}'",
-                provider_id, settings.llm.name
-            ));
-        }
-    }
-    if let Some(model) = model
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        settings.llm.model = model.to_string();
-    }
+    let settings = config::load_settings();
+    let llm_config = config::resolve_llm_config(&settings, provider_id.as_deref(), model.as_deref())?;
 
     let agent_id = agent_registry::register_agent(session_id.clone(), None, 0);
     event_bus::register_ipc_channel(&agent_id, on_event.clone());
@@ -58,7 +40,7 @@ pub async fn chat_stream(
     let cwd_path = crate::commands::workspace::resolve_workspace_path(cwd.as_deref())?;
 
     tokio::spawn(async move {
-        let client = Arc::from(llm::create_client(&settings.llm));
+        let client = Arc::from(llm::create_client(&llm_config));
 
         // Build multi-layer system prompt
         let coordinate_mode = mode
@@ -99,14 +81,10 @@ pub async fn chat_stream(
             hook_executor: Some(hook_executor),
             mcp_manager,
             cwd: cwd_path,
-            model: settings.llm.model.clone(),
+            model: llm_config.model.clone(),
             reasoning,
             system_prompt,
             agent_turn_limit: settings.agent_turn_limit,
-            auto_compact_enabled: settings.auto_compact.enabled,
-            max_tokens: settings.llm.max_tokens.unwrap_or(16384),
-            auto_compact_threshold_ratio: settings.auto_compact.threshold_ratio,
-            max_micro_compacts: settings.auto_compact.max_micro_compacts,
             agent_id: agent_id.clone(),
             session_id: session_id.clone(),
         };

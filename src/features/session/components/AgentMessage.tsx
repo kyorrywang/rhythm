@@ -356,7 +356,11 @@ const PermissionSegment = ({
 
 const renderOrchestratorSummary = (tool: ToolCall): { title: string; summary: React.ReactNode } | null => {
   if (
-    tool.name !== 'orchestrator.createRun'
+    tool.name !== 'orchestrator.createPlanDraft'
+    && tool.name !== 'orchestrator.createPlanDraftFromSession'
+    && tool.name !== 'orchestrator.updatePlanDraft'
+    && tool.name !== 'orchestrator.getPlanDraft'
+    && tool.name !== 'orchestrator.confirmPlanDraft'
     && tool.name !== 'orchestrator.getRun'
     && tool.name !== 'orchestrator.pauseRun'
     && tool.name !== 'orchestrator.resumeRun'
@@ -373,28 +377,72 @@ const renderOrchestratorSummary = (tool: ToolCall): { title: string; summary: Re
   const ctx = createPluginContext('orchestrator');
   const parsed = parseToolResult(tool);
 
+  if (isOrchestratorPlanDraftResult(parsed)) {
+    return {
+      title: '计划草稿',
+      summary: (
+        <span className="flex min-w-0 items-center gap-2">
+          <Button
+            variant="link"
+            size="sm"
+            onClick={(event) => {
+              event.stopPropagation();
+              ctx.ui.workbench.open({
+                id: `orchestrator.plan-draft:${parsed.id}`,
+                viewId: 'orchestrator.plan-draft',
+                title: parsed.title || parsed.goal || 'Plan Draft',
+                description: parsed.status,
+                payload: { planDraft: parsed },
+                layoutMode: 'replace',
+              });
+            }}
+            className="min-w-0 truncate text-[13px] leading-6"
+          >
+            {parsed.title || parsed.goal || '打开计划草稿'}
+          </Button>
+          <Badge tone={parsed.status === 'confirmed' ? 'success' : 'warning'}>
+            {parsed.status}
+          </Badge>
+        </span>
+      ),
+    };
+  }
+
   if (isOrchestratorRunResult(parsed)) {
     return {
       title: 'Agent 编排器',
       summary: (
-        <Button
-          variant="link"
-          size="sm"
-          onClick={(event) => {
-            event.stopPropagation();
-            ctx.ui.workbench.open({
-              id: `orchestrator.run:${parsed.id}`,
-              viewId: 'orchestrator.run',
-              title: parsed.goal || 'Run',
-              description: parsed.templateName,
-              payload: { run: parsed },
-              layoutMode: 'replace',
-            });
-          }}
-          className="min-w-0 truncate text-[13px] leading-6"
-        >
-          {parsed.goal || parsed.templateName || '打开运行'}
-        </Button>
+        <span className="flex min-w-0 items-center gap-2">
+          <Button
+            variant="link"
+            size="sm"
+            onClick={(event) => {
+              event.stopPropagation();
+              ctx.ui.workbench.open({
+                id: `orchestrator.run:${parsed.id}`,
+                viewId: 'orchestrator.run',
+                title: parsed.goal || 'Run',
+                description: parsed.planTitle,
+                payload: { run: parsed },
+                layoutMode: 'replace',
+              });
+            }}
+            className="min-w-0 truncate text-[13px] leading-6"
+          >
+            {parsed.goal || parsed.planTitle || '打开运行'}
+          </Button>
+          <Badge tone={mapRunStatusTone(parsed.status)}>
+            {parsed.status}
+          </Badge>
+          {parsed.currentStageName ? (
+            <span className="truncate text-[12px] text-[var(--theme-text-muted)]">{parsed.currentStageName}</span>
+          ) : null}
+          {(parsed.lastHumanInterventionSummary || parsed.engineHealthSummary || parsed.lastDecisionSummary) ? (
+            <span className="truncate text-[12px] text-[var(--theme-text-muted)]">
+              {parsed.lastHumanInterventionSummary || parsed.engineHealthSummary || parsed.lastDecisionSummary}
+            </span>
+          ) : null}
+        </span>
       ),
     };
   }
@@ -444,14 +492,40 @@ const parseToolResult = (tool: ToolCall): unknown => {
 const isOrchestratorRunResult = (value: unknown): value is {
   id: string;
   goal?: string;
-  templateName?: string;
+  planTitle?: string;
+  status: string;
+  currentStageName?: string;
+  lastDecisionSummary?: string;
+  engineHealthSummary?: string;
+  lastHumanInterventionSummary?: string;
 } => Boolean(
   value
   && typeof value === 'object'
   && 'id' in value
-  && 'templateId' in value
+  && 'planId' in value
   && 'status' in value,
 );
+
+const isOrchestratorPlanDraftResult = (value: unknown): value is {
+  id: string;
+  title?: string;
+  goal?: string;
+  status: string;
+} => Boolean(
+  value
+  && typeof value === 'object'
+  && 'id' in value
+  && 'goal' in value
+  && 'overview' in value
+  && 'stages' in value,
+);
+
+const mapRunStatusTone = (status: string): 'success' | 'warning' | 'danger' | 'muted' => {
+  if (status === 'completed') return 'success';
+  if (status === 'running' || status === 'pause_requested') return 'warning';
+  if (status === 'failed' || status === 'cancelled' || status === 'interrupted') return 'danger';
+  return 'muted';
+};
 
 const isOrchestratorTemplateResult = (value: unknown): value is {
   id: string;

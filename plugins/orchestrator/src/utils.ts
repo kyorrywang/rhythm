@@ -1,6 +1,9 @@
 import type {
   OrchestratorAgent,
   OrchestratorAgentRow,
+  OrchestratorConfirmedPlan,
+  OrchestratorPlanDraft,
+  OrchestratorPlanStage,
   OrchestratorRun,
   OrchestratorRunEvent,
   OrchestratorMatchTemplatesInput,
@@ -19,6 +22,7 @@ export function createDefaultTemplate(name: string): OrchestratorTemplate {
     domain: 'general',
     version: '0.1.0',
     description: 'New orchestrator template.',
+    parameters: [],
     stageRows: [
       createStageRow([
         createStage('Stage 1', 'Define the first stage goal.', [createAgentRow([draft])]),
@@ -32,6 +36,61 @@ export function createDefaultTemplate(name: string): OrchestratorTemplate {
   };
 }
 
+export function createPlanDraft(input: {
+  title?: string;
+  goal: string;
+  overview?: string;
+  constraints?: string[];
+  successCriteria?: string[];
+  reviewPolicy?: string;
+  stages?: Array<{ name: string; goal: string; deliverables?: string[] }>;
+  sourceSessionId?: string;
+  sourceMessageId?: string;
+}): OrchestratorPlanDraft {
+  const now = Date.now();
+  return {
+    id: createId('plan'),
+    title: input.title || input.goal,
+    goal: input.goal,
+    sourceSessionId: input.sourceSessionId,
+    sourceMessageId: input.sourceMessageId,
+    status: 'draft',
+    overview: input.overview || `围绕“${input.goal}”推进项目，并逐步拆解执行任务。`,
+    constraints: input.constraints || [],
+    successCriteria: input.successCriteria || ['产出满足用户目标的高质量结果。'],
+    reviewPolicy: input.reviewPolicy || '每个主要阶段完成后进入审核；不通过则返工。',
+    stages: (input.stages && input.stages.length > 0
+      ? input.stages.map((stage) => ({
+        id: createId('plan_stage'),
+        name: stage.name,
+        goal: stage.goal,
+        deliverables: stage.deliverables || [],
+      }))
+      : createDefaultPlanStages(input.goal)),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function createConfirmedPlanFromDraft(planDraft: OrchestratorPlanDraft): OrchestratorConfirmedPlan {
+  return {
+    id: planDraft.id,
+    title: planDraft.title,
+    goal: planDraft.goal,
+    overview: planDraft.overview,
+    constraints: [...planDraft.constraints],
+    successCriteria: [...planDraft.successCriteria],
+    reviewPolicy: planDraft.reviewPolicy,
+    stages: planDraft.stages.map((stage) => ({
+      id: stage.id,
+      name: stage.name,
+      goal: stage.goal,
+      deliverables: [...stage.deliverables],
+    })),
+    confirmedAt: planDraft.confirmedAt || Date.now(),
+  };
+}
+
 export function createSampleNovelTemplate(name = 'Novel Writing Basic'): OrchestratorTemplate {
   const now = Date.now();
   return {
@@ -40,6 +99,24 @@ export function createSampleNovelTemplate(name = 'Novel Writing Basic'): Orchest
     domain: 'novel',
     version: '1.0.0',
     description: 'A sample long-form novel orchestration template.',
+    parameters: [
+      {
+        id: createId('param'),
+        name: 'genre',
+        label: 'Genre',
+        description: 'Novel genre or core category.',
+        required: true,
+        defaultValue: 'fantasy',
+      },
+      {
+        id: createId('param'),
+        name: 'tone',
+        label: 'Tone',
+        description: 'Target emotional tone and voice.',
+        required: false,
+        defaultValue: 'dramatic',
+      },
+    ],
     stageRows: [
       {
         id: createId('stage_row'),
@@ -152,6 +229,24 @@ export function createSampleSoftwareTemplate(name = 'Software Delivery Basic'): 
     domain: 'software',
     version: '1.0.0',
     description: 'A sample software delivery orchestration template.',
+    parameters: [
+      {
+        id: createId('param'),
+        name: 'platform',
+        label: 'Platform',
+        description: 'Target platform or runtime.',
+        required: false,
+        defaultValue: 'web',
+      },
+      {
+        id: createId('param'),
+        name: 'quality_bar',
+        label: 'Quality Bar',
+        description: 'Desired quality threshold.',
+        required: false,
+        defaultValue: 'production-ready',
+      },
+    ],
     stageRows: [
       {
         id: createId('stage_row'),
@@ -289,26 +384,27 @@ export function matchTemplatesByGoal(
     .slice(0, limit);
 }
 
-export function createRunFromTemplate(
-  template: OrchestratorTemplate,
-  goal: string,
+export function createRunFromPlan(
+  plan: OrchestratorConfirmedPlan,
   source: OrchestratorRun['source'],
 ): OrchestratorRun {
   const now = Date.now();
-  const firstStage = template.stageRows[0]?.stages[0];
-  const firstAgent = firstStage?.agentRows[0]?.agents[0];
+  const firstStage = plan.stages[0];
   return {
     id: createId('run'),
-    templateId: template.id,
-    templateName: template.name,
-    goal,
+    planId: plan.id,
+    planTitle: plan.title,
+    confirmedPlan: plan,
+    goal: plan.goal,
     status: 'pending',
     source,
     activeTaskCount: 0,
+    maxConcurrentTasks: 2,
+    watchdogStatus: 'healthy',
     currentStageId: firstStage?.id,
     currentStageName: firstStage?.name,
-    currentAgentId: firstAgent?.id,
-    currentAgentName: firstAgent?.name,
+    currentAgentId: undefined,
+    currentAgentName: firstStage ? `${firstStage.name} Work Agent` : undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -320,7 +416,7 @@ export function createRunCreatedEvent(run: OrchestratorRun): OrchestratorRunEven
     runId: run.id,
     type: 'run.created',
     title: 'Run created',
-    detail: `Template: ${run.templateName}`,
+    detail: `Plan: ${run.planTitle}`,
     createdAt: Date.now(),
   };
 }
@@ -378,4 +474,27 @@ function createAgent(name: string, role: string, goal: string): OrchestratorAgen
     outputArtifacts: [],
     failurePolicy: 'pause',
   };
+}
+
+function createDefaultPlanStages(goal: string): OrchestratorPlanStage[] {
+  return [
+    {
+      id: createId('plan_stage'),
+      name: 'Clarify Scope',
+      goal: `Extract the key constraints and execution shape for ${goal}.`,
+      deliverables: ['Scope notes', 'Execution assumptions'],
+    },
+    {
+      id: createId('plan_stage'),
+      name: 'Produce Core Output',
+      goal: `Create the main deliverable for ${goal}.`,
+      deliverables: ['Primary draft or implementation'],
+    },
+    {
+      id: createId('plan_stage'),
+      name: 'Review And Refine',
+      goal: `Review the result for quality and prepare the next refinement pass for ${goal}.`,
+      deliverables: ['Review notes', 'Refined result'],
+    },
+  ];
 }

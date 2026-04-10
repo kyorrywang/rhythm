@@ -141,14 +141,6 @@ pub enum EventPayload {
         output_tokens: u64,
     },
 
-    #[serde(rename = "context_compacted")]
-    ContextCompacted {
-        #[serde(rename = "compactType")]
-        compact_type: String,
-        #[serde(rename = "tokensSaved")]
-        tokens_saved: Option<usize>,
-    },
-
     #[serde(rename = "cron_job_triggered")]
     CronJobTriggered {
         #[serde(rename = "jobId")]

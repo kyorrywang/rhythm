@@ -64,10 +64,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     {
       name: 'rhythm-workspaces-v1',
       onRehydrateStorage: () => (state) => {
-        if (!state || state.workspaces.length > 0) return;
-        const fallback = createWorkspace(DEFAULT_WORKSPACE_PATH);
-        state.workspaces = [fallback];
-        state.activeWorkspaceId = fallback.id;
+        if (!state) return;
+        if (state.workspaces.length === 0) {
+          const fallback = createWorkspace(DEFAULT_WORKSPACE_PATH);
+          state.workspaces = [fallback];
+          state.activeWorkspaceId = fallback.id;
+          return;
+        }
+
+        const normalized = state.workspaces.map((workspace) => createWorkspace(workspace.path));
+        const active = normalized.find((workspace) => workspace.id === normalizeWorkspaceId(state.activeWorkspaceId))
+          || normalized[0]
+          || createWorkspace(DEFAULT_WORKSPACE_PATH);
+
+        state.workspaces = dedupeWorkspaces(normalized);
+        state.activeWorkspaceId = active.id;
       },
     },
   ),
@@ -94,7 +105,11 @@ function createWorkspace(path: string): Workspace {
 }
 
 function normalizeWorkspacePath(path: string) {
-  return path.trim().replace(/[\\/]+$/, '');
+  const trimmed = path.trim();
+  if (/^[a-zA-Z]:[\\\/]*$/.test(trimmed)) {
+    return `${trimmed.slice(0, 2)}\\`;
+  }
+  return trimmed.replace(/[\\/]+$/, '');
 }
 
 function getWorkspaceName(path: string) {
@@ -102,5 +117,17 @@ function getWorkspaceName(path: string) {
 }
 
 function workspaceIdFromPath(path: string) {
+  return normalizeWorkspaceId(normalizeWorkspacePath(path));
+}
+
+function normalizeWorkspaceId(path: string) {
   return normalizeWorkspacePath(path).toLowerCase();
+}
+
+function dedupeWorkspaces(workspaces: Workspace[]) {
+  const map = new Map<string, Workspace>();
+  for (const workspace of workspaces) {
+    map.set(workspace.id, workspace);
+  }
+  return Array.from(map.values());
 }

@@ -3,7 +3,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
-use super::compactor::{auto_compact_if_needed, AutoCompactState};
 use super::context::QueryContext;
 use super::stream_events::UsageTracker;
 use crate::coordinator::coordinator_mode;
@@ -76,12 +75,6 @@ async fn run_query_inner(
         })
         .collect();
 
-    // AutoCompact state: persisted across turns within one query
-    let mut compact_state = AutoCompactState::default();
-    let threshold_ratio = context.auto_compact_threshold_ratio.clamp(0.1, 1.0);
-    let token_limit = ((context.max_tokens as f32) * threshold_ratio) as usize;
-    let max_micro_compacts = context.max_micro_compacts;
-
     let mut turn = 0usize;
     loop {
         if let Some(limit) = context.agent_turn_limit {
@@ -115,38 +108,6 @@ async fn run_query_inner(
             })
             .sum::<usize>();
         let mut output_chars_this_turn = 0usize;
-
-        // ── AutoCompact check before calling LLM ─────────────────────────────
-        if context.auto_compact_enabled {
-            let msgs_snapshot = messages.clone();
-            let compact_result = auto_compact_if_needed(
-                msgs_snapshot,
-                context.api_client.as_ref(),
-                &context.model,
-                &context.system_prompt,
-                &mut compact_state,
-                token_limit,
-                max_micro_compacts,
-            )
-            .await;
-
-            if compact_result.was_compacted {
-                *messages = compact_result.messages;
-                let compact_type_str = compact_result
-                    .compact_type
-                    .as_ref()
-                    .map(|ct| format!("{:?}", ct).to_lowercase())
-                    .unwrap_or_default();
-                event_bus::emit(
-                    &context.agent_id,
-                    &context.session_id,
-                    EventPayload::ContextCompacted {
-                        compact_type: compact_type_str,
-                        tokens_saved: compact_result.tokens_saved,
-                    },
-                );
-            }
-        }
 
         let mut thinking_ended = false;
         let mut thinking_started_at: Option<std::time::Instant> = None;

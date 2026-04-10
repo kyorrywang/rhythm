@@ -70,7 +70,6 @@ export type ServerEventChunk =
   | { type: 'done'; sessionId: string }
   | { type: 'interrupted'; sessionId: string }
   | { type: 'usage_update'; sessionId: string; inputTokens: number; outputTokens: number }
-  | { type: 'context_compacted'; sessionId: string; compactType: 'micro' | 'full'; tokensSaved?: number }
   | { type: 'cron_job_triggered'; sessionId: string; jobId: string; name: string }
   | { type: 'cron_job_completed'; sessionId: string; jobId: string; name: string; success: boolean; output: string; durationMs: number };
 

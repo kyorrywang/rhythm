@@ -1,38 +1,108 @@
 import { useEffect, useState } from 'react';
 import type { WorkbenchProps } from '../../../../src/plugin/sdk';
-import { ORCHESTRATOR_COMMANDS } from '../constants';
-import { getRun, listEventsForRun, listTasksForRun } from '../storage';
-import type { OrchestratorAgentTask, OrchestratorRun, OrchestratorRunEvent, OrchestratorRunPayload } from '../types';
+import { ORCHESTRATOR_COMMANDS, ORCHESTRATOR_EVENTS, ORCHESTRATOR_VIEWS } from '../constants';
+import { getProjectState, getRun, listAgentRunsForRun, listArtifactsForRun, listEventsForRun, listReviewLogsForRun, listTasksForRun } from '../storage';
+import type { OrchestratorAgentRun, OrchestratorAgentTask, OrchestratorArtifact, OrchestratorProjectState, OrchestratorReviewLog, OrchestratorRun, OrchestratorRunEvent, OrchestratorRunPayload } from '../types';
 import { formatDateTime } from '../utils';
+import { useSessionStore } from '../../../../src/shared/state/useSessionStore';
 
 export function RunView({ ctx, payload }: WorkbenchProps<OrchestratorRunPayload>) {
   const [run, setRun] = useState<OrchestratorRun>(payload.run);
   const [events, setEvents] = useState<OrchestratorRunEvent[]>([]);
   const [tasks, setTasks] = useState<OrchestratorAgentTask[]>([]);
+  const [agentRuns, setAgentRuns] = useState<OrchestratorAgentRun[]>([]);
+  const [artifacts, setArtifacts] = useState<OrchestratorArtifact[]>([]);
+  const [reviewLogs, setReviewLogs] = useState<OrchestratorReviewLog[]>([]);
+  const [projectState, setProjectState] = useState<OrchestratorProjectState | null>(null);
+  const setActiveSession = useSessionStore((s) => s.setActiveSession);
 
   useEffect(() => {
     void refresh();
+    const subscription = ctx.events.on(ORCHESTRATOR_EVENTS.runsChanged, (event) => {
+      const runId = (event as { runId?: string } | undefined)?.runId;
+      if (!runId || runId === payload.run.id) {
+        void refresh();
+      }
+    });
+    return () => {
+      subscription.dispose();
+    };
   }, [ctx, payload.run.id]);
 
   async function refresh() {
-    const [latestRun, nextEvents, nextTasks] = await Promise.all([
+    const [latestRun, nextEvents, nextTasks, nextAgentRuns, nextArtifacts, nextReviewLogs, nextProjectState] = await Promise.all([
       getRun(ctx, payload.run.id),
       listEventsForRun(ctx, payload.run.id),
       listTasksForRun(ctx, payload.run.id),
+      listAgentRunsForRun(ctx, payload.run.id),
+      listArtifactsForRun(ctx, payload.run.id),
+      listReviewLogsForRun(ctx, payload.run.id),
+      getProjectState(ctx, payload.run.id),
     ]);
     if (latestRun) setRun(latestRun);
     setEvents(nextEvents);
     setTasks(nextTasks);
+    setAgentRuns(nextAgentRuns);
+    setArtifacts(nextArtifacts);
+    setReviewLogs(nextReviewLogs);
+    setProjectState(nextProjectState);
+  }
+
+  async function updateTaskSummary(task: OrchestratorAgentTask) {
+    const nextSummary = window.prompt('Update the task instruction for this agent.', task.summary || '');
+    if (nextSummary === null) return;
+    await ctx.commands.execute(ORCHESTRATOR_COMMANDS.updateTask, {
+      taskId: task.id,
+      summary: nextSummary,
+    });
+    await refresh();
+  }
+
+  async function retryTask(task: OrchestratorAgentTask) {
+    await ctx.commands.execute(ORCHESTRATOR_COMMANDS.retryTask, {
+      taskId: task.id,
+    });
+    await refresh();
+  }
+
+  async function skipTask(task: OrchestratorAgentTask) {
+    await ctx.commands.execute(ORCHESTRATOR_COMMANDS.skipTask, {
+      taskId: task.id,
+    });
+    await refresh();
   }
 
   return (
     <div className="h-full overflow-auto bg-white px-6 py-5 text-sm text-slate-700">
       <div className="max-w-4xl">
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          {run.sourceSessionId ? (
+            <button
+              className="rounded border border-slate-300 bg-white px-2 py-1 text-slate-600"
+              onClick={() => setActiveSession(run.sourceSessionId!)}
+            >
+              Back To Conversation
+            </button>
+          ) : null}
+          <button
+            className="rounded border border-slate-300 bg-white px-2 py-1 text-slate-600"
+            onClick={() => ctx.ui.workbench.open({
+              id: `orchestrator.run:${run.id}`,
+              viewId: ORCHESTRATOR_VIEWS.run,
+              title: run.goal,
+              description: run.planTitle,
+              payload: { run },
+              layoutMode: 'replace',
+            })}
+          >
+            Refresh View
+          </button>
+        </div>
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">{run.goal}</h1>
             <p className="mt-1 text-sm text-slate-500">
-              {run.templateName} · {run.status}
+              {run.planTitle} · {run.status}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -81,41 +151,366 @@ export function RunView({ ctx, payload }: WorkbenchProps<OrchestratorRunPayload>
           <InfoCard label="Current Agent" value={run.currentAgentName || '-'} />
           <InfoCard label="Source" value={run.source} />
           <InfoCard label="Active Tasks" value={String(run.activeTaskCount)} />
+          <InfoCard label="Concurrency Limit" value={String(run.maxConcurrentTasks || 2)} />
+          <InfoCard label="Watchdog" value={run.watchdogStatus || 'healthy'} />
           <InfoCard label="Updated" value={formatDateTime(run.updatedAt)} />
           <InfoCard label="Last Wake" value={formatDateTime(run.lastWakeAt)} />
+          <InfoCard label="Wake Reason" value={run.lastWakeReason || '-'} />
           <InfoCard label="Last Decision" value={formatDateTime(run.lastDecisionAt)} />
           <InfoCard label="Decision Summary" value={run.lastDecisionSummary || '-'} />
         </div>
 
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-medium text-slate-900">Engine Health</div>
+            <div className={`text-xs uppercase tracking-wide ${engineToneClass(run, tasks)}`}>{deriveEngineStateLabel(run, tasks)}</div>
+          </div>
+          <div className="mt-2 text-sm leading-6 text-slate-700">
+            {run.engineHealthSummary || deriveEngineHealthSummary(run, tasks, agentRuns, reviewLogs)}
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <InfoCard label="Blocked Tasks" value={String(tasks.filter((task) => task.status === 'blocked').length)} />
+            <InfoCard label="Waiting Review" value={String(tasks.filter((task) => task.status === 'waiting_review').length)} />
+            <InfoCard label="Running Sessions" value={String(agentRuns.filter((agentRun) => ['ready', 'pending', 'running'].includes(agentRun.status)).length)} />
+            <InfoCard label="Last Human Action" value={run.lastHumanInterventionSummary || '-'} />
+          </div>
+          {run.lastHumanInterventionAt ? (
+            <div className="mt-3 text-xs text-slate-500">
+              Last human intervention: {formatDateTime(run.lastHumanInterventionAt)}
+            </div>
+          ) : null}
+        </section>
+
+        {run.watchdogWarning ? (
+          <section className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="font-medium">Watchdog Warning</div>
+            <div className="mt-1">{run.watchdogWarning}</div>
+            <div className="mt-2 text-xs text-amber-700">
+              Last checked: {formatDateTime(run.watchdogCheckedAt)}
+            </div>
+          </section>
+        ) : null}
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-slate-900">Confirmed Plan</h2>
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-sm font-medium text-slate-900">{run.confirmedPlan.title}</div>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{run.confirmedPlan.overview}</p>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <StringListBlock label="Constraints" values={run.confirmedPlan.constraints} emptyLabel="No constraints." />
+              <StringListBlock label="Success Criteria" values={run.confirmedPlan.successCriteria} emptyLabel="No success criteria." />
+            </div>
+            <div className="mt-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Review Policy</div>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                {run.confirmedPlan.reviewPolicy || 'No review policy defined.'}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-slate-900">Plan Stages</h2>
+          <div className="mt-3 space-y-3">
+            {run.confirmedPlan.stages.map((stage, index) => (
+              <article key={stage.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium text-slate-900">{index + 1}. {stage.name}</div>
+                  <div className="text-xs text-slate-400">Work {'->'} Review</div>
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{stage.goal}</p>
+                <div className="mt-3">
+                  <StringListBlock label="Deliverables" values={stage.deliverables} emptyLabel="No deliverables defined." />
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-slate-900">Orchestration Agent</h2>
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <InfoCard label="Wake Reason" value={run.orchestrationInput?.wakeReason || run.lastWakeReason || '-'} />
+              <InfoCard label="Decision Status" value={run.orchestrationDecision?.status || '-'} />
+              <InfoCard label="Dispatch Count" value={String(run.orchestrationDecision?.dispatchCount || 0)} />
+              <InfoCard label="Decision Time" value={formatDateTime(run.orchestrationDecision?.createdAt)} />
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <DetailPanel
+                label="Input Snapshot"
+                content={[
+                  `Run Goal: ${run.orchestrationInput?.runGoal || run.goal}`,
+                  `Plan: ${run.orchestrationInput?.planTitle || run.planTitle}`,
+                  `Overview: ${run.orchestrationInput?.planOverview || run.confirmedPlan.overview}`,
+                  `Ready Tasks: ${run.orchestrationInput?.readyTaskTitles.join(', ') || '-'}`,
+                  `Blocked Tasks: ${run.orchestrationInput?.blockedTaskTitles.join(', ') || '-'}`,
+                  `Waiting Review: ${run.orchestrationInput?.waitingReviewTaskTitles.join(', ') || '-'}`,
+                  `Latest Reviews: ${run.orchestrationInput?.latestReviewSummaries.join(' | ') || '-'}`,
+                  `Project State: ${run.orchestrationInput?.projectStateSummary.join(' | ') || '-'}`,
+                ].join('\n\n')}
+              />
+              <DetailPanel
+                label="Prompt And Decision"
+                content={[
+                  `Summary: ${run.orchestrationDecision?.summary || run.lastDecisionSummary || '-'}`,
+                  `Dispatches: ${run.orchestrationDecision?.dispatchTitles.join(', ') || '-'}`,
+                  '',
+                  run.orchestrationPrompt || 'No orchestration prompt recorded yet.',
+                ].join('\n')}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-slate-900">Orchestration Decision</h2>
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <InfoCard label="Current Stage" value={run.currentStageName || '-'} />
+              <InfoCard label="Current Agent" value={run.currentAgentName || '-'} />
+              <InfoCard label="Last Decision At" value={formatDateTime(run.lastDecisionAt)} />
+            </div>
+            <div className="mt-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Decision Summary</div>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{run.lastDecisionSummary || 'No decision recorded yet.'}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-slate-900">Execution Graph</h2>
+          <div className="mt-3 space-y-4">
+            {groupTasksByStage(tasks, agentRuns, artifacts).map((group) => (
+              <article key={group.stageId} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-slate-900">{group.stageName}</div>
+                    <div className="mt-1 text-xs text-slate-500">{group.tasks.length} task(s)</div>
+                  </div>
+                  <div className="text-xs text-slate-400">{group.tasks.map((task) => task.status).join(' · ')}</div>
+                </div>
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  {group.tasks.map((task) => {
+                    const agentRun = group.agentRuns.find((item) => item.taskId === task.id) || null;
+                    const taskArtifacts = group.artifacts.filter((artifact) => artifact.taskId === task.id);
+                    return (
+                      <div key={task.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-medium text-slate-900">{task.agentName || task.title}</div>
+                          <div className="text-xs text-slate-400">{task.status}</div>
+                        </div>
+                        {agentRun ? (
+                          <button
+                            className="mt-2 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600"
+                            onClick={() => ctx.ui.workbench.open({
+                              id: `orchestrator.agent-run:${agentRun.id}`,
+                              viewId: ORCHESTRATOR_VIEWS.agentRun,
+                              title: agentRun.title,
+                              description: agentRun.stageName,
+                              payload: { agentRun },
+                              layoutMode: 'replace',
+                            })}
+                          >
+                            Open Agent Session
+                          </button>
+                        ) : null}
+                        {taskArtifacts.length > 0 ? (
+                          <div className="mt-3 space-y-2">
+                            {taskArtifacts.map((artifact) => (
+                              <div key={artifact.id} className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{artifact.kind}</div>
+                                <div className="mt-1 text-sm text-slate-700">{artifact.name}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-xs text-slate-400">No artifacts yet.</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-slate-900">Review Log</h2>
+          <div className="mt-3 space-y-3">
+            {reviewLogs.map((log) => (
+              <article key={log.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium text-slate-900">{log.stageName || log.reviewerName || 'Review'}</div>
+                  <div className={`text-xs uppercase tracking-wide ${reviewToneClass(log.decision)}`}>{log.decision}</div>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {log.reviewerName || '-'} · {formatDateTime(log.createdAt)}
+                </div>
+                <p className="mt-2 text-sm text-slate-700">{log.summary}</p>
+                <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-white p-3 text-sm text-slate-700">{log.feedback}</pre>
+              </article>
+            ))}
+            {reviewLogs.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-xs text-slate-500">
+                No review decisions yet.
+              </div>
+            ) : null}
+          </div>
+        </section>
+
         <section className="mt-8">
           <h2 className="text-sm font-semibold text-slate-900">Tasks</h2>
           <div className="mt-3 space-y-3">
-            {tasks.map((task) => (
+            {buildTaskRows(tasks).map((task) => {
+              const agentRun = agentRuns.find((item) => item.taskId === task.id) || null;
+              return (
               <article key={task.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium text-slate-900">{task.title}</div>
+                  <div className="flex items-center gap-2" style={{ paddingLeft: `${task.depth * 18}px` }}>
+                    <span className="text-xs uppercase tracking-wide text-slate-400">{task.nodeType}</span>
+                    <div className="font-medium text-slate-900">{task.title}</div>
+                  </div>
                   <div className="flex items-center gap-2">
                     <div className="text-xs text-slate-400">{task.status}</div>
+                    {task.nodeType !== 'container' && agentRun ? (
+                      <button
+                        className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600"
+                        onClick={() => ctx.ui.workbench.open({
+                          id: `orchestrator.agent-run:${agentRun.id}`,
+                          viewId: ORCHESTRATOR_VIEWS.agentRun,
+                          title: agentRun.title,
+                          description: agentRun.stageName,
+                          payload: { agentRun },
+                          layoutMode: 'replace',
+                        })}
+                      >
+                        Open Session
+                      </button>
+                    ) : null}
                     <button
                       className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={task.status === 'completed'}
+                      disabled={task.nodeType === 'container' || task.status === 'completed'}
                       onClick={() => void ctx.commands.execute(ORCHESTRATOR_COMMANDS.completeTask, {
                         taskId: task.id,
                       }).then(() => refresh())}
                     >
                       Complete
                     </button>
+                    <button
+                      className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600"
+                      disabled={task.nodeType === 'container'}
+                      onClick={() => void updateTaskSummary(task)}
+                    >
+                      Edit Task
+                    </button>
+                    <button
+                      className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={task.nodeType === 'container' || !['failed', 'paused', 'cancelled'].includes(task.status)}
+                      onClick={() => void retryTask(task)}
+                    >
+                      Retry
+                    </button>
+                    <button
+                      className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={task.nodeType === 'container' || ['completed', 'cancelled'].includes(task.status)}
+                      onClick={() => void skipTask(task)}
+                    >
+                      Skip
+                    </button>
                   </div>
                 </div>
                 <div className="mt-1 text-xs text-slate-500">
-                  {task.stageName || '-'} · {task.agentName || '-'}
+                  {task.stageName || '-'} · {task.agentName || '-'} · attempts {task.attemptCount}
                 </div>
+                {task.sessionId ? (
+                  <div className="mt-1 break-all text-[11px] text-slate-400">session: {task.sessionId}</div>
+                ) : null}
                 {task.summary ? <p className="mt-2 text-sm text-slate-600">{task.summary}</p> : null}
               </article>
-            ))}
+            );
+            })}
             {tasks.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-xs text-slate-500">
                 No tasks yet.
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-slate-900">Project State</h2>
+          <div className="mt-3 space-y-3">
+            {projectState?.entries.map((entry) => (
+              <article key={entry.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium text-slate-900">{entry.label}</div>
+                  <div className="text-xs uppercase tracking-wide text-emerald-600">{entry.artifactKind}</div>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {entry.logicalKey} · {entry.stageName || '-'} · {formatDateTime(entry.updatedAt)}
+                </div>
+                <p className="mt-2 text-sm text-slate-700">{entry.summary}</p>
+              </article>
+            ))}
+            {!projectState || projectState.entries.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-xs text-slate-500">
+                No accepted project state yet.
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-slate-900">Artifacts</h2>
+          <div className="mt-3 space-y-3">
+            {artifacts.filter((artifact) => artifact.status === 'accepted').map((artifact) => (
+              <article key={artifact.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium text-slate-900">{artifact.name}</div>
+                  <div className="text-xs uppercase tracking-wide text-emerald-600">{artifact.kind} · {artifact.status}</div>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {artifact.logicalKey} · {artifact.stageName || '-'} · {artifact.agentName || '-'}
+                </div>
+                <div className="mt-1 text-xs text-slate-400">
+                  v{artifact.version} · {artifact.summary}
+                </div>
+                <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-white p-3 text-sm text-slate-700">{artifact.content}</pre>
+              </article>
+            ))}
+            {artifacts.filter((artifact) => artifact.status === 'accepted').length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-xs text-slate-500">
+                No accepted artifacts yet.
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-slate-900">Draft And Superseded Artifacts</h2>
+          <div className="mt-3 space-y-3">
+            {artifacts.filter((artifact) => artifact.status !== 'accepted').map((artifact) => (
+              <article key={artifact.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium text-slate-900">{artifact.name}</div>
+                  <div className={`text-xs uppercase tracking-wide ${artifact.status === 'draft' ? 'text-amber-600' : 'text-slate-400'}`}>
+                    {artifact.kind} · {artifact.status}
+                  </div>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {artifact.logicalKey} · {artifact.stageName || '-'} · {artifact.agentName || '-'}
+                </div>
+                <div className="mt-1 text-xs text-slate-400">
+                  v{artifact.version} · {artifact.summary}
+                </div>
+                <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-xl bg-white p-3 text-sm text-slate-700">{artifact.content}</pre>
+              </article>
+            ))}
+            {artifacts.filter((artifact) => artifact.status !== 'accepted').length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-xs text-slate-500">
+                No draft or superseded artifacts.
               </div>
             ) : null}
           </div>
@@ -146,11 +541,166 @@ export function RunView({ ctx, payload }: WorkbenchProps<OrchestratorRunPayload>
   );
 }
 
+function groupTasksByStage(
+  tasks: OrchestratorAgentTask[],
+  agentRuns: OrchestratorAgentRun[],
+  artifacts: OrchestratorArtifact[],
+) {
+  const map = new Map<string, {
+    stageId: string;
+    stageName: string;
+    tasks: OrchestratorAgentTask[];
+    agentRuns: OrchestratorAgentRun[];
+    artifacts: OrchestratorArtifact[];
+  }>();
+
+  for (const task of tasks) {
+    if (task.nodeType === 'container') continue;
+    const stageId = task.stageId || 'unknown-stage';
+    const current = map.get(stageId) || {
+      stageId,
+      stageName: task.stageName || 'Unknown Stage',
+      tasks: [],
+      agentRuns: [],
+      artifacts: [],
+    };
+    current.tasks.push(task);
+    map.set(stageId, current);
+  }
+
+  for (const agentRun of agentRuns) {
+    const stageId = agentRun.stageId || 'unknown-stage';
+    const current = map.get(stageId);
+    if (current) current.agentRuns.push(agentRun);
+  }
+
+  for (const artifact of artifacts) {
+    const stageId = artifact.stageId || 'unknown-stage';
+    const current = map.get(stageId);
+    if (current) current.artifacts.push(artifact);
+  }
+
+  return Array.from(map.values());
+}
+
+function buildTaskRows(tasks: OrchestratorAgentTask[]) {
+  const byParent = new Map<string, OrchestratorAgentTask[]>();
+  const roots: OrchestratorAgentTask[] = [];
+
+  for (const task of tasks) {
+    if (task.parentTaskId) {
+      const current = byParent.get(task.parentTaskId) || [];
+      current.push(task);
+      byParent.set(task.parentTaskId, current);
+    } else {
+      roots.push(task);
+    }
+  }
+
+  const orderedRoots = [...roots].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+  const rows: OrchestratorAgentTask[] = [];
+
+  function visit(task: OrchestratorAgentTask) {
+    rows.push(task);
+    const children = [...(byParent.get(task.id) || [])].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+    for (const child of children) visit(child);
+  }
+
+  for (const root of orderedRoots) visit(root);
+  return rows;
+}
+
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
       <div className="mt-2 font-medium text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function DetailPanel({ label, content }: { label: string; content: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <pre className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{content}</pre>
+    </div>
+  );
+}
+
+function reviewToneClass(decision: OrchestratorReviewLog['decision']) {
+  if (decision === 'approved') return 'text-emerald-600';
+  if (decision === 'needs_changes') return 'text-amber-600';
+  return 'text-rose-600';
+}
+
+function deriveEngineStateLabel(run: OrchestratorRun, tasks: OrchestratorAgentTask[]) {
+  if (run.watchdogStatus === 'stalled') return 'stalled';
+  if (run.status === 'paused' || run.status === 'pause_requested') return 'paused';
+  if (tasks.some((task) => task.status === 'blocked')) return 'attention';
+  if (tasks.some((task) => task.status === 'waiting_review')) return 'waiting_review';
+  if (run.status === 'completed') return 'completed';
+  return 'healthy';
+}
+
+function engineToneClass(run: OrchestratorRun, tasks: OrchestratorAgentTask[]) {
+  const label = deriveEngineStateLabel(run, tasks);
+  if (label === 'healthy' || label === 'completed') return 'text-emerald-600';
+  if (label === 'waiting_review' || label === 'paused') return 'text-amber-600';
+  return 'text-rose-600';
+}
+
+function deriveEngineHealthSummary(
+  run: OrchestratorRun,
+  tasks: OrchestratorAgentTask[],
+  agentRuns: OrchestratorAgentRun[],
+  reviewLogs: OrchestratorReviewLog[],
+) {
+  if (run.watchdogWarning) return run.watchdogWarning;
+  const blocked = tasks.filter((task) => task.status === 'blocked');
+  if (blocked.length > 0) {
+    return `${blocked.length} task(s) are blocked and waiting for rework or human action.`;
+  }
+  const waitingReview = tasks.filter((task) => task.status === 'waiting_review');
+  if (waitingReview.length > 0) {
+    return `${waitingReview.length} task(s) finished execution and are waiting for review.`;
+  }
+  const active = agentRuns.filter((agentRun) => ['ready', 'pending', 'running'].includes(agentRun.status));
+  if (active.length > 0) {
+    return `${active.length} agent session(s) are currently active.`;
+  }
+  if (reviewLogs.length > 0 && reviewLogs[0]?.decision !== 'approved') {
+    return `Latest review result is ${reviewLogs[0].decision}.`;
+  }
+  if (run.status === 'completed') {
+    return 'Run completed successfully and the engine has no remaining work.';
+  }
+  return 'Engine is healthy and waiting for the next orchestration step.';
+}
+
+function StringListBlock({
+  label,
+  values,
+  emptyLabel,
+}: {
+  label: string;
+  values: string[];
+  emptyLabel: string;
+}) {
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      {values.length > 0 ? (
+        <ul className="mt-2 space-y-2">
+          {values.map((value, index) => (
+            <li key={`${label}-${index}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+              {value}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="mt-2 text-xs text-slate-400">{emptyLabel}</div>
+      )}
     </div>
   );
 }

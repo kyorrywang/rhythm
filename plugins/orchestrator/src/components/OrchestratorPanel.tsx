@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { LeftPanelProps } from '../../../../src/plugin/sdk';
 import { ORCHESTRATOR_COMMANDS, ORCHESTRATOR_EVENTS, ORCHESTRATOR_VIEWS } from '../constants';
-import type { OrchestratorRun, OrchestratorTemplate } from '../types';
+import type { OrchestratorPlanDraft, OrchestratorRun, OrchestratorTemplate } from '../types';
 import { formatDateTime } from '../utils';
 
 export function OrchestratorPanel({ ctx, width }: LeftPanelProps) {
+  const [planDrafts, setPlanDrafts] = useState<OrchestratorPlanDraft[]>([]);
   const [templates, setTemplates] = useState<OrchestratorTemplate[]>([]);
   const [runs, setRuns] = useState<OrchestratorRun[]>([]);
   const [templateQuery, setTemplateQuery] = useState('');
@@ -18,6 +19,7 @@ export function OrchestratorPanel({ ctx, width }: LeftPanelProps) {
   const runningRuns = runs.filter((run) => getStatusGroup(run.status) === 'running');
   const pausedRuns = runs.filter((run) => getStatusGroup(run.status) === 'paused');
   const recentRuns = runs.filter((run) => getStatusGroup(run.status) === 'recent').slice(0, 8);
+  const pendingPlanDrafts = planDrafts.filter((planDraft) => planDraft.status !== 'confirmed');
   const filteredTemplates = templates.filter((template) => {
     const haystack = `${template.name} ${template.domain} ${template.description || ''}`.toLowerCase();
     return haystack.includes(templateQuery.toLowerCase());
@@ -26,6 +28,7 @@ export function OrchestratorPanel({ ctx, width }: LeftPanelProps) {
   useEffect(() => {
     void refresh();
     const subscriptions = [
+      ctx.events.on(ORCHESTRATOR_EVENTS.planDraftsChanged, () => void refresh()),
       ctx.events.on(ORCHESTRATOR_EVENTS.templatesChanged, () => void refresh()),
       ctx.events.on(ORCHESTRATOR_EVENTS.runsChanged, () => void refresh()),
     ];
@@ -35,12 +38,25 @@ export function OrchestratorPanel({ ctx, width }: LeftPanelProps) {
   }, [ctx]);
 
   async function refresh() {
-    const [nextTemplates, nextRuns] = await Promise.all([
+    const [nextPlanDrafts, nextTemplates, nextRuns] = await Promise.all([
+      ctx.commands.execute<void, OrchestratorPlanDraft[]>(ORCHESTRATOR_COMMANDS.listPlanDrafts, undefined),
       ctx.commands.execute<void, OrchestratorTemplate[]>(ORCHESTRATOR_COMMANDS.listTemplates, undefined),
       ctx.commands.execute<void, OrchestratorRun[]>(ORCHESTRATOR_COMMANDS.listRuns, undefined),
     ]);
+    setPlanDrafts(nextPlanDrafts);
     setTemplates(nextTemplates);
     setRuns(nextRuns);
+  }
+
+  function openPlanDraft(planDraft: OrchestratorPlanDraft) {
+    ctx.ui.workbench.open({
+      id: `orchestrator.plan-draft:${planDraft.id}`,
+      viewId: ORCHESTRATOR_VIEWS.planDraft,
+      title: planDraft.title,
+      description: planDraft.status,
+      payload: { planDraft },
+      layoutMode: 'replace',
+    });
   }
 
   function openTemplate(template: OrchestratorTemplate) {
@@ -59,7 +75,7 @@ export function OrchestratorPanel({ ctx, width }: LeftPanelProps) {
       id: `orchestrator.run:${run.id}`,
       viewId: ORCHESTRATOR_VIEWS.run,
       title: run.goal,
-      description: run.templateName,
+      description: run.planTitle,
       payload: { run },
       layoutMode: 'replace',
     });
@@ -90,6 +106,34 @@ export function OrchestratorPanel({ ctx, width }: LeftPanelProps) {
           </button>
         </div>
       </div>
+
+      <section className="mt-5">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Plan Drafts</h3>
+          <span className="text-xs text-slate-400">{pendingPlanDrafts.length}</span>
+        </div>
+        <div className="space-y-2">
+          {pendingPlanDrafts.map((planDraft) => (
+            <article
+              key={planDraft.id}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-slate-300"
+            >
+              <button className="block w-full text-left" onClick={() => openPlanDraft(planDraft)}>
+                <div className="font-medium text-slate-900">{planDraft.title}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {planDraft.status} · {formatDateTime(planDraft.updatedAt)}
+                </div>
+              </button>
+              <div className="mt-1 text-[11px] text-slate-400">{planDraft.goal}</div>
+            </article>
+          ))}
+          {pendingPlanDrafts.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-xs text-slate-500">
+              No plan drafts awaiting confirmation.
+            </div>
+          ) : null}
+        </div>
+      </section>
 
       <section className="mt-5">
         <div className="mb-2 flex items-center justify-between">
@@ -230,7 +274,7 @@ function RunCard({
     >
       <div className="font-medium text-slate-900">{run.goal}</div>
       <div className="mt-1 text-xs text-slate-500">
-        {run.templateName} · {run.status}
+        {run.planTitle} · {run.status}
       </div>
       {!compact ? (
         <div className="mt-1 text-[11px] text-slate-400">
