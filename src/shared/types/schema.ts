@@ -44,6 +44,38 @@ export interface UsageSnapshot {
   outputTokens: number;
 }
 
+export type StreamRuntimeState =
+  | 'idle'
+  | 'starting'
+  | 'streaming'
+  | 'backoff_waiting'
+  | 'retrying'
+  | 'waiting_for_permission'
+  | 'waiting_for_user'
+  | 'interrupting'
+  | 'interrupted'
+  | 'completed'
+  | 'failed';
+
+export type StreamRuntimeReason =
+  | 'rate_limit'
+  | 'permission'
+  | 'user_input'
+  | 'interrupt'
+  | 'completed'
+  | 'error'
+  | 'unknown';
+
+export interface StreamRuntime {
+  state: StreamRuntimeState;
+  reason?: StreamRuntimeReason;
+  message?: string;
+  attempt?: number;
+  retryAt?: number;
+  retryInSeconds?: number;
+  updatedAt: number;
+}
+
 export interface Attachment {
   id: string;
   kind: 'image' | 'file';
@@ -56,6 +88,7 @@ export interface Attachment {
 }
 
 export type ServerEventChunk =
+  | { type: 'runtime_status'; sessionId: string; state: StreamRuntimeState; reason?: StreamRuntimeReason; message?: string; attempt?: number; retryAt?: number; retryInSeconds?: number }
   | { type: 'text_delta'; sessionId: string; content: string }
   | { type: 'thinking_delta'; sessionId: string; content: string }
   | { type: 'thinking_end'; sessionId: string; timeCostMs: number }
@@ -86,7 +119,9 @@ export type MessageMode = 'Chat' | 'Coordinate';
 
 export type SessionPhase =
   | 'idle'
+  | 'starting'
   | 'streaming'
+  | 'retrying'
   | 'streaming_with_queue'
   | 'processing_queue'
   | 'waiting_for_ask'
@@ -97,6 +132,7 @@ export type MessageSegment =
   | { type: 'thinking'; content: string; timeCostMs?: number; isLive?: boolean; startTime?: number }
   | { type: 'tool'; tool: ToolCall }
   | { type: 'ask'; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[]; status: 'waiting' | 'answered'; answer?: { selected: string[]; text: string }; startTime?: number; timeCostMs?: number }
+  | { type: 'retry'; state: 'backoff_waiting' | 'retrying'; reason?: StreamRuntimeReason; message: string; attempt: number; retryAt?: number; retryInSeconds?: number; updatedAt: number }
   | { type: 'text'; content: string }
   | { type: 'permission'; request: PermissionRequestEvent; status: 'waiting' | 'approved' | 'denied'; startTime?: number };
 
@@ -133,5 +169,6 @@ export interface Session {
   tokenCount?: number;
   permissionPending?: boolean;
   permissionGrants?: string[];
+  runtime?: StreamRuntime;
   error?: string | null;
 }

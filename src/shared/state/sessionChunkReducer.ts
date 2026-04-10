@@ -1,4 +1,4 @@
-import { Message, MessageSegment, ServerEventChunk, Session, ToolCall } from '@/shared/types/schema';
+import { Message, MessageSegment, ServerEventChunk, Session, StreamRuntime, ToolCall } from '@/shared/types/schema';
 import { isUiOnlyTool } from '@/shared/lib/toolRegistry';
 
 type InternalMessage = Message & {
@@ -38,6 +38,40 @@ const findLiveThinking = (segments: MessageSegment[]): { index: number; segment:
     }
   }
   return null;
+};
+
+const withoutRetrySegments = (segments: MessageSegment[]) => segments.filter((segment) => segment.type !== 'retry');
+
+const buildRuntimeFromChunk = (
+  chunk: Extract<ServerEventChunk, { type: 'runtime_status' }>,
+): StreamRuntime => ({
+  state: chunk.state,
+  reason: chunk.reason,
+  message: chunk.message,
+  attempt: chunk.attempt,
+  retryAt: chunk.retryAt,
+  retryInSeconds: chunk.retryInSeconds,
+  updatedAt: Date.now(),
+});
+
+const phaseFromRuntimeState = (state: StreamRuntime['state']): Session['phase'] => {
+  switch (state) {
+    case 'starting':
+      return 'starting';
+    case 'streaming':
+      return 'streaming';
+    case 'backoff_waiting':
+    case 'retrying':
+      return 'retrying';
+    case 'waiting_for_permission':
+      return 'waiting_for_permission';
+    case 'waiting_for_user':
+      return 'waiting_for_ask';
+    case 'interrupting':
+      return 'interrupting';
+    default:
+      return 'idle';
+  }
 };
 
 const appendText = (message: InternalMessage, text: string): InternalMessage => {
@@ -145,6 +179,8 @@ const applyChunkToMessage = (
   }
 
   if (chunk.type === 'text_delta') {
+    segments = withoutRetrySegments(segments);
+    message = { ...message, segments };
     return applyTextDelta(message, chunk, sessionId, effects);
   }
 
@@ -278,7 +314,28 @@ const applyChunkToMessage = (
     return { ...message, segments, status: 'waiting_for_permission', _liveTextIndex: undefined };
   }
 
+  if (chunk.type === 'runtime_status' && (chunk.state === 'backoff_waiting' || chunk.state === 'retrying')) {
+    const nextRetrySegment: MessageSegment = {
+      type: 'retry',
+      state: chunk.state,
+      reason: chunk.reason,
+      message: chunk.message || '',
+      attempt: chunk.attempt || 0,
+      retryAt: chunk.retryAt,
+      retryInSeconds: chunk.retryInSeconds,
+      updatedAt: Date.now(),
+    };
+    const retryIndex = segments.findIndex((seg) => seg.type === 'retry');
+    if (retryIndex >= 0) {
+      segments[retryIndex] = nextRetrySegment;
+    } else {
+      segments.push(nextRetrySegment);
+    }
+    return { ...message, segments };
+  }
+
   if (chunk.type === 'interrupted') {
+    segments = withoutRetrySegments(segments);
     const liveThinking = findLiveThinking(segments);
     if (liveThinking) {
       segments[liveThinking.index] = {
@@ -295,6 +352,7 @@ const applyChunkToMessage = (
   }
 
   if (chunk.type === 'done') {
+    segments = withoutRetrySegments(segments);
     const liveThinking = findLiveThinking(segments);
     if (liveThinking) {
       segments[liveThinking.index] = {
@@ -344,6 +402,11 @@ export const reduceSessionChunk = (
       updatedAt: Date.now(),
       workspacePath: parentSession?.workspacePath,
       phase: 'streaming',
+      runtime: {
+        state: 'streaming',
+        message: '正在流式生成。',
+        updatedAt: Date.now(),
+      },
       messages: [newUserMessage],
       parentId: chunk.parentSessionId,
       queuedMessages: [],
@@ -386,7 +449,15 @@ export const reduceSessionChunk = (
 
     let nextSession: Session = session;
 
-    if (chunk.type === 'ask_request') {
+    if (chunk.type === 'runtime_status') {
+      const runtime = buildRuntimeFromChunk(chunk);
+      nextSession = {
+        ...nextSession,
+        runtime,
+        phase: phaseFromRuntimeState(runtime.state),
+        error: runtime.state === 'failed' ? runtime.message || nextSession.error || 'Stream failed' : runtime.state === 'completed' || runtime.state === 'interrupted' ? null : nextSession.error,
+      };
+    } else if (chunk.type === 'ask_request') {
       nextSession = {
         ...nextSession,
         currentAsk: {
@@ -397,6 +468,13 @@ export const reduceSessionChunk = (
           selectionType: chunk.selectionType,
           questions: chunk.questions,
         },
+        runtime: {
+          state: 'waiting_for_user',
+          reason: 'user_input',
+          message: chunk.title || chunk.question,
+          updatedAt: Date.now(),
+        },
+        phase: 'waiting_for_ask',
       };
     } else if (chunk.type === 'task_update') {
       nextSession = { ...nextSession, currentTasks: chunk.tasks };
@@ -405,6 +483,12 @@ export const reduceSessionChunk = (
         ...nextSession,
         permissionPending: true,
         phase: 'waiting_for_permission',
+        runtime: {
+          state: 'waiting_for_permission',
+          reason: 'permission',
+          message: `等待权限确认: ${chunk.toolName}`,
+          updatedAt: Date.now(),
+        },
       };
     } else if (chunk.type === 'usage_update') {
       nextSession = {
@@ -442,7 +526,29 @@ export const reduceSessionChunk = (
         ],
       };
     } else if (chunk.type === 'done') {
-      nextSession = { ...nextSession, phase: 'idle' as const };
+      nextSession = {
+        ...nextSession,
+        phase: 'idle' as const,
+        runtime: {
+          state: 'completed',
+          reason: 'completed',
+          message: '会话已完成。',
+          updatedAt: Date.now(),
+        },
+        error: null,
+      };
+    } else if (chunk.type === 'interrupted') {
+      nextSession = {
+        ...nextSession,
+        phase: 'idle' as const,
+        runtime: {
+          state: 'interrupted',
+          reason: 'interrupt',
+          message: '会话已中断。',
+          updatedAt: Date.now(),
+        },
+        error: null,
+      };
     }
 
     return updateMessage(nextSession, messageId, (message) =>

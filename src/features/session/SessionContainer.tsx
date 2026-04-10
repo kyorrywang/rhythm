@@ -26,7 +26,12 @@ export const SessionContainer = () => {
   ]);
 
   const messages = activeSession?.messages ?? [];
-  const isSessionRunning = activeSession?.phase !== 'idle' && activeSession?.phase !== undefined && activeSession?.phase !== 'waiting_for_permission';
+  const runtimeState = activeSession?.runtime?.state;
+  const isSessionRunning = Boolean(
+    runtimeState
+    && !['idle', 'completed', 'failed', 'interrupted', 'waiting_for_permission', 'waiting_for_user'].includes(runtimeState),
+  );
+  const showErrorBanner = activeSession?.runtime?.state === 'failed' && activeSession?.error;
 
   const isEmpty = !activeSession || messages.length === 0;
   const parentSession = useMemo(
@@ -55,9 +60,9 @@ export const SessionContainer = () => {
 
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto no-scrollbar smooth-scroll">
             <div className="max-w-[820px] w-full mx-auto relative pointer-events-auto z-10 px-6">
-            {activeSession?.error && (
+            {showErrorBanner && (
               <div className="mb-4">
-                <ErrorBanner message={activeSession.error} onDismiss={() => useSessionStore.getState().updateSession(activeSession.id, { error: null })} />
+                <ErrorBanner message={activeSession.error || ''} onDismiss={() => useSessionStore.getState().updateSession(activeSession.id, { error: null })} />
               </div>
             )}
 

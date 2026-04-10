@@ -67,7 +67,16 @@ export const useLLMStream = () => {
     abortRef.current = false;
     rootSessionIdRef.current = sessionId;
     setIsStreaming(true);
-    state.updateSession(sessionId, { phase: 'streaming', workspacePath });
+    state.updateSession(sessionId, {
+      phase: 'starting',
+      workspacePath,
+      error: null,
+      runtime: {
+        state: 'starting',
+        message: '正在启动会话流。',
+        updatedAt: Date.now(),
+      },
+    });
 
     const userMsg: Message = {
       id: Date.now().toString() + '-u',
@@ -93,7 +102,7 @@ export const useLLMStream = () => {
       segments: [],
     });
 
-    try {
+    const startStreamAttempt = async () => {
       const onEvent = new Channel<ServerEventChunk>();
       onEvent.onmessage = (chunk) => {
         const liveState = store.getState();
@@ -199,7 +208,6 @@ export const useLLMStream = () => {
 
         if (chunk.type === 'interrupted') {
           interruptedSessionIdsRef.current.delete(targetSessionId);
-          store.getState().updateSession(targetSessionId, { phase: 'idle' });
           setIsStreaming(false);
         }
       };
@@ -215,16 +223,30 @@ export const useLLMStream = () => {
         mode,
         cwd: workspacePath,
       }, onEvent);
-    } catch (err) {
-      console.error('Stream failed', err);
+    };
+
+    const failStreamStart = (message: string) => {
       setIsStreaming(false);
       const currentState = store.getState();
       const currentSessionId = currentState.activeSessionId || sessionId;
-      const message = err instanceof Error ? err.message : String(err);
       currentState.updateSession(currentSessionId, {
         phase: 'idle',
         error: message || 'Stream connection failed',
+        runtime: {
+          state: 'failed',
+          reason: 'error',
+          message: message || 'Stream connection failed',
+          updatedAt: Date.now(),
+        },
       });
+    };
+
+    try {
+      await startStreamAttempt();
+    } catch (err) {
+      console.error('Stream failed', err);
+      const message = err instanceof Error ? err.message : String(err);
+      failStreamStart(message);
     }
   }, [store, permissionStore, schedulePersistSession]);
 
@@ -277,6 +299,11 @@ export const useLLMStream = () => {
     store.getState().updateSession(sessionId, {
       phase: 'streaming',
       permissionPending: false,
+      runtime: {
+        state: 'streaming',
+        message: '正在流式生成。',
+        updatedAt: Date.now(),
+      },
     });
   }, [permissionStore, store]);
 

@@ -2,8 +2,8 @@ import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { approvePermission } from '@/shared/api/commands';
 import { useSettingsStore } from '@/shared/state/useSettingsStore';
-import { PHASE_TO_DOCK } from './types';
 import { useComposerActions } from './hooks/useComposerActions';
+import { derivePendingItems } from './lib/derivePendingItems';
 import { AskDock } from './components/AskDock';
 import { MainComposer } from './components/MainComposer';
 import { TaskDock } from './components/TaskDock';
@@ -21,18 +21,19 @@ export const ComposerBox = () => {
     updateSession,
   } = useSessionStore();
   const setPermissionConfig = usePermissionStore((s) => s.setConfig);
+  const pendingPermissions = usePermissionStore((s) => s.pendingPermissions);
   const providers = useSettingsStore((s) => s.settings.providers);
   const activeSession = activeSessionId ? sessions.get(activeSessionId) : undefined;
   const currentAsk = activeSession?.currentAsk;
   const currentTasks = activeSession?.currentTasks;
   const phase = activeSession?.phase || 'idle';
-  const queuedMessages = activeSession?.queuedMessages || [];
   const isTaskMinimized = activeSession?.taskDockMinimized ?? false;
   const isAppendMinimized = activeSession?.appendDockMinimized ?? false;
   const hasTasks = !!(currentTasks && currentTasks.length > 0);
   const allTasksDone: boolean = hasTasks && currentTasks!.every((t: { status: string }) => t.status === 'completed');
+  const pendingItems = derivePendingItems(activeSession, Array.from(pendingPermissions.values()));
 
-  const dockType = PHASE_TO_DOCK[phase as keyof typeof PHASE_TO_DOCK] || 'none';
+  const dockType = currentAsk ? 'ask' : 'none';
   const modelGroups = providers
     .map((provider) => ({
       providerId: provider.id,
@@ -113,10 +114,9 @@ export const ComposerBox = () => {
           onToggleMinimize={toggleTaskMinimized}
         />
       )}
-      {dockType === 'append' && (
+      {pendingItems.length > 0 && (
         <AppendDock
-          queuedMessages={queuedMessages}
-          queueLength={queuedMessages.length}
+          items={pendingItems}
           onRemoveItem={handleRemoveQueuedItem}
           onCancelAll={handleCancelQueue}
           onInterrupt={handleInterrupt}

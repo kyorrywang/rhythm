@@ -1,4 +1,5 @@
 export type InternalEventType =
+  | 'RUNTIME_STATUS'
   | 'TEXT_DELTA'
   | 'THINKING_DELTA'
   | 'THINKING_END'
@@ -22,6 +23,18 @@ export interface InternalEvent {
   sessionId: string;
   timestamp: number;
   payload: Record<string, unknown>;
+}
+
+export interface RuntimeStatusEvent extends InternalEvent {
+  type: 'RUNTIME_STATUS';
+  payload: {
+    state: 'idle' | 'starting' | 'streaming' | 'backoff_waiting' | 'retrying' | 'waiting_for_permission' | 'waiting_for_user' | 'interrupting' | 'interrupted' | 'completed' | 'failed';
+    reason?: 'rate_limit' | 'permission' | 'user_input' | 'interrupt' | 'completed' | 'error' | 'unknown';
+    message?: string;
+    attempt?: number;
+    retryAt?: number;
+    retryInSeconds?: number;
+  };
 }
 
 export interface TextDeltaEvent extends InternalEvent {
@@ -126,6 +139,7 @@ export interface CronJobCompletedEvent extends InternalEvent {
 }
 
 export type InternalEventUnion =
+  | RuntimeStatusEvent
   | TextDeltaEvent
   | ThinkingDeltaEvent
   | ThinkingEndEvent

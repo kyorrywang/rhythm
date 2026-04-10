@@ -304,6 +304,11 @@ const PermissionSegment = ({
     updateSession(sessionId, {
       phase: 'streaming',
       permissionPending: false,
+      runtime: {
+        state: 'streaming',
+        message: '正在流式生成。',
+        updatedAt: Date.now(),
+      },
     });
   };
 
@@ -355,6 +360,42 @@ const PermissionSegment = ({
         )}
       </div>
     </SegmentCard>
+  );
+};
+
+const RetryStatusSegment = ({ segment }: { segment: Extract<MessageSegment, { type: 'retry' }> }) => {
+  const badgeLabel =
+    segment.state === 'retrying'
+      ? '重试中'
+      : '429 限流';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.2 }}
+      className="border-t-[var(--theme-divider-width)] border-[var(--theme-border)] py-[var(--theme-section-gap)] first:border-t-0"
+    >
+      <div className={`${themeRecipes.mutedCard()} flex items-center justify-between gap-3 px-[var(--theme-card-padding-x)] py-[var(--theme-card-padding-y)]`}>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Badge tone={segment.state === 'retrying' ? 'default' : 'warning'}>
+              {badgeLabel}
+            </Badge>
+            <span className="text-xs text-[var(--theme-text-muted)]">第 {Math.max(segment.attempt, 1)} 次</span>
+          </div>
+          <div className="mt-2 text-sm text-[var(--theme-text-primary)]">
+            {segment.message}
+          </div>
+        </div>
+        {typeof segment.retryInSeconds === 'number' && segment.retryInSeconds > 0 && (
+          <div className="shrink-0 text-right">
+            <div className="text-2xl font-semibold text-[var(--theme-accent)]">{segment.retryInSeconds}</div>
+            <div className="text-xs text-[var(--theme-text-muted)]">秒后重试</div>
+          </div>
+        )}
+      </div>
+    </motion.div>
   );
 };
 
@@ -707,6 +748,7 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
               {segment.type === 'tool' && <ToolBlock tool={segment.tool} sessionId={sessionId} />}
               {segment.type === 'ask' && <AskSegment segment={segment} />}
               {segment.type === 'permission' && <PermissionSegment segment={segment} sessionId={sessionId} />}
+              {segment.type === 'retry' && <RetryStatusSegment segment={segment} />}
               {segment.type === 'text' && segment.content && (
                 <motion.div
                   initial={{ opacity: 0 }}

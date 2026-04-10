@@ -177,7 +177,7 @@ export function OrchestratorAgentSessionView({ ctx, payload }: WorkbenchProps<Or
                     message={msg}
                     sessionId={session.id}
                     isLast={index === session.messages.length - 1}
-                    isSessionRunning={session.phase !== 'idle'}
+                    isSessionRunning={!['idle', 'completed', 'failed', 'interrupted'].includes(session.runtime?.state || 'idle')}
                   />
                 )
               ))}

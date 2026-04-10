@@ -210,6 +210,10 @@ export async function createSession(title = 'New Session', workspacePath?: strin
     appendDockMinimized: false,
     queuedMessages: [],
     phase: 'idle',
+    runtime: {
+      state: 'idle',
+      updatedAt: now,
+    },
   };
 }
 
@@ -221,5 +225,9 @@ function normalizeSession(session: Session): Session {
     taskDockMinimized: session.taskDockMinimized ?? false,
     appendDockMinimized: session.appendDockMinimized ?? false,
     phase: session.phase === 'streaming' ? 'idle' : session.phase,
+    runtime: session.runtime || {
+      state: session.phase === 'waiting_for_permission' ? 'waiting_for_permission' : 'idle',
+      updatedAt: session.updatedAt,
+    },
   };
 }

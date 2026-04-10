@@ -1,3 +1,5 @@
+import type { StreamRuntime } from '../../../src/shared/types/schema';
+
 export type OrchestratorRunStatus =
   | 'pending'
   | 'running'
@@ -57,6 +59,7 @@ export interface OrchestratorFailureState {
   firstOccurredAt: number;
   lastOccurredAt: number;
   retryCount: number;
+  runtime?: StreamRuntime;
 }
 
 export interface OrchestratorTemplate {
@@ -302,6 +305,7 @@ export interface OrchestratorAgentRun {
   input: WorkAgentInputSnapshot | ReviewAgentInputSnapshot;
   output?: WorkAgentOutputSnapshot | ReviewAgentOutputSnapshot;
   status: OrchestratorTaskStatus;
+  runtime?: StreamRuntime;
   startedAt?: number;
   completedAt?: number;
   lastEventAt?: number;
@@ -321,6 +325,7 @@ export interface OrchestratorCoordinatorRun {
   input: OrchestrationInputSnapshot;
   decision?: OrchestrationDecisionRecord;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'paused';
+  runtime?: StreamRuntime;
   startedAt?: number;
   completedAt?: number;
   lastEventAt?: number;

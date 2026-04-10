@@ -1,4 +1,5 @@
 import type { PluginContext } from '../../../src/plugin/sdk';
+import type { StreamRuntime } from '../../../src/shared/types/schema';
 import { useSessionStore } from '../../../src/shared/state/useSessionStore';
 import { interruptAgentSession, isAgentSessionActive, launchAgentSession } from './agentSessionRuntime';
 import { ORCHESTRATOR_EVENTS } from './constants';
@@ -89,6 +90,7 @@ const TASK_STATUS_TRANSITIONS: Record<OrchestratorAgentTask['status'], Orchestra
   interrupted: ['paused', 'failed', 'cancelled'],
 };
 const pendingAutomaticRetries = new Map<string, number>();
+const pendingAutomaticRunResumes = new Map<string, number>();
 
 type Dispatch = {
   parentTask: OrchestratorAgentTask;
@@ -142,6 +144,182 @@ function scheduleAutomaticRetry(
   }, delayMs);
   pendingAutomaticRetries.set(taskId, timer);
   ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId });
+}
+
+function clearAutomaticRunResume(runId: string) {
+  const timer = pendingAutomaticRunResumes.get(runId);
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+    pendingAutomaticRunResumes.delete(runId);
+  }
+}
+
+function scheduleAutomaticRunResume(
+  ctx: PluginContext,
+  runId: string,
+  autoRetryAt: number,
+) {
+  clearAutomaticRunResume(runId);
+  const delayMs = Math.max(0, autoRetryAt - Date.now());
+  const timer = window.setTimeout(() => {
+    pendingAutomaticRunResumes.delete(runId);
+    void resumeOrchestratorRun(ctx, { runId }).catch(() => {});
+  }, delayMs);
+  pendingAutomaticRunResumes.set(runId, timer);
+  ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId });
+}
+
+type AutomaticRecoveryTarget =
+  | {
+    kind: 'task';
+    task: OrchestratorAgentTask;
+    retryAgentRunId: string;
+  }
+  | {
+    kind: 'coordinator';
+    coordinatorRun: OrchestratorCoordinatorRun;
+  };
+
+async function scheduleTransientFailureRecovery(
+  ctx: PluginContext,
+  run: OrchestratorRun,
+  target: AutomaticRecoveryTarget,
+  message: string,
+  now: number,
+) {
+  const retryCount = getAutomaticRecoveryRetryCount(run, target);
+  if (!shouldAutoRecoverTransientFailure(message, retryCount)) {
+    return false;
+  }
+
+  const autoRetryAt = now + AUTO_RETRY_DELAY_MS;
+  const subject =
+    target.kind === 'task'
+      ? target.task.agentName || target.task.title
+      : 'Orchestrator agent';
+  const summary =
+    target.kind === 'task'
+      ? `${subject} hit a transient LLM transport failure and will retry automatically.`
+      : 'Orchestrator agent hit a transient failure and will retry automatically.';
+  const engineHealth =
+    target.kind === 'task'
+      ? `Retrying ${subject} automatically in ${Math.round(AUTO_RETRY_DELAY_MS / 1000)} seconds after a transient failure.`
+      : `Retrying orchestrator automatically in ${Math.round(AUTO_RETRY_DELAY_MS / 1000)} seconds after a transient failure.`;
+  const eventTitle =
+    target.kind === 'task'
+      ? 'Task auto-retry scheduled'
+      : 'Orchestrator auto-retry scheduled';
+  const eventDetail =
+    target.kind === 'task'
+      ? `${subject} hit a transient error and will retry automatically in ${Math.round(AUTO_RETRY_DELAY_MS / 1000)} seconds: ${message}`
+      : `Orchestrator agent hit a transient error and will retry automatically in ${Math.round(AUTO_RETRY_DELAY_MS / 1000)} seconds: ${message}`;
+
+  await saveRun(ctx, {
+    ...run,
+    status: target.kind === 'task' ? 'running' : 'paused',
+    pausedAt: target.kind === 'task' ? undefined : now,
+    pauseRequestedAt: target.kind === 'task' ? undefined : run.pauseRequestedAt,
+    failureState: buildRunFailureState(run, {
+      kind: 'agent_runtime_error',
+      summary: message,
+      retryable: true,
+      requiresHuman: false,
+      recommendedAction: `Automatic retry scheduled in ${Math.round(AUTO_RETRY_DELAY_MS / 1000)} seconds.`,
+      autoRetryAt,
+      taskId: target.kind === 'task' ? target.task.id : undefined,
+      agentRunId: target.kind === 'task' ? target.retryAgentRunId : target.coordinatorRun.id,
+    }, now),
+    activeTaskCount:
+      target.kind === 'task'
+        ? Math.max(1, run.activeTaskCount)
+        : Math.max(0, run.activeTaskCount - 1),
+    lastDecisionAt: now,
+    lastDecisionSummary: summary,
+    engineHealthSummary: engineHealth,
+    updatedAt: now,
+  });
+  await appendRunEvent(ctx, {
+    id: createId('evt'),
+    runId: run.id,
+    type: target.kind === 'task' ? 'task.updated' : 'run.updated',
+    title: eventTitle,
+    detail: eventDetail,
+    createdAt: now,
+  });
+
+  if (target.kind === 'task') {
+    scheduleAutomaticRetry(ctx, run.id, target.task.id, autoRetryAt);
+  } else {
+    scheduleAutomaticRunResume(ctx, run.id, autoRetryAt);
+  }
+  ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
+  return true;
+}
+
+function shouldAutoRecoverTransientFailure(message: string, retryCount: number) {
+  return isTransientAgentFailure(message) && retryCount < MAX_TRANSIENT_AGENT_RETRIES;
+}
+
+function getAutomaticRecoveryRetryCount(run: OrchestratorRun, target: AutomaticRecoveryTarget) {
+  if (!run.failureState?.retryable) {
+    return 0;
+  }
+  if (target.kind === 'task') {
+    return run.failureState.taskId === target.task.id ? run.failureState.retryCount || 0 : 0;
+  }
+  return run.failureState.agentRunId === target.coordinatorRun.id ? run.failureState.retryCount || 0 : 0;
+}
+
+function isRetryRuntime(runtime?: StreamRuntime | null) {
+  return runtime?.state === 'backoff_waiting' || runtime?.state === 'retrying';
+}
+
+async function syncRunRuntimeFromAgent(
+  ctx: PluginContext,
+  runId: string,
+  runtime?: StreamRuntime | null,
+  options?: { taskId?: string; agentRunId?: string; label: string },
+) {
+  const run = await getRun(ctx, runId);
+  if (!run || !runtime) return;
+  const now = Date.now();
+
+  if (isRetryRuntime(runtime)) {
+    await saveRun(ctx, {
+      ...run,
+      status: options?.taskId ? 'running' : 'paused',
+      pausedAt: options?.taskId ? undefined : now,
+      failureState: buildRunFailureState(run, {
+        kind: 'agent_runtime_error',
+        summary: runtime.message || `${options?.label || 'Agent'} is retrying automatically.`,
+        retryable: true,
+        requiresHuman: false,
+        recommendedAction: runtime.retryInSeconds
+          ? `Automatic retry scheduled in ${runtime.retryInSeconds} seconds.`
+          : 'Automatic retry in progress.',
+        autoRetryAt: runtime.retryAt,
+        taskId: options?.taskId,
+        agentRunId: options?.agentRunId,
+        runtime,
+      }, now),
+      engineHealthSummary: runtime.message || `${options?.label || 'Agent'} is retrying automatically.`,
+      updatedAt: now,
+    });
+    ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId });
+    return;
+  }
+
+  if (run.failureState && !run.failureState.requiresHuman && run.failureState.retryable) {
+    await saveRun(ctx, {
+      ...run,
+      failureState: undefined,
+      engineHealthSummary: runtime.message || run.engineHealthSummary,
+      pausedAt: run.status === 'paused' ? undefined : run.pausedAt,
+      status: run.status === 'paused' ? 'running' : run.status,
+      updatedAt: now,
+    });
+    ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId });
+  }
 }
 
 export async function startOrchestratorRun(
@@ -886,7 +1064,7 @@ export async function retryOrchestratorTask(ctx: PluginContext, input: Orchestra
   });
   ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
   if (nextTask && nextAgentRun) {
-    void startAgentRunSession(ctx, nextRun, nextTask, nextAgentRun, {
+    void launchDetachedAgentRunSession(ctx, nextRun, nextTask, nextAgentRun, {
       title: `${nextAgentRun.agentName || nextAgentRun.title} · ${nextAgentRun.stageName || 'Retry'}`,
       prompt: `Retry the following orchestration assignment with the latest human guidance.\n\n${nextAgentRun.prompt}`,
       startedDetail: `${task.agentName || task.title} restarted after human retry.`,
@@ -981,8 +1159,7 @@ export async function failOrchestratorTask(ctx: PluginContext, taskId: string, e
     return { run, task: nextTask };
   }
 
-  if (isTransientAgentFailure(errorMessage) && task.attemptCount < MAX_TRANSIENT_AGENT_RETRIES) {
-    const autoRetryAt = now + AUTO_RETRY_DELAY_MS;
+  if (shouldAutoRecoverTransientFailure(errorMessage, task.attemptCount)) {
     const sessionId = `orchestrator-${run.id}-${task.agentId}-${task.id}-${now}`;
     const retryAgentRun: OrchestratorAgentRun = {
       ...agentRun,
@@ -1014,39 +1191,17 @@ export async function failOrchestratorTask(ctx: PluginContext, taskId: string, e
         updatedAt: now,
       }));
     }
-    const nextRun: OrchestratorRun = {
-      ...run,
-      status: 'running',
-      failureState: buildRunFailureState(run, {
-        kind: 'agent_runtime_error',
-        summary: errorMessage,
-        retryable: true,
-        requiresHuman: false,
-        recommendedAction: `Automatic retry scheduled in ${Math.round(AUTO_RETRY_DELAY_MS / 1000)} seconds.`,
-        autoRetryAt,
-        taskId: task.id,
-        agentRunId: retryAgentRun.id,
-      }, now),
-      pausedAt: undefined,
-      pauseRequestedAt: undefined,
-      activeTaskCount: Math.max(1, run.activeTaskCount),
-      lastDecisionAt: now,
-      lastDecisionSummary: `${task.agentName || task.title} hit a transient LLM transport failure and will retry automatically.`,
-      engineHealthSummary: `Retrying ${task.agentName || task.title} automatically in ${Math.round(AUTO_RETRY_DELAY_MS / 1000)} seconds after a transient failure.`,
-      updatedAt: now,
-    };
-    await saveRun(ctx, nextRun);
-    await appendRunEvent(ctx, {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'task.updated',
-      title: 'Task auto-retry scheduled',
-      detail: `${task.agentName || task.title} hit a transient error and will retry automatically in ${Math.round(AUTO_RETRY_DELAY_MS / 1000)} seconds: ${errorMessage}`,
-      createdAt: now,
-    });
-    scheduleAutomaticRetry(ctx, run.id, task.id, autoRetryAt);
-    ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
-    return { run: nextRun, task: nextTask };
+    const transientRetryScheduled = await scheduleTransientFailureRecovery(
+      ctx,
+      run,
+      { kind: 'task', task, retryAgentRunId: retryAgentRun.id },
+      errorMessage,
+      now,
+    );
+    if (transientRetryScheduled) {
+      const nextRun = await getRun(ctx, run.id);
+      return { run: nextRun || run, task: nextTask };
+    }
   }
 
   const nextTask = await updateTask(ctx, task.id, (current) => ({
@@ -2057,7 +2212,7 @@ export async function applyOrchestratorDecision(
         detail: `${task.agentName} is ready to execute.`,
         createdAt: now,
       });
-      void startAgentRunSession(ctx, nextRun, task, agentRun, {
+      void launchDetachedAgentRunSession(ctx, nextRun, task, agentRun, {
         title: `${dispatch.agentName} · ${dispatch.stage.name}`,
         prompt: agentRun.prompt,
         startedDetail: `${dispatch.agentName} started executing in its own session.`,
@@ -2868,6 +3023,7 @@ function buildRunFailureState(
     autoRetryAt?: number;
     taskId?: string;
     agentRunId?: string;
+    runtime?: StreamRuntime;
   },
   now: number,
 ) {
@@ -2880,6 +3036,7 @@ function buildRunFailureState(
     autoRetryAt: input.autoRetryAt,
     taskId: input.taskId,
     agentRunId: input.agentRunId,
+    runtime: input.runtime,
     firstOccurredAt: run.failureState?.firstOccurredAt || now,
     lastOccurredAt: now,
     retryCount: (run.failureState?.retryCount || 0) + 1,
@@ -2938,13 +3095,35 @@ function startCoordinatorRunSession(
       }));
       ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
     },
-    onChunk: async () => {
+    onChunk: async (chunk) => {
       const now = Date.now();
       await updateCoordinatorRun(ctx, coordinatorRun.id, (current) => ({
         ...current,
+        runtime: chunk.type === 'runtime_status'
+          ? {
+              state: chunk.state,
+              reason: chunk.reason,
+              message: chunk.message,
+              attempt: chunk.attempt,
+              retryAt: chunk.retryAt,
+              retryInSeconds: chunk.retryInSeconds,
+              updatedAt: now,
+            }
+          : current.runtime,
         lastEventAt: now,
         updatedAt: now,
       }));
+      if (chunk.type === 'runtime_status') {
+        await syncRunRuntimeFromAgent(ctx, run.id, {
+          state: chunk.state,
+          reason: chunk.reason,
+          message: chunk.message,
+          attempt: chunk.attempt,
+          retryAt: chunk.retryAt,
+          retryInSeconds: chunk.retryInSeconds,
+          updatedAt: now,
+        }, { agentRunId: coordinatorRun.id, label: 'Orchestrator agent' });
+      }
     },
     onCompleted: async () => {
       try {
@@ -2994,6 +3173,16 @@ function startCoordinatorRunSession(
         }));
         const failedRun = await getRun(ctx, run.id);
         if (failedRun) {
+          const transientRetryScheduled = await scheduleTransientFailureRecovery(
+            ctx,
+            failedRun,
+            { kind: 'coordinator', coordinatorRun },
+            message,
+            now,
+          );
+          if (transientRetryScheduled) {
+            return;
+          }
           await saveRun(ctx, {
             ...failedRun,
             status: 'paused',
@@ -3040,6 +3229,16 @@ function startCoordinatorRunSession(
       }));
       const failedRun = await getRun(ctx, run.id);
       if (failedRun) {
+        const transientRetryScheduled = await scheduleTransientFailureRecovery(
+          ctx,
+          failedRun,
+          { kind: 'coordinator', coordinatorRun },
+          message,
+          now,
+        );
+        if (transientRetryScheduled) {
+          return;
+        }
         await saveRun(ctx, {
           ...failedRun,
           status: 'paused',
@@ -3097,6 +3296,10 @@ export async function recoverOrchestratorRun(ctx: PluginContext, runId: string) 
     scheduleAutomaticRetry(ctx, run.id, run.failureState.taskId, run.failureState.autoRetryAt);
     return run;
   }
+  if (run.failureState?.retryable && !run.failureState.requiresHuman && run.failureState.autoRetryAt && run.failureState.agentRunId) {
+    scheduleAutomaticRunResume(ctx, run.id, run.failureState.autoRetryAt);
+    return run;
+  }
   if (run.status === 'waiting_human' || run.status === 'failed' || run.failureState?.requiresHuman) {
     return run;
   }
@@ -3127,7 +3330,7 @@ export async function recoverOrchestratorRun(ctx: PluginContext, runId: string) 
     if (task.status === 'running' || agentRun.status === 'running') {
       continue;
     }
-    void startAgentRunSession(ctx, run, task, agentRun, {
+    void launchDetachedAgentRunSession(ctx, run, task, agentRun, {
       title: `${agentRun.agentName || agentRun.title} · ${agentRun.stageName || 'Recovered'}`,
       prompt: `Resume the following orchestration assignment.\n\n${agentRun.prompt}`,
       startedDetail: `${agentRun.agentName || agentRun.title} resumed after recovery.`,
@@ -3289,13 +3492,39 @@ function startAgentRunSession(
       });
       ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
     },
-    onChunk: async () => {
+    onChunk: async (chunk) => {
       const now = Date.now();
       await updateAgentRun(ctx, agentRun.id, (current) => ({
         ...current,
+        runtime: chunk.type === 'runtime_status'
+          ? {
+              state: chunk.state,
+              reason: chunk.reason,
+              message: chunk.message,
+              attempt: chunk.attempt,
+              retryAt: chunk.retryAt,
+              retryInSeconds: chunk.retryInSeconds,
+              updatedAt: now,
+            }
+          : current.runtime,
         lastEventAt: now,
         updatedAt: now,
       }));
+      if (chunk.type === 'runtime_status') {
+        await syncRunRuntimeFromAgent(ctx, run.id, {
+          state: chunk.state,
+          reason: chunk.reason,
+          message: chunk.message,
+          attempt: chunk.attempt,
+          retryAt: chunk.retryAt,
+          retryInSeconds: chunk.retryInSeconds,
+          updatedAt: now,
+        }, {
+          taskId: task.id,
+          agentRunId: agentRun.id,
+          label: task.agentName || task.title,
+        });
+      }
     },
     onCompleted: async () => {
       const now = Date.now();
@@ -3323,4 +3552,43 @@ function startAgentRunSession(
       await interruptOrchestratorTask(ctx, task.id);
     },
   });
+}
+
+async function launchDetachedAgentRunSession(
+  ctx: PluginContext,
+  run: OrchestratorRun,
+  task: OrchestratorAgentTask,
+  agentRun: OrchestratorAgentRun,
+  options: {
+    title: string;
+    prompt: string;
+    startedDetail: string;
+    preserveStartedAt?: boolean;
+  },
+) {
+  try {
+    await startAgentRunSession(ctx, run, task, agentRun, options);
+  } catch (error) {
+    const now = Date.now();
+    const message = error instanceof Error ? error.message : String(error);
+
+    await appendRunEvent(ctx, {
+      id: createId('evt'),
+      runId: run.id,
+      type: 'run.updated',
+      title: 'Agent launch failed',
+      detail: `${task.agentName || task.title} failed before streaming started: ${message}`,
+      createdAt: now,
+    });
+
+    await updateAgentRun(ctx, agentRun.id, (current) => ({
+      ...current,
+      status: 'failed',
+      error: message,
+      lastEventAt: now,
+      updatedAt: now,
+    }));
+
+    await failOrchestratorTask(ctx, task.id, `Agent launch failed: ${message}`);
+  }
 }

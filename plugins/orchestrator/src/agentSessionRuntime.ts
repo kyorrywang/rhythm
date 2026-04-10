@@ -3,10 +3,11 @@ import { approvePermission, chatStream, createSession, interruptSession } from '
 import { persistSession } from '../../../src/shared/lib/sessionPersistence';
 import { useSessionStore } from '../../../src/shared/state/useSessionStore';
 import { useWorkspaceStore } from '../../../src/shared/state/useWorkspaceStore';
-import type { Message, ServerEventChunk, Session } from '../../../src/shared/types/schema';
+import type { Message, ServerEventChunk, Session, StreamRuntime } from '../../../src/shared/types/schema';
 import type { OrchestratorExecutionContext } from './types';
 
 const activeAgentStreams = new Set<string>();
+const latestAgentRuntime = new Map<string, StreamRuntime>();
 
 export interface LaunchAgentSessionInput {
   sessionId: string;
@@ -60,13 +61,18 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
     const executionContext = resolveExecutionContext(input.executionContext);
     const providerId = executionContext.providerId;
     const model = executionContext.model;
-    const reasoning = executionContext.reasoning;
+    const reasoning = executionContext.reasoning as 'low' | 'medium' | 'high' | undefined;
     const workspacePath = executionContext.workspacePath;
 
     store.updateSession(input.sessionId, {
       phase: 'streaming',
       workspacePath,
       error: null,
+      runtime: {
+        state: 'starting',
+        message: '正在启动会话流。',
+        updatedAt: Date.now(),
+      },
     });
 
     const userMsg: Message = {
@@ -86,6 +92,10 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
       createdAt: Date.now(),
       segments: [],
     });
+    const hydratedSession = useSessionStore.getState().sessions.get(input.sessionId);
+    if (hydratedSession) {
+      persistSession(hydratedSession);
+    }
 
     await input.onStarted?.();
 
@@ -95,6 +105,17 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
         void approvePermission({ toolId: chunk.toolId, approved: true });
       }
       void input.onChunk?.(chunk);
+      if (chunk.type === 'runtime_status') {
+        latestAgentRuntime.set(input.sessionId, {
+          state: chunk.state,
+          reason: chunk.reason,
+          message: chunk.message,
+          attempt: chunk.attempt,
+          retryAt: chunk.retryAt,
+          retryInSeconds: chunk.retryInSeconds,
+          updatedAt: Date.now(),
+        });
+      }
       const liveState = useSessionStore.getState();
       const reduced = liveState.processChunk(liveState.sessions, input.sessionId, aiMessageId, chunk);
       useSessionStore.setState((state) => ({
@@ -108,7 +129,14 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
       }
 
       if (chunk.type === 'done') {
-        void finalizeAgentSession(input, 'completed', null);
+        const runtime = latestAgentRuntime.get(input.sessionId);
+        if (runtime?.state === 'failed') {
+          void finalizeAgentSession(input, 'failed', runtime.message || 'Agent session failed.');
+        } else if (runtime?.state === 'interrupted') {
+          void finalizeAgentSession(input, 'interrupted', null);
+        } else {
+          void finalizeAgentSession(input, 'completed', null);
+        }
       } else if (chunk.type === 'interrupted') {
         void finalizeAgentSession(input, 'interrupted', null);
       }
@@ -148,66 +176,70 @@ async function finalizeAgentSession(
   if (!activeAgentStreams.delete(input.sessionId)) {
     return;
   }
+  latestAgentRuntime.delete(input.sessionId);
   const store = useSessionStore.getState();
+  const runtimeState: StreamRuntime = outcome === 'failed'
+    ? {
+        state: 'failed',
+        reason: 'error',
+        message: error instanceof Error ? error.message : (error ? String(error) : 'Agent session failed.'),
+        updatedAt: Date.now(),
+      }
+    : outcome === 'interrupted'
+      ? {
+          state: 'interrupted',
+          reason: 'interrupt',
+          message: '会话已中断。',
+          updatedAt: Date.now(),
+        }
+      : {
+          state: 'completed',
+          reason: 'completed',
+          message: '会话已完成。',
+          updatedAt: Date.now(),
+        };
   store.updateSession(input.sessionId, {
     phase: 'idle',
     error: outcome === 'failed' && error ? (error instanceof Error ? error.message : String(error)) : null,
+    runtime: runtimeState,
   });
   const session = useSessionStore.getState().sessions.get(input.sessionId);
   if (session) {
     persistSession(session);
   }
-
-  const completionLooksBroken = outcome === 'completed' && sessionHasErrorOutput(session);
-  if (completionLooksBroken) {
-    const derivedError = extractSessionError(session) || 'Agent session completed with an error output.';
-    store.updateSession(input.sessionId, {
-      phase: 'idle',
-      error: derivedError,
-    });
-    const erroredSession = useSessionStore.getState().sessions.get(input.sessionId);
-    if (erroredSession) {
-      persistSession(erroredSession);
-    }
-    await input.onFailed?.(derivedError);
-    return;
-  }
-
   if (outcome === 'interrupted') {
-    await input.onInterrupted?.();
+    await safeInvokeCallback(() => input.onInterrupted?.(), input.sessionId, 'onInterrupted');
   } else if (outcome === 'failed') {
-    await input.onFailed?.(error);
+    await safeInvokeCallback(() => input.onFailed?.(error), input.sessionId, 'onFailed');
   } else {
-    await input.onCompleted?.();
+    await safeInvokeCallback(() => input.onCompleted?.(), input.sessionId, 'onCompleted');
   }
 }
 
-function sessionHasErrorOutput(session?: Session) {
-  if (!session) return false;
-  return session.messages.some((message) =>
-    message.role === 'assistant'
-    && containsAgentError(message.content || ''),
-  );
-}
-
-function extractSessionError(session?: Session) {
-  if (!session) return null;
-  const assistantMessages = session.messages.filter((message) => message.role === 'assistant');
-  for (let index = assistantMessages.length - 1; index >= 0; index -= 1) {
-    const content = assistantMessages[index]?.content || '';
-    if (containsAgentError(content)) {
-      return content.trim();
+async function safeInvokeCallback(
+  callback: () => Promise<void> | void,
+  sessionId: string,
+  label: string,
+) {
+  try {
+    await callback();
+  } catch (callbackError) {
+    console.error(`[orchestrator] ${label} callback failed for ${sessionId}`, callbackError);
+    const store = useSessionStore.getState();
+    const existing = store.sessions.get(sessionId);
+    const callbackMessage = callbackError instanceof Error ? callbackError.message : String(callbackError);
+    if (existing) {
+      store.updateSession(sessionId, {
+        phase: 'idle',
+        error: existing.error || `[${label}] ${callbackMessage}`,
+      });
+      const session = useSessionStore.getState().sessions.get(sessionId);
+      if (session) {
+        persistSession(session);
+      }
     }
+    throw callbackError;
   }
-  return null;
-}
-
-function containsAgentError(content: string) {
-  const normalized = content.toLowerCase();
-  return normalized.includes('[error:')
-    || normalized.includes('llm error:')
-    || normalized.includes('error sending request')
-    || normalized.includes('api.minimaxi.com');
 }
 
 function getActiveWorkspacePath() {

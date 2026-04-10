@@ -136,6 +136,19 @@ pub enum EventPayload {
         reason: String,
     },
 
+    #[serde(rename = "runtime_status")]
+    RuntimeStatus {
+        state: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        message: String,
+        attempt: u32,
+        #[serde(rename = "retryInSeconds", skip_serializing_if = "Option::is_none")]
+        retry_in_seconds: Option<u32>,
+        #[serde(rename = "retryAt", skip_serializing_if = "Option::is_none")]
+        retry_at: Option<u64>,
+    },
+
     #[serde(rename = "done")]
     Done,
 

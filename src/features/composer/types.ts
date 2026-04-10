@@ -1,15 +1,18 @@
-import { SessionPhase, SelectionType, Task, QueuedMessage, AskQuestion, MessageMode, Attachment } from '@/shared/types/schema';
+import { SessionPhase, SelectionType, Task, QueuedMessage, AskQuestion, MessageMode, Attachment, StreamRuntime, AskRequest } from '@/shared/types/schema';
+import type { PermissionRequest } from '@/shared/state/usePermissionStore';
 
 export type DockType = 'none' | 'append' | 'ask';
 
 export const PHASE_TO_DOCK: Record<SessionPhase, DockType> = {
   idle: 'none',
+  starting: 'none',
   streaming: 'none',
+  retrying: 'none',
   streaming_with_queue: 'append',
   processing_queue: 'append',
   waiting_for_ask: 'ask',
   interrupting: 'none',
-  waiting_for_permission: 'append',
+  waiting_for_permission: 'none',
 };
 
 export interface AskDockProps {
@@ -30,8 +33,7 @@ export interface TaskDockProps {
 }
 
 export interface AppendDockProps {
-  queuedMessages: QueuedMessage[];
-  queueLength: number;
+  items: PendingItem[];
   onRemoveItem: (queuedId: string) => void;
   onCancelAll: () => void;
   onInterrupt: () => void;
@@ -39,6 +41,44 @@ export interface AppendDockProps {
   isMinimized: boolean;
   onToggleMinimize: () => void;
 }
+
+export type PendingItem =
+  | {
+    id: string;
+    kind: 'queued_message';
+    priority: number;
+    title: string;
+    description: string;
+    createdAt: number;
+    queuedMessage: QueuedMessage;
+  }
+  | {
+    id: string;
+    kind: 'retry_backoff';
+    priority: number;
+    title: string;
+    description: string;
+    createdAt: number;
+    runtime: StreamRuntime;
+  }
+  | {
+    id: string;
+    kind: 'permission_request';
+    priority: number;
+    title: string;
+    description: string;
+    createdAt: number;
+    request: PermissionRequest;
+  }
+  | {
+    id: string;
+    kind: 'ask_request';
+    priority: number;
+    title: string;
+    description: string;
+    createdAt: number;
+    ask: AskRequest;
+  };
 
 export interface MainComposerProps {
   text: string;
