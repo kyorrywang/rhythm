@@ -431,9 +431,54 @@ export const reduceSessionChunk = (
   }
 
   if (chunk.type === 'subagent_end') {
+    const completedAt = Date.now();
     const updatedSessions = sessions.map(s => {
       if (s.id === chunk.subSessionId) {
-        return { ...s, phase: 'idle' as const };
+        return {
+          ...s,
+          phase: 'idle' as const,
+          runtime: {
+            state: chunk.isError ? 'failed' : 'completed',
+            reason: chunk.isError ? 'error' : 'completed',
+            message: chunk.result,
+            updatedAt: completedAt,
+          },
+          error: chunk.isError ? chunk.result : null,
+          subagentResult: {
+            result: chunk.result,
+            isError: chunk.isError,
+            completedAt,
+          },
+          messages: [
+            ...s.messages,
+            {
+              id: `system-${completedAt}-subagent-end`,
+              role: 'system',
+              content: chunk.isError
+                ? `Dynamic agent failed: ${chunk.result}`
+                : `Dynamic agent completed: ${chunk.result}`,
+              createdAt: completedAt,
+            },
+          ],
+          updatedAt: completedAt,
+        };
+      }
+      if (s.id === chunk.sessionId) {
+        return {
+          ...s,
+          messages: [
+            ...s.messages,
+            {
+              id: `system-${completedAt}-child-result-${chunk.subSessionId}`,
+              role: 'system',
+              content: chunk.isError
+                ? `Child session ${chunk.subSessionId} failed: ${chunk.result}`
+                : `Child session ${chunk.subSessionId} completed: ${chunk.result}`,
+              createdAt: completedAt,
+            },
+          ],
+          updatedAt: completedAt,
+        };
       }
       return s;
     });

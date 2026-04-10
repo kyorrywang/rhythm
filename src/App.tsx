@@ -57,15 +57,21 @@ export function App() {
   }, [activeWorkspace.path, setSessions]);
 
   useEffect(() => {
-    const defaultModel = selectDefaultModel(settings, useSessionStore.getState().composerControls);
+    const currentControls = useSessionStore.getState().composerControls;
+    const selectedModel = resolveSelectedModel(settings, currentControls);
+    const permissionMode = currentControls.fullAuto
+      ? 'full_auto'
+      : settings.permissionMode === 'plan'
+        ? 'plan'
+        : 'default';
+
     setComposerControls({
-      providerId: defaultModel.providerId,
-      modelId: defaultModel.modelId,
-      modelName: defaultModel.modelName,
-      fullAuto: settings.permissionMode === 'full_auto',
+      providerId: selectedModel.providerId,
+      modelId: selectedModel.modelId,
+      modelName: selectedModel.modelName,
     });
     setPermissionConfig({
-      mode: settings.permissionMode,
+      mode: permissionMode,
       allowedTools: settings.allowedTools,
       deniedTools: settings.deniedTools,
     });
@@ -99,7 +105,7 @@ export function App() {
   );
 }
 
-function selectDefaultModel(
+function resolveSelectedModel(
   settings: AppSettings,
   current: ReturnType<typeof useSessionStore.getState>['composerControls'],
 ) {
@@ -120,11 +126,9 @@ function selectDefaultModel(
     };
   }
 
-  const defaultProvider = enabledProviders.find((provider) => provider.isDefault) || enabledProviders[0];
-  const defaultModel = defaultProvider?.models.find((model) => model.isDefault) || defaultProvider?.models[0];
   return {
-    providerId: defaultProvider?.id || '',
-    modelId: defaultModel?.id || '',
-    modelName: defaultModel?.name || '',
+    providerId: '',
+    modelId: '',
+    modelName: '',
   };
 }

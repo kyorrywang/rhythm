@@ -5,6 +5,8 @@ import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { useToastStore } from '@/shared/state/useToastStore';
 import { useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
 import { persistSession, persistSessions } from '@/shared/lib/sessionPersistence';
+import { hasSessionPermissionGrant } from '@/shared/lib/sessionPermissions';
+import { collectSessionTreeIds } from '@/shared/lib/sessionTree';
 import { Attachment, Message, ServerEventChunk, Session } from '@/shared/types/schema';
 import { chatStream, submitUserAnswer, approvePermission, interruptSession, llmComplete } from '@/shared/api/commands';
 
@@ -58,6 +60,13 @@ export const useLLMStream = () => {
     if (!sessionId) return;
     const providerId = state.composerControls.providerId;
     const model = state.composerControls.modelName;
+    if (!providerId || !model) {
+      useToastStore.getState().addToast({
+        type: 'warning',
+        message: '请先选择一个模型',
+      });
+      return;
+    }
     const reasoning = state.composerControls.reasoning;
     const mode = state.composerControls.mode === 'Coordinate' ? 'coordinate' : 'chat';
     const permissionMode = state.composerControls.fullAuto ? 'full_auto' : 'default';
@@ -114,8 +123,7 @@ export const useLLMStream = () => {
 
         if (chunk.type === 'subagent_start') {
           const reduced = liveState.processChunk(liveState.sessions, targetSessionId, aiMessageId, chunk);
-          let newSessions = reduced.sessions;
-          newSessions = liveState.migrateQueueToChild(chunk.parentSessionId, chunk.subSessionId, newSessions);
+          const newSessions = reduced.sessions;
           store.setState({ sessions: newSessions });
           persistSessions([
             newSessions.get(chunk.parentSessionId),
@@ -140,12 +148,7 @@ export const useLLMStream = () => {
           const reduced = liveState.processChunk(liveState.sessions, chunk.subSessionId, subAiMessageId, chunk);
           store.setState({ sessions: reduced.sessions });
           schedulePersistSession(reduced.sessions.get(chunk.subSessionId), true);
-          const parentSessionId = reduced.sessions.get(chunk.subSessionId)?.parentId;
-          if (parentSessionId) {
-            const newSessions = store.getState().restoreQueueToParent(chunk.subSessionId, parentSessionId, reduced.sessions);
-            store.setState({ sessions: newSessions });
-            schedulePersistSession(newSessions.get(parentSessionId), true);
-          }
+          schedulePersistSession(reduced.sessions.get(chunk.sessionId), true);
           return;
         }
 
@@ -155,8 +158,7 @@ export const useLLMStream = () => {
             return;
           }
 
-          const sessionGrants = liveState.sessions.get(chunk.sessionId)?.permissionGrants ?? [];
-          if (sessionGrants.includes(chunk.toolName)) {
+          if (hasSessionPermissionGrant(liveState.sessions, chunk.sessionId, chunk.toolName)) {
             void approvePermission({ toolId: chunk.toolId, approved: true });
             return;
           }
@@ -268,21 +270,22 @@ export const useLLMStream = () => {
     const state = store.getState();
     const sessionId = state.activeSessionId;
     if (!sessionId) return;
-    const session = state.sessions.get(sessionId);
-    const isRunning = session?.phase && session.phase !== 'idle';
+    const targetSessionIds = collectSessionTreeIds(state.sessions, sessionId);
+    const isRunning = targetSessionIds.some((targetId) => {
+      const phase = state.sessions.get(targetId)?.phase;
+      return phase && phase !== 'idle';
+    });
     if (!isRunning) return;
 
     abortRef.current = true;
-    interruptedSessionIdsRef.current.add(sessionId);
-    for (const childSessionId of subSessionMessageMapRef.current.keys()) {
-      interruptedSessionIdsRef.current.add(childSessionId);
+    for (const targetId of targetSessionIds) {
+      interruptedSessionIdsRef.current.add(targetId);
+      state.updateSession(targetId, { phase: 'interrupting' });
     }
-    state.updateSession(sessionId, { phase: 'interrupting' });
-    void interruptSession({ sessionId }).catch((error) => {
+    void Promise.all(targetSessionIds.map((targetId) => interruptSession({ sessionId: targetId }))).catch((error) => {
       console.error('Interrupt failed', error);
-      interruptedSessionIdsRef.current.delete(sessionId);
-      for (const childSessionId of subSessionMessageMapRef.current.keys()) {
-        interruptedSessionIdsRef.current.delete(childSessionId);
+      for (const targetId of targetSessionIds) {
+        interruptedSessionIdsRef.current.delete(targetId);
       }
     });
   }, [store]);

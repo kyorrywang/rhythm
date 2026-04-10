@@ -169,6 +169,11 @@ export interface Session {
   tokenCount?: number;
   permissionPending?: boolean;
   permissionGrants?: string[];
+  subagentResult?: {
+    result: string;
+    isError: boolean;
+    completedAt: number;
+  };
   runtime?: StreamRuntime;
   error?: string | null;
 }

@@ -255,33 +255,10 @@ export const createMessageSlice = (
   },
 
   migrateQueueToChild: (parentSessionId, childSessionId, sessions) => {
-    const parent = sessions.get(parentSessionId);
-    if (!parent?.queuedMessages?.length) return sessions;
-    const next = new Map(sessions);
-    const parentSession = next.get(parentSessionId);
-    if (parentSession) {
-      next.set(parentSessionId, { ...parentSession, queuedMessages: [] });
-    }
-    const childSession = next.get(childSessionId);
-    if (childSession) {
-      next.set(childSessionId, { ...childSession, queuedMessages: [...parent.queuedMessages] });
-    }
-    return next;
+    return sessions;
   },
 
   restoreQueueToParent: (childSessionId, parentSessionId, sessions) => {
-    const child = sessions.get(childSessionId);
-    const remaining = child?.queuedMessages || [];
-    if (remaining.length === 0) return sessions;
-    const next = new Map(sessions);
-    const childSession = next.get(childSessionId);
-    if (childSession) {
-      next.set(childSessionId, { ...childSession, queuedMessages: [] });
-    }
-    const parentSession = next.get(parentSessionId);
-    if (parentSession) {
-      next.set(parentSessionId, { ...parentSession, queuedMessages: [...(parentSession.queuedMessages || []), ...remaining] });
-    }
-    return next;
+    return sessions;
   },
 });

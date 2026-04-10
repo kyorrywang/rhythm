@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { Session } from '@/shared/types/schema';
 import { createSessionSlice, type SessionSlice } from './slices/sessionSlice';
 import { createMessageSlice, type MessageSlice } from './slices/messageSlice';
@@ -6,11 +7,21 @@ import { createUiSlice, type UiSlice } from './slices/uiSlice';
 
 type SessionStore = SessionSlice & MessageSlice & UiSlice;
 
-export const useSessionStore = create<SessionStore>((set, get) => ({
-  ...createSessionSlice(set, get),
-  ...createMessageSlice(set, get),
-  ...createUiSlice(set),
-}));
+export const useSessionStore = create<SessionStore>()(
+  persist(
+    (set, get) => ({
+      ...createSessionSlice(set, get),
+      ...createMessageSlice(set, get),
+      ...createUiSlice(set),
+    }),
+    {
+      name: 'rhythm-session-ui-v1',
+      partialize: (state) => ({
+        composerControls: state.composerControls,
+      }),
+    },
+  ),
+);
 
 export function useSessions(): Session[] {
   const sessions = useSessionStore((s) => s.sessions);

@@ -16,6 +16,7 @@ import { useDisplayStore } from '@/shared/state/useDisplayStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { usePermissionStore } from '@/shared/state/usePermissionStore';
 import { approvePermission } from '@/shared/api/commands';
+import { resolvePermissionGrantSessionId } from '@/shared/lib/sessionPermissions';
 import type { Message, MessageSegment, ToolCall } from '@/shared/types/schema';
 import { Badge, Button, CopyIconButton } from '@/shared/ui';
 import { CodeBlock } from '@/shared/ui/CodeBlock';
@@ -296,7 +297,11 @@ const PermissionSegment = ({
   const resolve = async (approved: boolean) => {
     if (!isWaiting) return;
     if (approved && alwaysAllow) {
-      grantSessionPermission(sessionId, segment.request.toolName);
+      const grantSessionId = resolvePermissionGrantSessionId(
+        useSessionStore.getState().sessions,
+        sessionId,
+      );
+      grantSessionPermission(grantSessionId, segment.request.toolName);
     }
     await approvePermission({ toolId: segment.request.toolId, approved });
     resolvePending(segment.request.toolId, approved);
