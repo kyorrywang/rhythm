@@ -1,6 +1,8 @@
 export type OrchestratorRunStatus =
   | 'pending'
   | 'running'
+  | 'waiting_review'
+  | 'waiting_human'
   | 'pause_requested'
   | 'paused'
   | 'completed'
@@ -14,18 +16,51 @@ export type OrchestratorTaskStatus =
   | 'running'
   | 'blocked'
   | 'waiting_review'
+  | 'waiting_human'
   | 'paused'
   | 'completed'
   | 'failed'
   | 'cancelled'
   | 'interrupted';
 
-export type OrchestratorTaskNodeType = 'container' | 'work' | 'review';
+export type OrchestratorTaskNodeType = 'container' | 'work' | 'review' | 'checkpoint';
 export type OrchestratorTaskSource = 'plan_seed' | 'orchestrator_split' | 'rework';
 
 export type OrchestratorExecutionMode = 'direct' | 'workflow';
+export type OrchestratorArtifactStatus = 'draft' | 'review_submitted' | 'accepted' | 'superseded' | 'rejected';
+export type OrchestratorFailureKind =
+  | 'environment_unavailable'
+  | 'insufficient_context'
+  | 'review_deadlock'
+  | 'non_converging_rework'
+  | 'policy_conflict'
+  | 'agent_runtime_error'
+  | 'human_required';
+
+export interface OrchestratorExecutionContext {
+  providerId?: string;
+  model?: string;
+  reasoning?: string;
+  workspacePath: string;
+  capturedAt: number;
+}
+
+export interface OrchestratorFailureState {
+  kind: OrchestratorFailureKind;
+  summary: string;
+  retryable: boolean;
+  requiresHuman: boolean;
+  recommendedAction: string;
+  autoRetryAt?: number;
+  taskId?: string;
+  agentRunId?: string;
+  firstOccurredAt: number;
+  lastOccurredAt: number;
+  retryCount: number;
+}
 
 export interface OrchestratorTemplate {
+  schemaVersion?: number;
   id: string;
   name: string;
   domain: string;
@@ -51,9 +86,34 @@ export interface OrchestratorPlanStage {
   name: string;
   goal: string;
   deliverables: string[];
+  targetFolder: string;
+  outputFiles: string[];
+  executorName?: string;
+  reviewerName?: string;
+  executorTools?: string[];
+  reviewerTools?: string[];
+  executorSkills?: string[];
+  reviewerSkills?: string[];
+  failurePolicy?: OrchestratorAgent['failurePolicy'];
+}
+
+export interface OrchestratorReviewPolicy {
+  schemaVersion?: number;
+  runId?: string;
+  defaultRequiresReview: boolean;
+  allowHumanOverride: boolean;
+  stagePolicies: Array<{
+    stageId: string;
+    stageName: string;
+    requiresReview: boolean;
+    humanCheckpointRequired: boolean;
+  }>;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface OrchestratorPlanDraft {
+  schemaVersion?: number;
   id: string;
   title: string;
   goal: string;
@@ -63,6 +123,9 @@ export interface OrchestratorPlanDraft {
   overview: string;
   constraints: string[];
   successCriteria: string[];
+  decompositionPrinciples: string[];
+  humanCheckpoints: string[];
+  reviewCheckpoints: string[];
   reviewPolicy: string;
   stages: OrchestratorPlanStage[];
   createdAt: number;
@@ -78,6 +141,9 @@ export interface OrchestratorConfirmedPlan {
   overview: string;
   constraints: string[];
   successCriteria: string[];
+  decompositionPrinciples: string[];
+  humanCheckpoints: string[];
+  reviewCheckpoints: string[];
   reviewPolicy: string;
   stages: OrchestratorPlanStage[];
   confirmedAt: number;
@@ -119,11 +185,13 @@ export interface OrchestratorAgent {
 }
 
 export interface OrchestratorRun {
+  schemaVersion?: number;
   id: string;
   planId: string;
   planTitle: string;
   confirmedPlan: OrchestratorConfirmedPlan;
   goal: string;
+  executionContext?: OrchestratorExecutionContext;
   sourceSessionId?: string;
   status: OrchestratorRunStatus;
   source: 'chat' | 'workbench' | 'system';
@@ -143,6 +211,10 @@ export interface OrchestratorRun {
   engineHealthSummary?: string;
   lastHumanInterventionAt?: number;
   lastHumanInterventionSummary?: string;
+  pendingHumanCheckpoint?: string;
+  failureState?: OrchestratorFailureState;
+  currentOrchestratorAgentRunId?: string;
+  lastOrchestratorAgentRunId?: string;
   orchestrationInput?: OrchestrationInputSnapshot;
   orchestrationPrompt?: string;
   orchestrationDecision?: OrchestrationDecisionRecord;
@@ -153,6 +225,7 @@ export interface OrchestratorRun {
 }
 
 export interface OrchestratorRunEvent {
+  schemaVersion?: number;
   id: string;
   runId: string;
   type:
@@ -173,10 +246,11 @@ export interface OrchestratorRunEvent {
 }
 
 export interface OrchestratorAgentTask {
+  schemaVersion?: number;
   id: string;
   runId: string;
   nodeType: OrchestratorTaskNodeType;
-  kind?: 'work' | 'review';
+  kind?: 'work' | 'review' | 'checkpoint';
   parentTaskId?: string;
   rootTaskId: string;
   depth: number;
@@ -186,18 +260,33 @@ export interface OrchestratorAgentTask {
   attemptCount: number;
   sessionId?: string;
   stageId?: string;
+  planStageId?: string;
   stageName?: string;
   agentId?: string;
   agentName?: string;
   title: string;
   status: OrchestratorTaskStatus;
+  objective?: string;
+  inputs?: string[];
+  expectedOutputs?: string[];
+  priority?: number;
+  reviewRequired?: boolean;
+  reviewSatisfiedAt?: number;
+  blockedReason?: string;
+  targetFolder?: string;
+  expectedFiles?: string[];
+  dependencyTaskIds?: string[];
+  requiresHumanApproval?: boolean;
   summary?: string;
+  latestArtifactIds?: string[];
+  latestReviewLogId?: string;
   failurePolicy?: OrchestratorAgent['failurePolicy'];
   createdAt: number;
   updatedAt: number;
 }
 
 export interface OrchestratorAgentRun {
+  schemaVersion?: number;
   id: string;
   runId: string;
   taskId: string;
@@ -221,7 +310,48 @@ export interface OrchestratorAgentRun {
   updatedAt: number;
 }
 
+export interface OrchestratorCoordinatorRun {
+  schemaVersion?: number;
+  id: string;
+  runId: string;
+  sessionId: string;
+  title: string;
+  prompt: string;
+  wakeReason?: OrchestratorWakeRunInput['reason'];
+  input: OrchestrationInputSnapshot;
+  decision?: OrchestrationDecisionRecord;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'paused';
+  startedAt?: number;
+  completedAt?: number;
+  lastEventAt?: number;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AssignmentBrief {
+  assignmentId: string;
+  runId: string;
+  taskId?: string;
+  kind: 'work' | 'review';
+  title: string;
+  whyNow: string;
+  goal: string;
+  context: string[];
+  inputArtifacts: string[];
+  instructions: string[];
+  acceptanceCriteria: string[];
+  deliverables: string[];
+  targetFolder: string;
+  expectedFiles: string[];
+  reviewTargetPaths: string[];
+  reviewFocus: string[];
+  risks: string[];
+  createdAt: number;
+}
+
 export interface OrchestratorArtifact {
+  schemaVersion?: number;
   id: string;
   runId: string;
   agentRunId: string;
@@ -232,10 +362,11 @@ export interface OrchestratorArtifact {
   agentName?: string;
   name: string;
   logicalKey: string;
-  status: 'draft' | 'accepted' | 'superseded';
+  status: OrchestratorArtifactStatus;
   version: number;
   kind: 'summary' | 'draft' | 'report' | 'notes';
   format: 'text' | 'markdown' | 'json';
+  filePaths: string[];
   summary: string;
   acceptedByReviewLogId?: string;
   content: string;
@@ -249,6 +380,7 @@ export interface OrchestratorProjectStateEntry {
   label: string;
   artifactId: string;
   artifactKind: OrchestratorArtifact['kind'];
+  filePaths: string[];
   stageId?: string;
   stageName?: string;
   summary: string;
@@ -256,24 +388,23 @@ export interface OrchestratorProjectStateEntry {
 }
 
 export interface OrchestratorProjectState {
+  schemaVersion?: number;
   runId: string;
   entries: OrchestratorProjectStateEntry[];
+  structureSummary?: string[];
+  dependencySummary?: string[];
   updatedAt: number;
 }
 
 export interface WorkAgentInputSnapshot {
+  assignmentBrief: AssignmentBrief;
   runGoal: string;
   planTitle: string;
-  planOverview: string;
   stageId?: string;
   stageName?: string;
-  stageGoal?: string;
-  deliverables: string[];
   constraints: string[];
-  successCriteria: string[];
-  reviewPolicy: string;
-  taskSummary?: string;
-  coordinatorBrief?: string;
+  targetFolder: string;
+  expectedFiles: string[];
   acceptedArtifactSummaries: string[];
   recentReviewSummaries: string[];
   projectStateSummary: string[];
@@ -287,22 +418,18 @@ export interface WorkAgentOutputSnapshot {
 }
 
 export interface ReviewAgentInputSnapshot {
+  assignmentBrief: AssignmentBrief;
   runGoal: string;
   planTitle: string;
-  planOverview: string;
   stageId?: string;
   stageName?: string;
-  stageGoal?: string;
-  deliverables: string[];
   constraints: string[];
-  successCriteria: string[];
-  reviewPolicy: string;
-  taskSummary?: string;
-  coordinatorBrief?: string;
+  targetFolder: string;
+  expectedFiles: string[];
   reviewedTaskId?: string;
   reviewedArtifactIds: string[];
   reviewedArtifactSummaries: string[];
-  recentReviewSummaries: string[];
+  reviewedArtifactPaths: string[];
   projectStateSummary: string[];
 }
 
@@ -321,6 +448,7 @@ export interface OrchestrationContext {
   tasks: OrchestratorAgentTask[];
   reviewLogs: OrchestratorReviewLog[];
   projectState: OrchestratorProjectState | null;
+  artifacts: OrchestratorArtifact[];
   activeTaskCount: number;
   availableSlots: number;
 }
@@ -329,17 +457,16 @@ export interface OrchestrationDispatchDecision {
   parentTaskId: string;
   stageId: string;
   stageName: string;
-  stageGoal: string;
-  deliverables: string[];
   kind: 'work' | 'review';
   agentId: string;
   agentName: string;
-  goal: string;
+  assignmentBrief: AssignmentBrief;
 }
 
 export interface OrchestrationDecision {
   status: 'dispatch' | 'wait' | 'throttle' | 'complete';
   summary: string;
+  taskOperations: OrchestrationTaskOperation[];
   currentStageId?: string;
   currentStageName?: string;
   currentAgentId?: string;
@@ -351,8 +478,19 @@ export interface OrchestrationInputSnapshot {
   runGoal: string;
   planTitle: string;
   planOverview: string;
+  decompositionPrinciples: string[];
+  humanCheckpoints: string[];
+  reviewCheckpoints: string[];
+  reviewPolicy: string;
+  structuredReviewPolicy?: OrchestratorReviewPolicy;
   wakeReason?: OrchestratorWakeRunInput['reason'];
+  currentStageId?: string;
   currentStageName?: string;
+  currentStageTargetFolder?: string;
+  currentStageOutputFiles: string[];
+  currentStageReviewableOutputPaths: string[];
+  currentStageDraftOutputSummaries: string[];
+  currentStageAllowedDispatchKinds: Array<'work' | 'review'>;
   activeTaskCount: number;
   availableSlots: number;
   readyTaskTitles: string[];
@@ -360,19 +498,45 @@ export interface OrchestrationInputSnapshot {
   waitingReviewTaskTitles: string[];
   latestReviewSummaries: string[];
   projectStateSummary: string[];
+  actionableTasks: string[];
+  candidateDispatches: string[];
 }
 
 export interface OrchestrationDecisionRecord {
   status: OrchestrationDecision['status'];
   summary: string;
   dispatchCount: number;
+  currentStageId?: string;
   currentStageName?: string;
+  currentAgentId?: string;
   currentAgentName?: string;
+  allowedDispatchKinds: Array<'work' | 'review'>;
+  candidateDispatches: string[];
+  selectedParentTaskIds: string[];
   dispatchTitles: string[];
+  assignmentTitles: string[];
+  assignments: AssignmentBrief[];
+  taskOperationTypes: OrchestrationTaskOperation['type'][];
+  taskOperationSummaries: string[];
   createdAt: number;
 }
 
+export interface OrchestrationTaskOperation {
+  type: 'wait' | 'complete_run' | 'activate_task' | 'block_task' | 'reprioritize_task' | 'create_task' | 'create_checkpoint';
+  taskId?: string;
+  parentTaskId?: string;
+  note?: string;
+  priority?: number;
+  title?: string;
+  summary?: string;
+  targetFolder?: string;
+  expectedFiles?: string[];
+  dependencyTaskIds?: string[];
+  requiresHumanApproval?: boolean;
+}
+
 export interface OrchestratorReviewLog {
+  schemaVersion?: number;
   id: string;
   runId: string;
   stageId?: string;
@@ -393,6 +557,7 @@ export interface OrchestratorReviewLog {
 }
 
 export interface OrchestratorControlIntent {
+  schemaVersion?: number;
   runId: string;
   action: 'start' | 'pause' | 'resume' | 'cancel';
   createdAt: number;
@@ -414,6 +579,10 @@ export interface OrchestratorAgentRunPayload {
   agentRun: OrchestratorAgentRun;
 }
 
+export interface OrchestratorCoordinatorRunPayload {
+  coordinatorRun: OrchestratorCoordinatorRun;
+}
+
 export interface OrchestratorCreateTemplateInput {
   name?: string;
 }
@@ -424,11 +593,16 @@ export interface OrchestratorCreatePlanDraftInput {
   overview?: string;
   constraints?: string[];
   successCriteria?: string[];
+  decompositionPrinciples?: string[];
+  humanCheckpoints?: string[];
+  reviewCheckpoints?: string[];
   reviewPolicy?: string;
   stages?: Array<{
     name: string;
     goal: string;
     deliverables?: string[];
+    targetFolder?: string;
+    outputFiles?: string[];
   }>;
   sourceSessionId?: string;
   sourceMessageId?: string;
@@ -441,7 +615,7 @@ export interface OrchestratorCreatePlanDraftFromSessionInput {
 
 export interface OrchestratorUpdatePlanDraftInput {
   planDraftId: string;
-  patch: Partial<Pick<OrchestratorPlanDraft, 'title' | 'goal' | 'overview' | 'constraints' | 'successCriteria' | 'reviewPolicy' | 'stages'>>;
+  patch: Partial<Pick<OrchestratorPlanDraft, 'title' | 'goal' | 'overview' | 'constraints' | 'successCriteria' | 'decompositionPrinciples' | 'humanCheckpoints' | 'reviewCheckpoints' | 'reviewPolicy' | 'stages'>>;
 }
 
 export interface OrchestratorConfirmPlanDraftInput {

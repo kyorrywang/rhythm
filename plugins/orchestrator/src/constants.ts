@@ -4,6 +4,7 @@ export const ORCHESTRATOR_VIEWS = {
   planDraft: 'orchestrator.plan-draft',
   run: 'orchestrator.run',
   agentRun: 'orchestrator.agent-run',
+  orchestratorAgentRun: 'orchestrator.orchestrator-agent-run',
 } as const;
 
 export const ORCHESTRATOR_COMMANDS = {

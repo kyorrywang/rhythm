@@ -2,6 +2,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Component;
 use std::path::PathBuf;
+use crate::infrastructure::event_bus;
+use crate::shared::schema::EventPayload;
 
 /// Execution context passed to every tool — replaces the old loose parameters.
 pub struct ToolExecutionContext {
@@ -15,6 +17,17 @@ pub struct ToolExecutionContext {
     pub tool_call_id: String,
     /// Extra metadata (can carry skill_registry, mcp_manager, etc. later).
     pub metadata: HashMap<String, Value>,
+}
+
+pub fn emit_tool_output(ctx: &ToolExecutionContext, log_line: impl Into<String>) {
+    event_bus::emit(
+        &ctx.agent_id,
+        &ctx.session_id,
+        EventPayload::ToolOutput {
+            tool_id: ctx.tool_call_id.clone(),
+            log_line: log_line.into(),
+        },
+    );
 }
 
 /// Resolve a user-supplied path against cwd, then verify it stays within cwd.

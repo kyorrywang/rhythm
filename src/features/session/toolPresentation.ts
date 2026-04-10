@@ -11,32 +11,77 @@ type ToolPresenter = (tool: ToolCall) => ToolPresentation;
 const joinLogs = (tool: ToolCall) => (tool.logs && tool.logs.length > 0 ? tool.logs.join('\n') : '');
 const toolArgs = (tool: ToolCall): Record<string, unknown> =>
   tool.arguments && typeof tool.arguments === 'object' ? (tool.arguments as Record<string, unknown>) : {};
+const stringArg = (tool: ToolCall, key: string) => {
+  const value = toolArgs(tool)[key];
+  return typeof value === 'string' ? value : '';
+};
+const previewText = (value: string, maxLength = 1200) => {
+  if (!value) return '';
+  return value.length > maxLength ? `${value.slice(0, maxLength)}\n\n[Preview truncated]` : value;
+};
+const fallbackToolDetails = (tool: ToolCall) => {
+  const args = toolArgs(tool);
+  const path = typeof args.path === 'string' ? args.path : '';
+  const statusText = tool.status === 'running' ? '正在执行' : tool.status === 'error' ? '执行失败' : '执行完成';
+
+  if (tool.name === 'write') {
+    const content = typeof args.content === 'string' ? args.content : '';
+    return [
+      `${statusText}: ${path || '目标文件'}`,
+      content ? `待写入内容长度: ${content.length} 字符` : '待写入内容已生成，等待落盘。',
+      content ? `\n--- Content Preview ---\n${previewText(content)}` : '',
+    ].join('\n');
+  }
+
+  if (tool.name === 'edit') {
+    const search = typeof args.search === 'string' ? args.search : '';
+    const replace = typeof args.replace === 'string' ? args.replace : '';
+    return [
+      `${statusText}: ${path || '目标文件'}`,
+      search ? `查找片段长度: ${search.length} 字符` : '已收到查找片段。',
+      replace ? `替换片段长度: ${replace.length} 字符` : '已收到替换片段。',
+      search ? `\n--- Search Preview ---\n${previewText(search, 400)}` : '',
+      replace ? `\n--- Replace Preview ---\n${previewText(replace)}` : '',
+    ].join('\n');
+  }
+
+  if (tool.name === 'read') {
+    return `${statusText}: ${path || '目标文件'}`;
+  }
+
+  if (tool.name === 'delete') {
+    return `${statusText}: ${path || '目标文件'}`;
+  }
+
+  return '';
+};
+const detailsForTool = (tool: ToolCall) => joinLogs(tool) || tool.result || fallbackToolDetails(tool);
 
 const presenters: Record<string, ToolPresenter> = {
   shell: (tool) => ({
     title: 'Shell',
     summary: String(toolArgs(tool).command || '命令'),
-    details: joinLogs(tool),
+    details: detailsForTool(tool),
   }),
   read: (tool) => ({
     title: 'Read',
-    summary: String(toolArgs(tool).path || ''),
-    details: joinLogs(tool),
+    summary: stringArg(tool, 'path'),
+    details: detailsForTool(tool),
   }),
   write: (tool) => ({
     title: 'Write',
-    summary: String(toolArgs(tool).path || ''),
-    details: joinLogs(tool),
+    summary: stringArg(tool, 'path'),
+    details: detailsForTool(tool),
   }),
   edit: (tool) => ({
     title: 'Edit',
-    summary: String(toolArgs(tool).path || ''),
-    details: joinLogs(tool),
+    summary: stringArg(tool, 'path'),
+    details: detailsForTool(tool),
   }),
   delete: (tool) => ({
     title: 'Delete',
-    summary: String(toolArgs(tool).path || ''),
-    details: joinLogs(tool),
+    summary: stringArg(tool, 'path'),
+    details: detailsForTool(tool),
   }),
   spawn_subagent: (tool) => {
     const args = toolArgs(tool);
@@ -45,7 +90,7 @@ const presenters: Record<string, ToolPresenter> = {
     return {
       title: 'Dynamic 智能体',
       summary: shortTitle,
-      details: joinLogs(tool),
+      details: detailsForTool(tool),
     };
   },
   'orchestrator.createTemplate': () => ({
@@ -109,6 +154,6 @@ export const getToolPresentation = (tool: ToolCall): ToolPresentation => {
   return {
     title: tool.name,
     summary: String(toolArgs(tool).path || JSON.stringify(tool.arguments)),
-    details: joinLogs(tool),
+    details: detailsForTool(tool),
   };
 };

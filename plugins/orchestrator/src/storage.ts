@@ -3,9 +3,11 @@ import type {
   OrchestratorAgentRun,
   OrchestratorAgentTask,
   OrchestratorArtifact,
+  OrchestratorCoordinatorRun,
   OrchestratorControlIntent,
   OrchestratorPlanDraft,
   OrchestratorProjectState,
+  OrchestratorReviewPolicy,
   OrchestratorReviewLog,
   OrchestratorRun,
   OrchestratorRunEvent,
@@ -17,9 +19,10 @@ const RUNS_ROOT = `${ROOT}/runs`;
 const RUN_INDEX_PATH = `${RUNS_ROOT}/index.json`;
 const PLAN_DRAFTS_PATH = `${ROOT}/plan-drafts.json`;
 const TEMPLATES_PATH = `${ROOT}/templates.json`;
+const ORCHESTRATOR_SCHEMA_VERSION = 1;
 
 export async function listPlanDrafts(ctx: PluginContext) {
-  return readJsonFile<OrchestratorPlanDraft[]>(ctx, PLAN_DRAFTS_PATH, []);
+  return readJsonArrayFile<OrchestratorPlanDraft>(ctx, PLAN_DRAFTS_PATH);
 }
 
 export async function getPlanDraft(ctx: PluginContext, planDraftId: string) {
@@ -48,7 +51,7 @@ export async function updatePlanDraft(
 }
 
 export async function listTemplates(ctx: PluginContext) {
-  return readJsonFile<OrchestratorTemplate[]>(ctx, TEMPLATES_PATH, []);
+  return readJsonArrayFile<OrchestratorTemplate>(ctx, TEMPLATES_PATH);
 }
 
 export async function getTemplate(ctx: PluginContext, templateId: string) {
@@ -117,7 +120,7 @@ export async function listRunEvents(ctx: PluginContext) {
 }
 
 export async function listEventsForRun(ctx: PluginContext, runId: string) {
-  const events = await readJsonFile<OrchestratorRunEvent[]>(ctx, runFilePath(runId, 'events.json'), []);
+  const events = await readJsonArrayFile<OrchestratorRunEvent>(ctx, runFilePath(runId, 'events.json'));
   return events.sort((a, b) => a.createdAt - b.createdAt);
 }
 
@@ -133,7 +136,7 @@ export async function listTasks(ctx: PluginContext) {
 }
 
 export async function listTasksForRun(ctx: PluginContext, runId: string) {
-  const tasks = await readJsonFile<OrchestratorAgentTask[]>(ctx, runFilePath(runId, 'tasks.json'), []);
+  const tasks = await readJsonArrayFile<OrchestratorAgentTask>(ctx, runFilePath(runId, 'tasks.json'));
   return tasks.sort((a, b) => a.depth - b.depth || a.order - b.order || a.createdAt - b.createdAt);
 }
 
@@ -156,8 +159,44 @@ export async function listAgentRuns(ctx: PluginContext) {
   return batches.flat().sort((a, b) => a.createdAt - b.createdAt);
 }
 
+export async function listCoordinatorRuns(ctx: PluginContext) {
+  const runIds = await listRunIds(ctx);
+  const batches = await Promise.all(runIds.map((runId) => listCoordinatorRunsForRun(ctx, runId)));
+  return batches.flat().sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function listCoordinatorRunsForRun(ctx: PluginContext, runId: string) {
+  const agentRuns = await readJsonArrayFile<OrchestratorCoordinatorRun>(ctx, runFilePath(runId, 'orchestrator-agent-runs.json'));
+  return agentRuns.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function getCoordinatorRun(ctx: PluginContext, coordinatorRunId: string) {
+  const agentRuns = await listCoordinatorRuns(ctx);
+  return agentRuns.find((agentRun) => agentRun.id === coordinatorRunId) || null;
+}
+
+export async function saveCoordinatorRun(ctx: PluginContext, coordinatorRun: OrchestratorCoordinatorRun) {
+  const agentRuns = await listCoordinatorRunsForRun(ctx, coordinatorRun.runId);
+  const next = agentRuns.some((item) => item.id === coordinatorRun.id)
+    ? agentRuns.map((item) => (item.id === coordinatorRun.id ? coordinatorRun : item))
+    : [coordinatorRun, ...agentRuns];
+  await writeJsonFile(ctx, runFilePath(coordinatorRun.runId, 'orchestrator-agent-runs.json'), next);
+}
+
+export async function updateCoordinatorRun(
+  ctx: PluginContext,
+  coordinatorRunId: string,
+  updater: (coordinatorRun: OrchestratorCoordinatorRun) => OrchestratorCoordinatorRun,
+) {
+  const coordinatorRun = await getCoordinatorRun(ctx, coordinatorRunId);
+  if (!coordinatorRun) return null;
+  const next = updater(coordinatorRun);
+  await saveCoordinatorRun(ctx, next);
+  return next;
+}
+
 export async function listAgentRunsForRun(ctx: PluginContext, runId: string) {
-  const agentRuns = await readJsonFile<OrchestratorAgentRun[]>(ctx, runFilePath(runId, 'agent-runs.json'), []);
+  const agentRuns = await readJsonArrayFile<OrchestratorAgentRun>(ctx, runFilePath(runId, 'agent-runs.json'));
   return agentRuns.sort((a, b) => a.createdAt - b.createdAt);
 }
 
@@ -200,7 +239,7 @@ export async function listArtifacts(ctx: PluginContext) {
 }
 
 export async function listArtifactsForRun(ctx: PluginContext, runId: string) {
-  const artifacts = await readJsonFile<OrchestratorArtifact[]>(ctx, runFilePath(runId, 'artifacts.json'), []);
+  const artifacts = await readJsonArrayFile<OrchestratorArtifact>(ctx, runFilePath(runId, 'artifacts.json'));
   return artifacts.sort((a, b) => a.createdAt - b.createdAt);
 }
 
@@ -233,6 +272,14 @@ export async function saveProjectState(ctx: PluginContext, projectState: Orchest
   await writeJsonFile(ctx, runFilePath(projectState.runId, 'project-state.json'), projectState);
 }
 
+export async function getReviewPolicy(ctx: PluginContext, runId: string) {
+  return readJsonFile<OrchestratorReviewPolicy | null>(ctx, runFilePath(runId, 'review-policy.json'), null);
+}
+
+export async function saveReviewPolicy(ctx: PluginContext, reviewPolicy: OrchestratorReviewPolicy & { runId: string }) {
+  await writeJsonFile(ctx, runFilePath(reviewPolicy.runId, 'review-policy.json'), reviewPolicy);
+}
+
 export async function listReviewLogs(ctx: PluginContext) {
   const runIds = await listRunIds(ctx);
   const batches = await Promise.all(runIds.map((runId) => listReviewLogsForRun(ctx, runId)));
@@ -240,7 +287,7 @@ export async function listReviewLogs(ctx: PluginContext) {
 }
 
 export async function listReviewLogsForRun(ctx: PluginContext, runId: string) {
-  const logs = await readJsonFile<OrchestratorReviewLog[]>(ctx, runFilePath(runId, 'review-logs.json'), []);
+  const logs = await readJsonArrayFile<OrchestratorReviewLog>(ctx, runFilePath(runId, 'review-logs.json'));
   return logs.sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -273,12 +320,12 @@ export async function listControlIntents(ctx: PluginContext) {
 }
 
 export async function appendControlIntent(ctx: PluginContext, intent: OrchestratorControlIntent) {
-  const intents = await readJsonFile<OrchestratorControlIntent[]>(ctx, runFilePath(intent.runId, 'control-intents.json'), []);
+  const intents = await readJsonArrayFile<OrchestratorControlIntent>(ctx, runFilePath(intent.runId, 'control-intents.json'));
   await writeJsonFile(ctx, runFilePath(intent.runId, 'control-intents.json'), [intent, ...intents]);
 }
 
 async function listRunIds(ctx: PluginContext) {
-  return readJsonFile<string[]>(ctx, RUN_INDEX_PATH, []);
+  return readJsonArrayFile<string>(ctx, RUN_INDEX_PATH);
 }
 
 async function addRunIdToIndex(ctx: PluginContext, runId: string) {
@@ -295,12 +342,174 @@ async function readJsonFile<T>(ctx: PluginContext, path: string, fallback: T): P
   const text = await ctx.storage.files.readText(path);
   if (!text) return fallback;
   try {
-    return JSON.parse(text) as T;
-  } catch {
+    const parsed = JSON.parse(text) as unknown;
+    return normalizePersistedValue(path, parsed, fallback);
+  } catch (error) {
+    console.error(`[orchestrator] Failed to parse persisted file: ${path}`, error);
     return fallback;
   }
 }
 
+async function readJsonArrayFile<T>(ctx: PluginContext, path: string): Promise<T[]> {
+  const value = await readJsonFile<unknown>(ctx, path, []);
+  return Array.isArray(value) ? value as T[] : [];
+}
+
 async function writeJsonFile<T>(ctx: PluginContext, path: string, value: T) {
-  await ctx.storage.files.writeText(path, JSON.stringify(value, null, 2));
+  await ctx.storage.files.writeText(path, JSON.stringify(stampSchemaVersion(value), null, 2));
+}
+
+function normalizePersistedValue<T>(path: string, value: unknown, fallback: T): T {
+  if (path === PLAN_DRAFTS_PATH) {
+    if (!Array.isArray(value)) return fallback;
+    return value.map((item) => normalizePlanDraft(item)).filter(Boolean) as T;
+  }
+  if (path === TEMPLATES_PATH) {
+    if (!Array.isArray(value)) return fallback;
+    return value.map((item) => normalizeTemplate(item)).filter(Boolean) as T;
+  }
+  if (path.endsWith('/run.json')) {
+    return normalizeRun(value) as T;
+  }
+  if (path.endsWith('/review-policy.json')) {
+    return normalizeReviewPolicy(value) as T;
+  }
+  if (path.endsWith('/project-state.json')) {
+    return normalizeProjectState(value) as T;
+  }
+  if (path.endsWith('.json') && Array.isArray(value)) {
+    return value.map((item) => stampSchemaVersion(item)).filter(Boolean) as T;
+  }
+  return stampSchemaVersion(value) as T;
+}
+
+function stampSchemaVersion<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stampSchemaVersion(item)) as T;
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  return {
+    ...value,
+    schemaVersion: ORCHESTRATOR_SCHEMA_VERSION,
+  } as T;
+}
+
+function normalizeStringArray(value: unknown, fallback: string[] = []) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : fallback;
+}
+
+function normalizePlanDraft(value: unknown): OrchestratorPlanDraft | null {
+  if (!value || typeof value !== 'object') return null;
+  const draft = value as Partial<OrchestratorPlanDraft>;
+  if (!draft.id || !draft.goal) return null;
+  return {
+    ...draft,
+    schemaVersion: ORCHESTRATOR_SCHEMA_VERSION,
+    title: draft.title || draft.goal,
+    overview: draft.overview || `围绕“${draft.goal}”推进项目，并逐步拆解执行任务。`,
+    constraints: normalizeStringArray(draft.constraints),
+    successCriteria: normalizeStringArray(draft.successCriteria, ['产出满足用户目标的高质量结果。']),
+    decompositionPrinciples: normalizeStringArray(draft.decompositionPrinciples, ['先保持高层阶段清晰，再在运行中逐步细化为可执行任务。']),
+    humanCheckpoints: normalizeStringArray(draft.humanCheckpoints, ['计划确认后再启动 run。']),
+    reviewCheckpoints: normalizeStringArray(draft.reviewCheckpoints, ['每个主要阶段完成后进入审核。']),
+    reviewPolicy: draft.reviewPolicy || '每个主要阶段完成后进入审核；不通过则返工。',
+    stages: Array.isArray(draft.stages) ? draft.stages : [],
+    status: draft.status || 'draft',
+    createdAt: draft.createdAt || Date.now(),
+    updatedAt: draft.updatedAt || draft.createdAt || Date.now(),
+  } as OrchestratorPlanDraft;
+}
+
+function normalizeTemplate(value: unknown): OrchestratorTemplate | null {
+  if (!value || typeof value !== 'object') return null;
+  const template = value as Partial<OrchestratorTemplate>;
+  if (!template.id || !template.name) return null;
+  return {
+    ...template,
+    schemaVersion: ORCHESTRATOR_SCHEMA_VERSION,
+    domain: template.domain || 'general',
+    version: template.version || '0.1.0',
+    parameters: Array.isArray(template.parameters) ? template.parameters : [],
+    stageRows: Array.isArray(template.stageRows) ? template.stageRows : [],
+    createdAt: template.createdAt || Date.now(),
+    updatedAt: template.updatedAt || template.createdAt || Date.now(),
+  } as OrchestratorTemplate;
+}
+
+function normalizeRun(value: unknown): OrchestratorRun | null {
+  if (!value || typeof value !== 'object') return null;
+  const run = value as Partial<OrchestratorRun>;
+  if (!run.id || !run.planId || !run.confirmedPlan || !run.goal) return null;
+  const confirmedPlan = run.confirmedPlan;
+  return {
+    ...run,
+    schemaVersion: ORCHESTRATOR_SCHEMA_VERSION,
+    confirmedPlan: {
+      ...confirmedPlan,
+      constraints: normalizeStringArray(confirmedPlan.constraints),
+      successCriteria: normalizeStringArray(confirmedPlan.successCriteria),
+      decompositionPrinciples: normalizeStringArray(confirmedPlan.decompositionPrinciples, ['先保持高层阶段清晰，再在运行中逐步细化为可执行任务。']),
+      humanCheckpoints: normalizeStringArray(confirmedPlan.humanCheckpoints, ['计划确认后再启动 run。']),
+      reviewCheckpoints: normalizeStringArray(confirmedPlan.reviewCheckpoints, ['每个主要阶段完成后进入审核。']),
+      reviewPolicy: confirmedPlan.reviewPolicy || '每个主要阶段完成后进入审核；不通过则返工。',
+      stages: Array.isArray(confirmedPlan.stages) ? confirmedPlan.stages : [],
+    },
+    executionContext: run.executionContext && typeof run.executionContext === 'object'
+      ? {
+        ...run.executionContext,
+        workspacePath: run.executionContext.workspacePath || '',
+        capturedAt: run.executionContext.capturedAt || run.updatedAt || run.createdAt || Date.now(),
+      }
+      : undefined,
+      failureState: run.failureState && typeof run.failureState === 'object'
+        ? {
+          ...run.failureState,
+          summary: run.failureState.summary || 'Run failed.',
+          retryable: Boolean(run.failureState.retryable),
+          requiresHuman: Boolean(run.failureState.requiresHuman),
+          recommendedAction: run.failureState.recommendedAction || 'Inspect the failure and decide whether to resume the run.',
+          autoRetryAt: typeof run.failureState.autoRetryAt === 'number' ? run.failureState.autoRetryAt : undefined,
+          firstOccurredAt: run.failureState.firstOccurredAt || run.updatedAt || run.createdAt || Date.now(),
+          lastOccurredAt: run.failureState.lastOccurredAt || run.updatedAt || run.createdAt || Date.now(),
+          retryCount: typeof run.failureState.retryCount === 'number' ? run.failureState.retryCount : 0,
+        }
+      : undefined,
+    activeTaskCount: typeof run.activeTaskCount === 'number' ? run.activeTaskCount : 0,
+    maxConcurrentTasks: typeof run.maxConcurrentTasks === 'number' ? run.maxConcurrentTasks : 2,
+    status: run.status || 'pending',
+    createdAt: run.createdAt || Date.now(),
+    updatedAt: run.updatedAt || run.createdAt || Date.now(),
+  } as OrchestratorRun;
+}
+
+function normalizeReviewPolicy(value: unknown): OrchestratorReviewPolicy | null {
+  if (!value || typeof value !== 'object') return null;
+  const policy = value as Partial<OrchestratorReviewPolicy>;
+  return {
+    ...policy,
+    schemaVersion: ORCHESTRATOR_SCHEMA_VERSION,
+    defaultRequiresReview: policy.defaultRequiresReview ?? true,
+    allowHumanOverride: policy.allowHumanOverride ?? true,
+    stagePolicies: Array.isArray(policy.stagePolicies) ? policy.stagePolicies : [],
+    createdAt: policy.createdAt || Date.now(),
+    updatedAt: policy.updatedAt || policy.createdAt || Date.now(),
+  } as OrchestratorReviewPolicy;
+}
+
+function normalizeProjectState(value: unknown): OrchestratorProjectState | null {
+  if (!value || typeof value !== 'object') return null;
+  const state = value as Partial<OrchestratorProjectState>;
+  if (!state.runId) return null;
+  return {
+    ...state,
+    schemaVersion: ORCHESTRATOR_SCHEMA_VERSION,
+    entries: Array.isArray(state.entries) ? state.entries : [],
+    structureSummary: normalizeStringArray(state.structureSummary),
+    dependencySummary: normalizeStringArray(state.dependencySummary),
+    updatedAt: state.updatedAt || Date.now(),
+  } as OrchestratorProjectState;
 }

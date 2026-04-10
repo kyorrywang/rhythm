@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type KeyboardEvent, type PointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { PanelLeftClose, PanelLeftOpen, ScrollText } from 'lucide-react';
 import { createPluginContext } from '@/plugin/host/createPluginContext';
 import { PluginErrorBoundary } from '@/plugin/host/PluginErrorBoundary';
@@ -6,6 +6,7 @@ import { usePluginHostStore } from '@/plugin/host/usePluginHostStore';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { themeRecipes } from '@/shared/theme/recipes';
 import { EmptyState, IconButton } from '@/shared/ui';
+import { WorkbenchHeaderCenterProvider } from './WorkbenchHeaderCenterContext';
 import { WorkbenchResizeHandle } from './WorkbenchResizeHandle';
 
 const DEFAULT_WORKBENCH_SPLIT_WIDTH = 400;
@@ -26,6 +27,7 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
     () => createPluginContext(view?.pluginId || activeItem?.pluginId || 'unknown'),
     [activeItem?.pluginId, view?.pluginId],
   );
+  const [headerCenterContent, setHeaderCenterContent] = useState<ReactNode | null>(null);
 
   if (!workbench) return null;
   const currentItem = workbench.item;
@@ -76,6 +78,10 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
     }
   }, [splitWidth, updateWorkbenchWidth]);
 
+  useEffect(() => {
+    setHeaderCenterContent(null);
+  }, [currentItem.id]);
+
   return (
     <>
       <section
@@ -86,10 +92,13 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
       >
         <div className="flex-1 overflow-hidden px-[var(--theme-shell-padding)] py-[var(--theme-shell-padding)]">
           <div className="h-full overflow-hidden">
-            <div className="flex items-center justify-between border-b-[var(--theme-divider-width)] border-[var(--theme-border)] px-[var(--theme-card-padding-x)] py-[var(--theme-card-padding-y)]">
-              <div className={`flex items-center gap-2 ${themeRecipes.eyebrow()}`}>
+            <div className="flex items-center gap-4 border-b-[var(--theme-divider-width)] border-[var(--theme-border)] px-[var(--theme-card-padding-x)] py-[var(--theme-card-padding-y)]">
+              <div className={`flex shrink-0 items-center gap-2 ${themeRecipes.eyebrow()}`}>
                 <ScrollText size={14} />
                 <span>{view?.title || currentItem.viewType}</span>
+              </div>
+              <div className="flex min-w-0 flex-1 justify-center">
+                {headerCenterContent}
               </div>
               <div className="flex items-center gap-[var(--theme-toolbar-gap)]">
                 {currentItem.viewType === 'folder.file.preview' && currentItem.description ? (
@@ -108,12 +117,19 @@ export const WorkbenchHost = ({ mode }: { mode: 'split' | 'replace' }) => {
             <div className="h-[calc(100%-calc(var(--theme-card-padding-y)*2+1.5rem))] overflow-hidden">
               {view ? (
                 <PluginErrorBoundary pluginId={view.pluginId || currentItem.pluginId} surface={currentItem.viewType}>
-                  <view.component
-                    ctx={ctx}
-                    title={currentItem.title}
-                    description={currentItem.description}
-                    payload={currentItem.payload}
-                  />
+                  <WorkbenchHeaderCenterProvider
+                    value={{
+                      workbenchId: currentItem.id,
+                      setHeaderCenterContent,
+                    }}
+                  >
+                    <view.component
+                      ctx={ctx}
+                      title={currentItem.title}
+                      description={currentItem.description}
+                      payload={currentItem.payload}
+                    />
+                  </WorkbenchHeaderCenterProvider>
                 </PluginErrorBoundary>
               ) : (
                 <MissingWorkbenchView item={currentItem} />

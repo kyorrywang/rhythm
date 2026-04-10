@@ -884,6 +884,11 @@
         "id": "orchestrator.agent-run",
         "title": "Agent",
         "location": "workbench"
+      },
+      {
+        "id": "orchestrator.orchestrator-agent-run",
+        "title": "Orchestrator Agent",
+        "location": "workbench"
       }
     ]
   }

@@ -220,9 +220,10 @@ export const useLLMStream = () => {
       setIsStreaming(false);
       const currentState = store.getState();
       const currentSessionId = currentState.activeSessionId || sessionId;
+      const message = err instanceof Error ? err.message : String(err);
       currentState.updateSession(currentSessionId, {
         phase: 'idle',
-        error: 'Stream connection failed',
+        error: message || 'Stream connection failed',
       });
     }
   }, [store, permissionStore, schedulePersistSession]);

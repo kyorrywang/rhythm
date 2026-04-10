@@ -7,6 +7,7 @@ const EVENT_TYPE_MAP: Record<ServerEventChunk['type'], InternalEventType> = {
   thinking_end: 'THINKING_END',
   tool_start: 'TOOL_START',
   tool_output: 'TOOL_OUTPUT',
+  tool_result: 'TOOL_RESULT',
   tool_end: 'TOOL_END',
   ask_request: 'ASK_REQUEST',
   task_update: 'TASK_UPDATE',

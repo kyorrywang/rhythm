@@ -75,6 +75,15 @@ pub enum EventPayload {
         log_line: String,
     },
 
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        #[serde(rename = "toolId")]
+        tool_id: String,
+        result: String,
+        #[serde(rename = "isError")]
+        is_error: bool,
+    },
+
     #[serde(rename = "tool_end")]
     ToolEnd {
         #[serde(rename = "toolId")]

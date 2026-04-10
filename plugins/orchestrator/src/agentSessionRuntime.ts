@@ -1,9 +1,10 @@
 import { Channel } from '@tauri-apps/api/core';
-import { chatStream, createSession, interruptSession } from '../../../src/shared/api/commands';
+import { approvePermission, chatStream, createSession, interruptSession } from '../../../src/shared/api/commands';
 import { persistSession } from '../../../src/shared/lib/sessionPersistence';
 import { useSessionStore } from '../../../src/shared/state/useSessionStore';
 import { useWorkspaceStore } from '../../../src/shared/state/useWorkspaceStore';
 import type { Message, ServerEventChunk, Session } from '../../../src/shared/types/schema';
+import type { OrchestratorExecutionContext } from './types';
 
 const activeAgentStreams = new Set<string>();
 
@@ -12,6 +13,9 @@ export interface LaunchAgentSessionInput {
   title: string;
   prompt: string;
   parentSessionId?: string;
+  executionContext?: OrchestratorExecutionContext;
+  allowedTools?: string[];
+  disallowedTools?: string[];
   onStarted?: () => Promise<void> | void;
   onChunk?: (chunk: ServerEventChunk) => Promise<void> | void;
   onCompleted?: () => Promise<void> | void;
@@ -19,11 +23,16 @@ export interface LaunchAgentSessionInput {
   onInterrupted?: () => Promise<void> | void;
 }
 
-export async function ensureAgentSession(sessionId: string, title: string, parentSessionId?: string) {
+export async function ensureAgentSession(
+  sessionId: string,
+  title: string,
+  parentSessionId?: string,
+  executionContext?: OrchestratorExecutionContext,
+) {
   const existing = useSessionStore.getState().sessions.get(sessionId);
   if (existing) return existing;
 
-  const workspacePath = getActiveWorkspacePath();
+  const workspacePath = executionContext?.workspacePath || getActiveWorkspacePath();
   const session = await createSession(title, workspacePath);
   const nextSession: Session = {
     ...session,
@@ -46,12 +55,13 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
   activeAgentStreams.add(input.sessionId);
 
   try {
-    await ensureAgentSession(input.sessionId, input.title, input.parentSessionId);
+    await ensureAgentSession(input.sessionId, input.title, input.parentSessionId, input.executionContext);
     const store = useSessionStore.getState();
-    const providerId = store.composerControls.providerId;
-    const model = store.composerControls.modelName;
-    const reasoning = store.composerControls.reasoning;
-    const workspacePath = getActiveWorkspacePath();
+    const executionContext = resolveExecutionContext(input.executionContext);
+    const providerId = executionContext.providerId;
+    const model = executionContext.model;
+    const reasoning = executionContext.reasoning;
+    const workspacePath = executionContext.workspacePath;
 
     store.updateSession(input.sessionId, {
       phase: 'streaming',
@@ -81,6 +91,9 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
 
     const onEvent = new Channel<ServerEventChunk>();
     onEvent.onmessage = (chunk) => {
+      if (chunk.type === 'permission_request') {
+        void approvePermission({ toolId: chunk.toolId, approved: true });
+      }
       void input.onChunk?.(chunk);
       const liveState = useSessionStore.getState();
       const reduced = liveState.processChunk(liveState.sessions, input.sessionId, aiMessageId, chunk);
@@ -106,6 +119,8 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
       prompt: input.prompt,
       attachments: [],
       permissionMode: 'full_auto',
+      allowedTools: input.allowedTools,
+      disallowedTools: input.disallowedTools,
       providerId,
       model,
       reasoning,
@@ -122,7 +137,6 @@ export function isAgentSessionActive(sessionId: string) {
 }
 
 export async function interruptAgentSession(sessionId: string) {
-  if (!activeAgentStreams.has(sessionId)) return;
   await interruptSession({ sessionId });
 }
 
@@ -203,4 +217,15 @@ function getActiveWorkspacePath() {
     state.workspaces[0]?.path ||
     ''
   );
+}
+
+function resolveExecutionContext(executionContext?: OrchestratorExecutionContext) {
+  const store = useSessionStore.getState();
+  return {
+    providerId: executionContext?.providerId || store.composerControls.providerId,
+    model: executionContext?.model || store.composerControls.modelName,
+    reasoning: executionContext?.reasoning || store.composerControls.reasoning,
+    workspacePath: executionContext?.workspacePath || getActiveWorkspacePath(),
+    capturedAt: executionContext?.capturedAt || Date.now(),
+  } satisfies OrchestratorExecutionContext;
 }

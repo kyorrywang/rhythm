@@ -197,6 +197,26 @@ const applyChunkToMessage = (
     };
   }
 
+  if (chunk.type === 'tool_result') {
+    return {
+      ...message,
+      segments: segments.map((seg) =>
+        seg.type === 'tool' && seg.tool.id === chunk.toolId
+          ? {
+              ...seg,
+              tool: {
+                ...seg.tool,
+                result: chunk.result,
+                logs: chunk.isError && !(seg.tool.logs || []).length
+                  ? [chunk.result]
+                  : seg.tool.logs,
+              },
+            }
+          : seg,
+      ),
+    };
+  }
+
   if (chunk.type === 'tool_end') {
     return {
       ...message,

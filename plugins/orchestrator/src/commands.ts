@@ -1,7 +1,8 @@
 import type { PluginContext } from '../../../src/plugin/sdk';
 import { useSessionStore } from '../../../src/shared/state/useSessionStore';
+import { useWorkspaceStore } from '../../../src/shared/state/useWorkspaceStore';
 import { ORCHESTRATOR_COMMANDS, ORCHESTRATOR_EVENTS, ORCHESTRATOR_VIEWS } from './constants';
-import { appendRunEvent, deleteTemplate, getPlanDraft, getRun, getTemplate, listPlanDrafts, listRuns, listTasks, listTemplates, savePlanDraft, saveRun, saveTemplate, updatePlanDraft, } from './storage';
+import { appendRunEvent, deleteTemplate, getPlanDraft, getRun, getTemplate, listPlanDrafts, listRuns, listTasks, listTemplates, savePlanDraft, saveReviewPolicy, saveRun, saveTemplate, updatePlanDraft, } from './storage';
 import { startOrchestratorRun, wakeRunById } from './runtime';
 import type {
   OrchestratorCancelRunInput,
@@ -92,6 +93,9 @@ export function registerOrchestratorCommands(ctx: PluginContext) {
         title: goal,
         goal,
         overview,
+        decompositionPrinciples: ['先用高层阶段明确推进方向，再在运行中按任务树逐步细化。'],
+        humanCheckpoints: ['用户确认计划后才创建 run。'],
+        reviewCheckpoints: ['每个主要阶段完成后需要经过审核。'],
         sourceSessionId: sessionId,
         sourceMessageId: messageId,
       });
@@ -153,9 +157,23 @@ export function registerOrchestratorCommands(ctx: PluginContext) {
       const baseRun = createRunFromPlan(confirmedSnapshot, confirmedPlan.sourceSessionId ? 'chat' : 'workbench');
       const run = {
         ...baseRun,
+        executionContext: captureExecutionContext(),
         sourceSessionId: confirmedPlan.sourceSessionId,
       };
       await saveRun(ctx, run);
+      await saveReviewPolicy(ctx, {
+        runId: run.id,
+        defaultRequiresReview: true,
+        allowHumanOverride: true,
+        stagePolicies: confirmedSnapshot.stages.map((stage) => ({
+          stageId: stage.id,
+          stageName: stage.name,
+          requiresReview: confirmedSnapshot.reviewCheckpoints.some((item) => item.includes(stage.name)) || true,
+          humanCheckpointRequired: confirmedSnapshot.humanCheckpoints.some((item) => item.includes(stage.name)),
+        })),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
       await updatePlanDraft(ctx, planDraftId, (current) => ({
         ...current,
         runId: run.id,
@@ -396,4 +414,21 @@ export function registerOrchestratorCommands(ctx: PluginContext) {
     title: 'List Orchestrator Tasks',
     description: 'List stored orchestrator tasks.',
   });
+}
+
+function captureExecutionContext() {
+  const sessionState = useSessionStore.getState();
+  const workspaceState = useWorkspaceStore.getState();
+  const workspacePath = (
+    workspaceState.workspaces.find((workspace) => workspace.id === workspaceState.activeWorkspaceId)?.path
+    || workspaceState.workspaces[0]?.path
+    || ''
+  );
+  return {
+    providerId: sessionState.composerControls.providerId,
+    model: sessionState.composerControls.modelName,
+    reasoning: sessionState.composerControls.reasoning,
+    workspacePath,
+    capturedAt: Date.now(),
+  };
 }

@@ -6,6 +6,8 @@ export interface ChatStreamRequest {
   attachments?: Attachment[];
   cwd?: string;
   permissionMode?: "default" | "plan" | "full_auto";
+  allowedTools?: string[];
+  disallowedTools?: string[];
   providerId?: string;
   model?: string;
   reasoning?: "low" | "medium" | "high";

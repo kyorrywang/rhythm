@@ -25,6 +25,8 @@ pub async fn chat_stream(
     attachments: Option<Vec<ChatAttachment>>,
     cwd: Option<String>,
     permission_mode: Option<String>,
+    allowed_tools: Option<Vec<String>>,
+    disallowed_tools: Option<Vec<String>>,
     provider_id: Option<String>,
     model: Option<String>,
     reasoning: Option<String>,
@@ -61,9 +63,11 @@ pub async fn chat_stream(
         };
 
         let loaded_plugins = crate::plugins::load_plugins(&settings, &cwd_path);
-        let tool_registry = Arc::new(ToolRegistry::create_with_plugins_and_mcp(
+        let tool_registry = Arc::new(ToolRegistry::create_for_agent_with_plugins(
             &loaded_plugins,
             mcp_manager.clone(),
+            allowed_tools.as_deref(),
+            disallowed_tools.as_deref(),
         ));
         let permission_mode_override = permission_mode.as_deref().map(PermissionMode::from_str);
         let permission_checker = Arc::new(PermissionChecker::new_with_mode(

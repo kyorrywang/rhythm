@@ -1,10 +1,12 @@
-use super::{context::resolve_and_validate_path, BaseTool, ToolExecutionContext, ToolResult};
-use crate::infrastructure::event_bus;
-use crate::shared::schema::EventPayload;
+use super::{context::{emit_tool_output, resolve_and_validate_path}, BaseTool, ToolExecutionContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 use std::fs;
+use std::fs::File;
+use std::io::Write;
+
+const EDIT_PROGRESS_CHUNK_BYTES: usize = 16 * 1024;
 
 pub struct EditFileTool;
 
@@ -57,29 +59,51 @@ impl BaseTool for EditFileTool {
             Ok(a) => a,
             Err(e) => return ToolResult::error(e.to_string()),
         };
+        emit_tool_output(ctx, format!("Resolving target path '{}'", args.path));
         let path = match resolve_and_validate_path(&ctx.cwd, &args.path) {
             Ok(p) => p,
             Err(e) => return ToolResult::error(e),
         };
+        emit_tool_output(ctx, format!("Reading {}", path.display()));
         let content = match fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => return ToolResult::error(e.to_string()),
         };
+        emit_tool_output(ctx, format!("Read {} characters", content.chars().count()));
         if !content.contains(&args.search) {
             return ToolResult::error(format!("Search string not found in {}", path.display()));
         }
+        emit_tool_output(ctx, "Applying replacement");
         let new_content = content.replacen(&args.search, &args.replace, 1);
-        if let Err(e) = fs::write(&path, &new_content) {
+        emit_tool_output(ctx, format!("Opening {} for rewrite", path.display()));
+        let mut file = match File::create(&path) {
+            Ok(file) => file,
+            Err(e) => return ToolResult::error(e.to_string()),
+        };
+        let bytes = new_content.as_bytes();
+        let total_chunks = bytes.len().max(1).div_ceil(EDIT_PROGRESS_CHUNK_BYTES);
+        emit_tool_output(
+            ctx,
+            format!("Writing updated content in {} chunk(s)", total_chunks),
+        );
+        for (index, chunk) in bytes.chunks(EDIT_PROGRESS_CHUNK_BYTES).enumerate() {
+            if let Err(e) = file.write_all(chunk) {
+                return ToolResult::error(e.to_string());
+            }
+            emit_tool_output(
+                ctx,
+                format!(
+                    "Wrote chunk {}/{} ({} bytes)",
+                    index + 1,
+                    total_chunks,
+                    chunk.len()
+                ),
+            );
+        }
+        if let Err(e) = file.flush() {
             return ToolResult::error(e.to_string());
         }
-        event_bus::emit(
-            &ctx.agent_id,
-            &ctx.session_id,
-            EventPayload::ToolOutput {
-                tool_id: ctx.tool_call_id.clone(),
-                log_line: format!("Replaced 1 occurrence in {}", path.display()),
-            },
-        );
+        emit_tool_output(ctx, format!("Replaced 1 occurrence in {}", path.display()));
         ToolResult::ok("Success: 1 occurrence replaced")
     }
 }

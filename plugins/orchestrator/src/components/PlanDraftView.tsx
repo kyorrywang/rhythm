@@ -45,6 +45,9 @@ export function PlanDraftView({ ctx, payload }: WorkbenchProps<OrchestratorPlanD
         overview: draft.overview,
         constraints: draft.constraints,
         successCriteria: draft.successCriteria,
+        decompositionPrinciples: draft.decompositionPrinciples,
+        humanCheckpoints: draft.humanCheckpoints,
+        reviewCheckpoints: draft.reviewCheckpoints,
         reviewPolicy: draft.reviewPolicy,
         stages: draft.stages,
       },
@@ -141,6 +144,24 @@ export function PlanDraftView({ ctx, payload }: WorkbenchProps<OrchestratorPlanD
           />
         </section>
 
+        <section className="mt-6 grid gap-4 lg:grid-cols-3">
+          <StringListEditor
+            label="Decomposition Principles"
+            values={draft.decompositionPrinciples}
+            onChange={(values) => setDraft((current) => ({ ...current, decompositionPrinciples: values }))}
+          />
+          <StringListEditor
+            label="Human Checkpoints"
+            values={draft.humanCheckpoints}
+            onChange={(values) => setDraft((current) => ({ ...current, humanCheckpoints: values }))}
+          />
+          <StringListEditor
+            label="Review Checkpoints"
+            values={draft.reviewCheckpoints}
+            onChange={(values) => setDraft((current) => ({ ...current, reviewCheckpoints: values }))}
+          />
+        </section>
+
         <section className="mt-6">
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Review Policy</div>
           <textarea
@@ -164,6 +185,8 @@ export function PlanDraftView({ ctx, payload }: WorkbenchProps<OrchestratorPlanD
                     name: `Stage ${current.stages.length + 1}`,
                     goal: 'Describe the objective of this stage.',
                     deliverables: [],
+                    targetFolder: `orchestrator-output/stage-${current.stages.length + 1}`,
+                    outputFiles: [`stage-${current.stages.length + 1}.md`],
                   },
                 ],
               }))}
@@ -222,6 +245,21 @@ export function PlanDraftView({ ctx, payload }: WorkbenchProps<OrchestratorPlanD
                     label="Deliverables"
                     values={stage.deliverables}
                     onChange={(values) => updateStage(index, { deliverables: values })}
+                  />
+                </div>
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <label className="block">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Target Folder</div>
+                    <input
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                      value={stage.targetFolder}
+                      onChange={(event) => updateStage(index, { targetFolder: event.target.value })}
+                    />
+                  </label>
+                  <StringListEditor
+                    label="Output Files"
+                    values={stage.outputFiles}
+                    onChange={(values) => updateStage(index, { outputFiles: values })}
                   />
                 </div>
               </article>

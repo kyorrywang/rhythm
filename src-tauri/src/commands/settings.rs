@@ -12,6 +12,8 @@ pub struct FrontendProviderModel {
     pub is_default: bool,
     pub enabled: bool,
     pub note: Option<String>,
+    #[serde(default)]
+    pub capabilities: config::ModelCapabilities,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -26,6 +28,8 @@ pub struct FrontendProviderConfig {
     pub api_key: String,
     #[serde(rename = "isDefault")]
     pub is_default: bool,
+    #[serde(default)]
+    pub capabilities: config::ProviderCapabilities,
     pub models: Vec<FrontendProviderModel>,
 }
 
@@ -109,6 +113,7 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
                 base_url: provider.base_url,
                 api_key: provider.api_key,
                 is_default: provider.is_default,
+                capabilities: provider.capabilities,
                 models: provider
                     .models
                     .into_iter()
@@ -118,6 +123,7 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
                         is_default: model.is_default,
                         enabled: model.enabled,
                         note: model.note,
+                        capabilities: model.capabilities,
                     })
                     .collect(),
             })
@@ -197,6 +203,7 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
                 base_url: provider.base_url,
                 api_key: provider.api_key,
                 is_default: provider.is_default,
+                capabilities: provider.capabilities,
                 models: provider
                 .models
                 .into_iter()
@@ -206,6 +213,7 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
                     is_default: model.is_default,
                     enabled: model.enabled,
                     note: model.note,
+                    capabilities: model.capabilities,
                 })
                 .collect(),
             }

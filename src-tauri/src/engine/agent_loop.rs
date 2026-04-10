@@ -337,6 +337,22 @@ async fn execute_tools(context: &QueryContext, tool_calls: Vec<LlmToolCall>) -> 
         );
 
         let result_block = execute_single_tool(context, tool_call, args).await;
+        if let ChatMessageBlock::ToolResult {
+            content,
+            is_error,
+            ..
+        } = &result_block
+        {
+            event_bus::emit(
+                &context.agent_id,
+                &context.session_id,
+                EventPayload::ToolResult {
+                    tool_id: tool_call.id.clone(),
+                    result: content.clone(),
+                    is_error: *is_error,
+                },
+            );
+        }
         let is_error =
             matches!(&result_block, ChatMessageBlock::ToolResult { is_error, .. } if *is_error);
 

@@ -1,10 +1,12 @@
-use super::{context::resolve_and_validate_path, BaseTool, ToolExecutionContext, ToolResult};
-use crate::infrastructure::event_bus;
-use crate::shared::schema::EventPayload;
+use super::{context::{emit_tool_output, resolve_and_validate_path}, BaseTool, ToolExecutionContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 use std::fs;
+use std::fs::File;
+use std::io::Write;
+
+const WRITE_PROGRESS_CHUNK_BYTES: usize = 16 * 1024;
 
 pub struct WriteFileTool;
 
@@ -52,11 +54,13 @@ impl BaseTool for WriteFileTool {
             Ok(a) => a,
             Err(e) => return ToolResult::error(e.to_string()),
         };
+        emit_tool_output(ctx, format!("Resolving target path '{}'", args.path));
         let path = match resolve_and_validate_path(&ctx.cwd, &args.path) {
             Ok(p) => p,
             Err(e) => return ToolResult::error(e),
         };
         if let Some(parent) = path.parent() {
+            emit_tool_output(ctx, format!("Ensuring parent directory {}", parent.display()));
             if let Err(e) = fs::create_dir_all(parent) {
                 return ToolResult::error(format!(
                     "Failed to create directory '{}': {}",
@@ -65,17 +69,35 @@ impl BaseTool for WriteFileTool {
                 ));
             }
         }
-        if let Err(e) = fs::write(&path, &args.content) {
+        emit_tool_output(ctx, format!("Opening {} for writing", path.display()));
+        let mut file = match File::create(&path) {
+            Ok(file) => file,
+            Err(e) => return ToolResult::error(e.to_string()),
+        };
+        let bytes = args.content.as_bytes();
+        let total_chunks = bytes.len().max(1).div_ceil(WRITE_PROGRESS_CHUNK_BYTES);
+        emit_tool_output(
+            ctx,
+            format!("Writing {} bytes in {} chunk(s)", bytes.len(), total_chunks),
+        );
+        for (index, chunk) in bytes.chunks(WRITE_PROGRESS_CHUNK_BYTES).enumerate() {
+            if let Err(e) = file.write_all(chunk) {
+                return ToolResult::error(e.to_string());
+            }
+            emit_tool_output(
+                ctx,
+                format!(
+                    "Wrote chunk {}/{} ({} bytes)",
+                    index + 1,
+                    total_chunks,
+                    chunk.len()
+                ),
+            );
+        }
+        if let Err(e) = file.flush() {
             return ToolResult::error(e.to_string());
         }
-        event_bus::emit(
-            &ctx.agent_id,
-            &ctx.session_id,
-            EventPayload::ToolOutput {
-                tool_id: ctx.tool_call_id.clone(),
-                log_line: format!("{} bytes written to {}", args.content.len(), path.display()),
-            },
-        );
+        emit_tool_output(ctx, format!("Completed write to {}", path.display()));
         ToolResult::ok(format!(
             "Success: {} bytes written to {}",
             args.content.len(),

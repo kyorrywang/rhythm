@@ -22,6 +22,20 @@ impl AnthropicClient {
             client: reqwest::Client::new(),
         }
     }
+
+    fn supports_extended_thinking(&self) -> bool {
+        self.config
+            .capabilities
+            .anthropic_extended_thinking
+            .unwrap_or(false)
+    }
+
+    fn supports_beta_headers(&self) -> bool {
+        self.config
+            .capabilities
+            .anthropic_beta_headers
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Serialize)]
@@ -219,6 +233,41 @@ fn process_anthropic_line(
     deltas
 }
 
+fn flush_anthropic_buffer(
+    buffer: &mut String,
+    thinking_indices: &mut HashSet<u32>,
+    tool_use_accum: &mut HashMap<u32, ToolUseAccumulator>,
+) -> Vec<Result<LlmResponse, String>> {
+    let mut deltas = Vec::new();
+
+    while let Some(newline_pos) = buffer.find('\n') {
+        let line = buffer[..newline_pos].to_string();
+        *buffer = buffer[newline_pos + 1..].to_string();
+
+        let line = line.trim_end_matches('\r');
+
+        if line.starts_with("data: ") {
+            let data = &line[6..];
+            let line_deltas = process_anthropic_line(data, thinking_indices, tool_use_accum);
+            deltas.extend(line_deltas);
+        }
+    }
+
+    if !buffer.trim().is_empty() {
+        let trailing = std::mem::take(buffer);
+        for line in trailing.split('\n') {
+            let line = line.trim();
+            if line.starts_with("data: ") {
+                let data = &line[6..];
+                let line_deltas = process_anthropic_line(data, thinking_indices, tool_use_accum);
+                deltas.extend(line_deltas);
+            }
+        }
+    }
+
+    deltas
+}
+
 fn map_messages(messages: Vec<ChatMessage>) -> Vec<AnthropicMessage> {
     let mut mapped = Vec::new();
 
@@ -322,24 +371,28 @@ impl LlmClient for AnthropicClient {
             )
         };
 
+        let supports_extended_thinking = self.supports_extended_thinking();
         let req = AnthropicChatRequest {
             model: self.config.model.clone(),
             messages: map_messages(messages),
             max_tokens: 8192,
             stream: true,
-            thinking: Some(AnthropicThinking {
+            thinking: supports_extended_thinking.then_some(AnthropicThinking {
                 thinking_type: "enabled".to_string(),
                 budget_tokens: 4096,
             }),
             tools: tools_mapped,
         };
 
-        let response = self
+        let mut request = self
             .client
             .post(&url)
             .header("x-api-key", &self.config.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("anthropic-beta", "extended-thinking-2025-05-14")
+            .header("anthropic-version", "2023-06-01");
+        if self.supports_beta_headers() {
+            request = request.header("anthropic-beta", "extended-thinking-2025-05-14");
+        }
+        let response = request
             .json(&req)
             .send()
             .await
@@ -364,20 +417,7 @@ impl LlmClient for AnthropicClient {
 
                         let mut thinking = thinking_indices.lock().unwrap();
                         let mut tools = tool_use_accum.lock().unwrap();
-
-                        while let Some(newline_pos) = buf.find('\n') {
-                            let line = buf[..newline_pos].to_string();
-                            *buf = buf[newline_pos + 1..].to_string();
-
-                            let line = line.trim_end_matches('\r');
-
-                            if line.starts_with("data: ") {
-                                let data = &line[6..];
-                                let line_deltas =
-                                    process_anthropic_line(data, &mut thinking, &mut tools);
-                                deltas.extend(line_deltas);
-                            }
-                        }
+                        deltas.extend(flush_anthropic_buffer(&mut buf, &mut thinking, &mut tools));
                     }
 
                     futures::stream::iter(deltas)
@@ -387,22 +427,12 @@ impl LlmClient for AnthropicClient {
                     let mut thinking = thinking_indices.lock().unwrap();
                     let mut tools = tool_use_accum.lock().unwrap();
                     let mut deltas = Vec::new();
-
-                    if !buf.is_empty() {
-                        let remaining = std::mem::take(&mut *buf);
-                        for line in remaining.split('\n') {
-                            let line = line.trim();
-                            if line.starts_with("data: ") {
-                                let data = &line[6..];
-                                let line_deltas =
-                                    process_anthropic_line(data, &mut thinking, &mut tools);
-                                deltas.extend(line_deltas);
-                            }
-                        }
-                    }
+                    deltas.extend(flush_anthropic_buffer(&mut buf, &mut thinking, &mut tools));
 
                     if deltas.is_empty() {
                         deltas.push(Err(e.to_string()));
+                    } else if !deltas.iter().any(|item| matches!(item, Ok(LlmResponse::Done))) {
+                        deltas.push(Ok(LlmResponse::Done));
                     }
 
                     futures::stream::iter(deltas)

@@ -8,7 +8,7 @@ import { themeRecipes } from '../../../../src/shared/theme/recipes';
 import { FOLDER_COMMANDS, FOLDER_VIEWS } from '../constants';
 import { useExpandedPaths } from '../hooks/useExpandedPaths';
 import { readPreviewFile } from '../preview';
-import type { FilePreviewPayload, FolderGitStatusEntry, FolderListInput, FolderReadInput, FolderTreeFileActions } from '../types';
+import type { FolderGitStatusEntry, FolderListInput, FolderTreeFileActions } from '../types';
 import { basename, dirname, formatBytes, joinPath, sortEntries } from '../utils';
 import { TreeNode } from './TreeNode';
 import { useActiveWorkspace } from '../../../../src/shared/state/useWorkspaceStore';

@@ -65,7 +65,6 @@ export function FileRow({
   onRename,
   onDelete,
   onReveal,
-  onRefresh,
   onCopyPath,
   onCopyRelativePath,
   gitStatus,
@@ -81,7 +80,6 @@ export function FileRow({
   onRename?: () => void;
   onDelete?: () => void;
   onReveal?: () => void;
-  onRefresh?: () => void;
   onCopyPath: (path: string) => void;
   onCopyRelativePath: (path: string) => void;
   gitStatus?: string;

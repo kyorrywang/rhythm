@@ -4,6 +4,7 @@ export type InternalEventType =
   | 'THINKING_END'
   | 'TOOL_START'
   | 'TOOL_OUTPUT'
+  | 'TOOL_RESULT'
   | 'TOOL_END'
   | 'ASK_REQUEST'
   | 'TASK_UPDATE'
@@ -46,6 +47,11 @@ export interface ToolStartEvent extends InternalEvent {
 export interface ToolOutputEvent extends InternalEvent {
   type: 'TOOL_OUTPUT';
   payload: { toolId: string; logLine: string };
+}
+
+export interface ToolResultEvent extends InternalEvent {
+  type: 'TOOL_RESULT';
+  payload: { toolId: string; result: string; isError: boolean };
 }
 
 export interface ToolEndEvent extends InternalEvent {
@@ -125,6 +131,7 @@ export type InternalEventUnion =
   | ThinkingEndEvent
   | ToolStartEvent
   | ToolOutputEvent
+  | ToolResultEvent
   | ToolEndEvent
   | AskRequestEvent
   | TaskUpdateEvent

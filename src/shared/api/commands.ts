@@ -39,6 +39,8 @@ export function chatStream(
     attachments: request.attachments,
     cwd: request.cwd,
     permissionMode: request.permissionMode,
+    allowedTools: request.allowedTools,
+    disallowedTools: request.disallowedTools,
     providerId: request.providerId,
     model: request.model,
     reasoning: request.reasoning,

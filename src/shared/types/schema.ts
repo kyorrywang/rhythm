@@ -61,6 +61,7 @@ export type ServerEventChunk =
   | { type: 'thinking_end'; sessionId: string; timeCostMs: number }
   | { type: 'tool_start'; sessionId: string; toolId: string; toolName: string; args: unknown }
   | { type: 'tool_output'; sessionId: string; toolId: string; logLine: string }
+  | { type: 'tool_result'; sessionId: string; toolId: string; result: string; isError: boolean }
   | { type: 'tool_end'; sessionId: string; toolId: string; exitCode: number }
   | { type: 'ask_request'; sessionId: string; toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[] }
   | { type: 'task_update'; sessionId: string; tasks: Task[] }

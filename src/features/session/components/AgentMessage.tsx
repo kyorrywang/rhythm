@@ -27,6 +27,10 @@ interface AgentMessageProps {
   isSessionRunning?: boolean;
 }
 
+type TextRenderBlock =
+  | { type: 'markdown'; content: string }
+  | { type: 'tool'; tool: ToolCall };
+
 const Timer = ({ isRunning, startTime, finalMs }: { isRunning: boolean; startTime: number; finalMs?: number }) => {
   const [elapsed, setElapsed] = useState(0);
 
@@ -354,6 +358,98 @@ const PermissionSegment = ({
   );
 };
 
+function tryParseInlineToolPayload(raw: string) {
+  const jsonMatches = raw.match(/\{[\s\S]*\}/g) || [];
+  for (const candidate of jsonMatches) {
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      return parsed;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function matchStringField(raw: string, keys: string[]) {
+  for (const key of keys) {
+    const quoted = new RegExp(`["']${key}["']\\s*[:=]\\s*["']([^"']+)["']`, 'i').exec(raw);
+    if (quoted?.[1]) return quoted[1];
+    const plain = new RegExp(`${key}\\s*[:=]\\s*([^\\n>]+)`, 'i').exec(raw);
+    if (plain?.[1]) return plain[1].trim();
+  }
+  return '';
+}
+
+function buildInlineToolCall(raw: string, index: number, startTime: number): ToolCall | null {
+  const parsed = tryParseInlineToolPayload(raw);
+  const toolName = String(
+    parsed?.name
+    || parsed?.tool
+    || parsed?.tool_name
+    || matchStringField(raw, ['name', 'tool', 'tool_name']),
+  ).trim();
+
+  const mappedName = toolName === 'write_file' ? 'write' : toolName === 'edit_file' ? 'edit' : toolName === 'read_file' ? 'read' : toolName;
+  if (!['write', 'edit', 'read', 'delete'].includes(mappedName)) {
+    return null;
+  }
+
+  const argumentsObject = (() => {
+    if (parsed && typeof parsed === 'object') {
+      const path = String(parsed.path || parsed.file || parsed.target_path || '').trim();
+      const content = String(parsed.content || parsed.text || '').trim();
+      const search = String(parsed.search || '').trim();
+      const replace = String(parsed.replace || '').trim();
+      return { path, content, search, replace };
+    }
+    return {
+      path: matchStringField(raw, ['path', 'file', 'target_path']),
+      content: matchStringField(raw, ['content', 'text']),
+      search: matchStringField(raw, ['search']),
+      replace: matchStringField(raw, ['replace']),
+    };
+  })();
+
+  return {
+    id: `provisional-inline-tool-${index}`,
+    name: mappedName,
+    arguments: argumentsObject,
+    status: 'running',
+    logs: ['Waiting for the actual tool execution to start.'],
+    startTime,
+  };
+}
+
+function buildTextRenderBlocks(content: string, startTime: number): TextRenderBlock[] {
+  const blocks: TextRenderBlock[] = [];
+  const pattern = /<(?:minimax:tool_call|invoke)\b[\s\S]*?(?:<\/(?:minimax:tool_call|invoke)>|$)/gi;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  let inlineIndex = 0;
+
+  while ((match = pattern.exec(content)) !== null) {
+    const before = content.slice(cursor, match.index);
+    if (before) {
+      blocks.push({ type: 'markdown', content: before });
+    }
+    const tool = buildInlineToolCall(match[0], inlineIndex++, startTime);
+    if (tool) {
+      blocks.push({ type: 'tool', tool });
+    } else {
+      blocks.push({ type: 'markdown', content: match[0] });
+    }
+    cursor = match.index + match[0].length;
+  }
+
+  const tail = content.slice(cursor);
+  if (tail) {
+    blocks.push({ type: 'markdown', content: tail });
+  }
+
+  return blocks.length > 0 ? blocks : [{ type: 'markdown', content }];
+}
+
 const renderOrchestratorSummary = (tool: ToolCall): { title: string; summary: React.ReactNode } | null => {
   if (
     tool.name !== 'orchestrator.createPlanDraft'
@@ -618,34 +714,42 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
                   transition={{ duration: 0.3 }}
                   className="border-t-[var(--theme-divider-width)] border-[var(--theme-border)] py-[var(--theme-section-gap)] first:border-t-0"
                 >
-                  <div className="prose prose-sm max-w-none text-[var(--theme-text-primary)]">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        pre({ children }) {
-                          return <>{children}</>;
-                        },
-                        code({ inline, className, children }: any) {
-                          const match = /language-(\w+)/.exec(className || '');
-                          const code = String(children).replace(/\n$/, '');
-                          const isBlock = !inline && (match || String(children).includes('\n'));
+                  {buildTextRenderBlocks(segment.content, message.createdAt).map((block, blockIndex) => (
+                    <div key={blockIndex}>
+                      {block.type === 'tool' ? (
+                        <ToolBlock tool={block.tool} sessionId={sessionId} />
+                      ) : (
+                        <div className="prose prose-sm max-w-none text-[var(--theme-text-primary)]">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              pre({ children }) {
+                                return <>{children}</>;
+                              },
+                              code({ inline, className, children }: any) {
+                                const match = /language-(\w+)/.exec(className || '');
+                                const code = String(children).replace(/\n$/, '');
+                                const isBlock = !inline && (match || String(children).includes('\n'));
 
-                          return isBlock ? (
-                            <CodeBlock
-                              language={match?.[1] || 'text'}
-                              code={code}
-                            />
-                          ) : (
-                            <code className="rounded-[calc(var(--theme-radius-control)*0.7)] bg-[var(--theme-surface-muted)] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--theme-accent)]">
-                              {children}
-                            </code>
-                          );
-                        },
-                      }}
-                    >
-                      {segment.content}
-                    </ReactMarkdown>
-                  </div>
+                                return isBlock ? (
+                                  <CodeBlock
+                                    language={match?.[1] || 'text'}
+                                    code={code}
+                                  />
+                                ) : (
+                                  <code className="rounded-[calc(var(--theme-radius-control)*0.7)] bg-[var(--theme-surface-muted)] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--theme-accent)]">
+                                    {children}
+                                  </code>
+                                );
+                              },
+                            }}
+                          >
+                            {block.content}
+                          </ReactMarkdown>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </motion.div>
               )}
             </div>

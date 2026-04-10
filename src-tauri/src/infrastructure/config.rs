@@ -17,6 +17,24 @@ pub struct LlmConfig {
     pub api_key: String,
     pub model: String,
     pub max_tokens: Option<u32>,
+    #[serde(default)]
+    pub capabilities: ModelCapabilities,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ProviderCapabilities {
+    #[serde(default)]
+    pub anthropic_extended_thinking: Option<bool>,
+    #[serde(default)]
+    pub anthropic_beta_headers: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ModelCapabilities {
+    #[serde(default)]
+    pub anthropic_extended_thinking: Option<bool>,
+    #[serde(default)]
+    pub anthropic_beta_headers: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -29,6 +47,8 @@ pub struct ProviderModelConfig {
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(default)]
+    pub capabilities: ModelCapabilities,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,6 +61,8 @@ pub struct ProviderConfig {
     pub api_key: String,
     #[serde(default)]
     pub is_default: bool,
+    #[serde(default)]
+    pub capabilities: ProviderCapabilities,
     #[serde(default)]
     pub models: Vec<ProviderModelConfig>,
 }
@@ -62,6 +84,10 @@ impl Default for LlmConfig {
             api_key: "".to_string(),
             model: "claude-opus-4-5".to_string(),
             max_tokens: Some(16384),
+            capabilities: ModelCapabilities {
+                anthropic_extended_thinking: Some(true),
+                anthropic_beta_headers: Some(true),
+            },
         }
     }
 }
@@ -228,12 +254,20 @@ impl Default for RhythmSettings {
                 base_url: "https://api.anthropic.com".to_string(),
                 api_key: "".to_string(),
                 is_default: true,
+                capabilities: ProviderCapabilities {
+                    anthropic_extended_thinking: Some(true),
+                    anthropic_beta_headers: Some(true),
+                },
                 models: vec![ProviderModelConfig {
                     id: "claude-opus-4-5".to_string(),
                     name: "claude-opus-4-5".to_string(),
                     is_default: true,
                     enabled: true,
                     note: None,
+                    capabilities: ModelCapabilities {
+                        anthropic_extended_thinking: Some(true),
+                        anthropic_beta_headers: Some(true),
+                    },
                 }],
             }],
             agent_turn_limit: None,
@@ -388,6 +422,7 @@ pub fn resolve_llm_config(
         api_key: provider.api_key.clone(),
         model: model.name.clone(),
         max_tokens: settings.llm.max_tokens,
+        capabilities: merge_model_capabilities(&provider.capabilities, &model.capabilities),
     })
 }
 
@@ -410,6 +445,7 @@ fn normalize_provider_settings(settings: &mut RhythmSettings) {
                 is_default: true,
                 enabled: true,
                 note: None,
+                capabilities: ModelCapabilities::default(),
             });
         }
         if !provider.models.iter().any(|model| model.is_default && model.enabled) {
@@ -431,8 +467,23 @@ fn normalize_provider_settings(settings: &mut RhythmSettings) {
                 api_key: default_provider.api_key.clone(),
                 model: default_model.name.clone(),
                 max_tokens: settings.llm.max_tokens,
+                capabilities: merge_model_capabilities(&default_provider.capabilities, &default_model.capabilities),
             };
         }
+    }
+}
+
+fn merge_model_capabilities(
+    provider: &ProviderCapabilities,
+    model: &ModelCapabilities,
+) -> ModelCapabilities {
+    ModelCapabilities {
+        anthropic_extended_thinking: model
+            .anthropic_extended_thinking
+            .or(provider.anthropic_extended_thinking),
+        anthropic_beta_headers: model
+            .anthropic_beta_headers
+            .or(provider.anthropic_beta_headers),
     }
 }
 

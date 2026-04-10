@@ -346,11 +346,21 @@ export function TemplateView({ ctx, payload }: WorkbenchProps<OrchestratorTempla
               title: template.name,
               goal: template.description || `${template.name} plan`,
               overview: template.description || `Use ${template.name} as a starting scaffold for a confirmed plan.`,
+              decompositionPrinciples: ['Use the template as a high-level scaffold, then refine tasks during execution.'],
+              humanCheckpoints: ['Review the draft plan before confirming the run.'],
+              reviewCheckpoints: ['Each major stage must pass review before orchestration continues.'],
               reviewPolicy: 'Each major stage must be reviewed before orchestration continues.',
               stages: template.stageRows.flatMap((row) => row.stages.map((stage) => ({
                 name: stage.name,
                 goal: stage.goal,
                 deliverables: stage.agentRows.flatMap((agentRow) => agentRow.agents.flatMap((agent) => agent.outputArtifacts || [])),
+                executorName: stage.agentRows.flatMap((agentRow) => agentRow.agents).find((agent) => agent.role !== 'reviewer')?.name,
+                reviewerName: stage.agentRows.flatMap((agentRow) => agentRow.agents).find((agent) => agent.role === 'reviewer')?.name,
+                executorTools: stage.agentRows.flatMap((agentRow) => agentRow.agents).find((agent) => agent.role !== 'reviewer')?.tools || [],
+                reviewerTools: stage.agentRows.flatMap((agentRow) => agentRow.agents).find((agent) => agent.role === 'reviewer')?.tools || [],
+                executorSkills: stage.agentRows.flatMap((agentRow) => agentRow.agents).find((agent) => agent.role !== 'reviewer')?.skills || [],
+                reviewerSkills: stage.agentRows.flatMap((agentRow) => agentRow.agents).find((agent) => agent.role === 'reviewer')?.skills || [],
+                failurePolicy: stage.agentRows.flatMap((agentRow) => agentRow.agents).find((agent) => agent.role !== 'reviewer')?.failurePolicy || 'pause',
               }))),
             })}
           >

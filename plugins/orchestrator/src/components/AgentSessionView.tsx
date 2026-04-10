@@ -30,6 +30,7 @@ export function AgentSessionView({ ctx, payload }: WorkbenchProps<OrchestratorAg
   const outputSnapshot = isReviewAgent
     ? formatReviewOutput(agentRun.output as ReviewAgentOutputSnapshot | undefined)
     : formatWorkOutput(agentRun.output as WorkAgentOutputSnapshot | undefined);
+  const assignment = agentRun.input.assignmentBrief;
 
   useEffect(() => {
     void (async () => {
@@ -181,8 +182,8 @@ export function AgentSessionView({ ctx, payload }: WorkbenchProps<OrchestratorAg
           <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <Info label="Session" value={agentRun.sessionId} />
             <Info label="Task" value={agentRun.taskId} />
-            <Info label="Stage Goal" value={agentRun.input.stageGoal || '-'} />
-            <Info label="Deliverables" value={agentRun.input.deliverables.join(', ') || '-'} />
+            <Info label="Assignment" value={assignment?.title || '-'} />
+            <Info label="Deliverables" value={joinOrDash(assignment?.deliverables)} />
             <Info label="Agent Run" value={agentRun.id} />
             <Info label="Updated" value={formatDateTime(agentRun.updatedAt)} />
           </div>
@@ -228,11 +229,16 @@ function formatWorkInput(input: WorkAgentInputSnapshot) {
   return [
     `Run Goal: ${input.runGoal}`,
     `Plan: ${input.planTitle}`,
-    `Overview: ${input.planOverview}`,
-    `Task: ${input.taskSummary || '-'}`,
-    input.constraints.length ? `Constraints:\n- ${input.constraints.join('\n- ')}` : 'Constraints: -',
-    input.successCriteria.length ? `Success Criteria:\n- ${input.successCriteria.join('\n- ')}` : 'Success Criteria: -',
-    `Review Policy: ${input.reviewPolicy}`,
+    `Assignment: ${input.assignmentBrief.title}`,
+    `Why Now: ${input.assignmentBrief.whyNow}`,
+    `Goal: ${input.assignmentBrief.goal}`,
+    `Target Folder: ${input.targetFolder}`,
+    `Expected Files: ${joinOrDash(input.expectedFiles)}`,
+    `Review Target Paths: ${joinOrDash(input.assignmentBrief.reviewTargetPaths)}`,
+    listBlock('Context', input.assignmentBrief.context),
+    listBlock('Instructions', input.assignmentBrief.instructions),
+    listBlock('Deliverables', input.assignmentBrief.deliverables),
+    listBlock('Constraints', input.constraints),
   ].join('\n\n');
 }
 
@@ -240,13 +246,18 @@ function formatReviewInput(input: ReviewAgentInputSnapshot) {
   return [
     `Run Goal: ${input.runGoal}`,
     `Plan: ${input.planTitle}`,
-    `Overview: ${input.planOverview}`,
-    `Task: ${input.taskSummary || '-'}`,
+    `Assignment: ${input.assignmentBrief.title}`,
+    `Why Now: ${input.assignmentBrief.whyNow}`,
+    `Goal: ${input.assignmentBrief.goal}`,
+    `Target Folder: ${input.targetFolder}`,
+    `Expected Files: ${joinOrDash(input.expectedFiles)}`,
+    `Review Target Paths: ${joinOrDash(input.assignmentBrief.reviewTargetPaths)}`,
+    listBlock('Instructions', input.assignmentBrief.instructions),
+    listBlock('Review Focus', input.assignmentBrief.reviewFocus),
     `Reviewed Task: ${input.reviewedTaskId || '-'}`,
-    `Reviewed Artifacts: ${input.reviewedArtifactSummaries.join(', ') || '-'}`,
-    input.constraints.length ? `Constraints:\n- ${input.constraints.join('\n- ')}` : 'Constraints: -',
-    input.successCriteria.length ? `Success Criteria:\n- ${input.successCriteria.join('\n- ')}` : 'Success Criteria: -',
-    `Review Policy: ${input.reviewPolicy}`,
+    `Reviewed Artifacts: ${joinOrDash(input.reviewedArtifactSummaries)}`,
+    `Reviewed Paths: ${joinOrDash(input.reviewedArtifactPaths)}`,
+    listBlock('Constraints', input.constraints),
   ].join('\n\n');
 }
 
@@ -254,7 +265,7 @@ function formatWorkOutput(output: WorkAgentOutputSnapshot | undefined) {
   if (!output) return 'No output snapshot yet.';
   return [
     `Summary: ${output.summary}`,
-    `Artifacts: ${output.artifactSummaries.join(', ') || '-'}`,
+    `Artifacts: ${joinOrDash(output.artifactSummaries)}`,
     `Completed: ${formatDateTime(output.completedAt)}`,
   ].join('\n\n');
 }
@@ -264,11 +275,19 @@ function formatReviewOutput(output: ReviewAgentOutputSnapshot | undefined) {
   return [
     `Decision: ${output.decision}`,
     `Summary: ${output.summary}`,
-    `Reviewed Artifacts: ${output.reviewedArtifactIds.join(', ') || '-'}`,
+    `Reviewed Artifacts: ${joinOrDash(output.reviewedArtifactIds)}`,
     `Source: ${output.source}`,
     `Completed: ${formatDateTime(output.completedAt)}`,
     `Feedback:\n${output.feedback}`,
   ].join('\n\n');
+}
+
+function listBlock(label: string, items: string[] | undefined) {
+  return items && items.length ? `${label}:\n- ${items.join('\n- ')}` : `${label}: -`;
+}
+
+function joinOrDash(items: string[] | undefined) {
+  return items && items.length ? items.join(', ') : '-';
 }
 
 function Info({ label, value }: { label: string; value: string }) {

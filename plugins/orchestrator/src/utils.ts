@@ -42,8 +42,11 @@ export function createPlanDraft(input: {
   overview?: string;
   constraints?: string[];
   successCriteria?: string[];
+  decompositionPrinciples?: string[];
+  humanCheckpoints?: string[];
+  reviewCheckpoints?: string[];
   reviewPolicy?: string;
-  stages?: Array<{ name: string; goal: string; deliverables?: string[] }>;
+  stages?: Array<{ name: string; goal: string; deliverables?: string[]; targetFolder?: string; outputFiles?: string[]; executorName?: string; reviewerName?: string; executorTools?: string[]; reviewerTools?: string[]; executorSkills?: string[]; reviewerSkills?: string[]; failurePolicy?: OrchestratorAgent['failurePolicy'] }>;
   sourceSessionId?: string;
   sourceMessageId?: string;
 }): OrchestratorPlanDraft {
@@ -58,6 +61,9 @@ export function createPlanDraft(input: {
     overview: input.overview || `围绕“${input.goal}”推进项目，并逐步拆解执行任务。`,
     constraints: input.constraints || [],
     successCriteria: input.successCriteria || ['产出满足用户目标的高质量结果。'],
+    decompositionPrinciples: input.decompositionPrinciples || ['先保持高层阶段清晰，再在运行中逐步细化为可执行任务。'],
+    humanCheckpoints: input.humanCheckpoints || ['计划确认后再启动 run。'],
+    reviewCheckpoints: input.reviewCheckpoints || ['每个主要阶段完成后进入审核。'],
     reviewPolicy: input.reviewPolicy || '每个主要阶段完成后进入审核；不通过则返工。',
     stages: (input.stages && input.stages.length > 0
       ? input.stages.map((stage) => ({
@@ -65,6 +71,15 @@ export function createPlanDraft(input: {
         name: stage.name,
         goal: stage.goal,
         deliverables: stage.deliverables || [],
+        targetFolder: stage.targetFolder || buildDefaultStageTargetFolder(stage.name),
+        outputFiles: stage.outputFiles || buildDefaultStageOutputFiles(stage.name),
+        executorName: stage.executorName,
+        reviewerName: stage.reviewerName,
+        executorTools: stage.executorTools || [],
+        reviewerTools: stage.reviewerTools || [],
+        executorSkills: stage.executorSkills || [],
+        reviewerSkills: stage.reviewerSkills || [],
+        failurePolicy: stage.failurePolicy || 'pause',
       }))
       : createDefaultPlanStages(input.goal)),
     createdAt: now,
@@ -80,12 +95,24 @@ export function createConfirmedPlanFromDraft(planDraft: OrchestratorPlanDraft): 
     overview: planDraft.overview,
     constraints: [...planDraft.constraints],
     successCriteria: [...planDraft.successCriteria],
+    decompositionPrinciples: [...planDraft.decompositionPrinciples],
+    humanCheckpoints: [...planDraft.humanCheckpoints],
+    reviewCheckpoints: [...planDraft.reviewCheckpoints],
     reviewPolicy: planDraft.reviewPolicy,
     stages: planDraft.stages.map((stage) => ({
       id: stage.id,
       name: stage.name,
       goal: stage.goal,
       deliverables: [...stage.deliverables],
+      targetFolder: stage.targetFolder,
+      outputFiles: [...stage.outputFiles],
+      executorName: stage.executorName,
+      reviewerName: stage.reviewerName,
+      executorTools: [...(stage.executorTools || [])],
+      reviewerTools: [...(stage.reviewerTools || [])],
+      executorSkills: [...(stage.executorSkills || [])],
+      reviewerSkills: [...(stage.reviewerSkills || [])],
+      failurePolicy: stage.failurePolicy,
     })),
     confirmedAt: planDraft.confirmedAt || Date.now(),
   };
@@ -483,18 +510,40 @@ function createDefaultPlanStages(goal: string): OrchestratorPlanStage[] {
       name: 'Clarify Scope',
       goal: `Extract the key constraints and execution shape for ${goal}.`,
       deliverables: ['Scope notes', 'Execution assumptions'],
+      targetFolder: 'orchestrator-output/clarify-scope',
+      outputFiles: ['clarify-scope.md'],
     },
     {
       id: createId('plan_stage'),
       name: 'Produce Core Output',
       goal: `Create the main deliverable for ${goal}.`,
       deliverables: ['Primary draft or implementation'],
+      targetFolder: 'orchestrator-output/produce-core-output',
+      outputFiles: ['produce-core-output.md'],
     },
     {
       id: createId('plan_stage'),
       name: 'Review And Refine',
       goal: `Review the result for quality and prepare the next refinement pass for ${goal}.`,
       deliverables: ['Review notes', 'Refined result'],
+      targetFolder: 'orchestrator-output/review-and-refine',
+      outputFiles: ['review-and-refine.md'],
     },
   ];
+}
+
+function buildDefaultStageTargetFolder(stageName: string) {
+  return `orchestrator-output/${slugify(stageName)}`;
+}
+
+function buildDefaultStageOutputFiles(stageName: string) {
+  return [`${slugify(stageName)}.md`];
+}
+
+function slugify(value: string) {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'stage';
 }
