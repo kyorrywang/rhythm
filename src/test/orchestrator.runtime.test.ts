@@ -3,7 +3,7 @@ import type { PluginContext } from '@/plugin/sdk';
 import { applyOrchestratorDecision, failOrchestratorTask, listReviewedArtifacts, overrideReviewDecision, recoverOrchestratorRun, retryOrchestratorTask, startOrchestratorRun, wakeRunById } from '../../plugins/orchestrator/src/runtime';
 import { getProjectState, getRun, listAgentRunsForRun, listArtifactsForRun, listTasksForRun, saveAgentRun, saveArtifact, saveRun, saveTask } from '../../plugins/orchestrator/src/storage';
 import { createRunFromPlan } from '../../plugins/orchestrator/src/utils';
-import type { OrchestrationDecision, OrchestratorConfirmedPlan } from '../../plugins/orchestrator/src/types';
+import type { OrchestrationDecision, OrchestratorConfirmedPlan, OrchestratorReviewLog, OrchestratorRun } from '../../plugins/orchestrator/src/types';
 
 vi.mock('../../plugins/orchestrator/src/agentSessionRuntime', () => ({
   interruptAgentSession: vi.fn(async () => {}),
@@ -20,6 +20,10 @@ vi.mock('../shared/state/useSessionStore', () => ({
     }),
   },
 }));
+
+function unwrapRun(result: OrchestratorRun | { run: OrchestratorRun; reviewLog: OrchestratorReviewLog }) {
+  return 'run' in result ? result.run : result;
+}
 
 describe('orchestrator runtime', () => {
   let files = new Map<string, string>();
@@ -367,8 +371,9 @@ describe('orchestrator runtime', () => {
       decision: 'needs_changes',
       feedback: 'Please revise before continuing.',
     });
-    expect(result.run.status).toBe('waiting_human');
-    expect(result.run.pendingHumanCheckpoint).toBe('Please revise before continuing.');
+    const updatedRun = unwrapRun(result);
+    expect(updatedRun.status).toBe('waiting_human');
+    expect(updatedRun.pendingHumanCheckpoint).toBe('Please revise before continuing.');
     const tasks = await listTasksForRun(ctx, run.id);
     expect(tasks.some((task) => task.source === 'rework' && task.status === 'waiting_human')).toBe(true);
   });
@@ -713,8 +718,9 @@ describe('orchestrator runtime', () => {
 
     const artifacts = await listArtifactsForRun(ctx, run.id);
     const rejectedArtifact = artifacts.find((artifact) => artifact.id === 'artifact_draft_reject');
-    expect(result.run.status).toBe('waiting_human');
-    expect(result.run.failureState?.kind).toBe('human_required');
+    const updatedRun = unwrapRun(result);
+    expect(updatedRun.status).toBe('waiting_human');
+    expect(updatedRun.failureState?.kind).toBe('human_required');
     expect(rejectedArtifact?.status).toBe('rejected');
   });
 
@@ -967,7 +973,7 @@ describe('orchestrator runtime', () => {
         currentStageOutputFiles: ['stage-1.md'],
         currentStageReviewableOutputPaths: ['orchestrator-output/stage-1/stage-1.md'],
         currentStageDraftOutputSummaries: [],
-        currentStageAllowedDispatchKinds: ['work'],
+        currentStageAllowedDispatchKinds: ['work'] as Array<'work' | 'review'>,
         activeTaskCount: 0,
         availableSlots: 2,
         readyTaskTitles: ['Stage 1'],
@@ -1089,7 +1095,7 @@ describe('orchestrator runtime', () => {
         currentStageOutputFiles: ['stage-1.md'],
         currentStageReviewableOutputPaths: ['orchestrator-output/stage-1/stage-1.md'],
         currentStageDraftOutputSummaries: [],
-        currentStageAllowedDispatchKinds: ['work'],
+        currentStageAllowedDispatchKinds: ['work'] as Array<'work' | 'review'>,
         activeTaskCount: 0,
         availableSlots: 2,
         readyTaskTitles: ['Stage 1'],
@@ -1192,7 +1198,7 @@ describe('orchestrator runtime', () => {
         currentStageOutputFiles: ['stage-1.md'],
         currentStageReviewableOutputPaths: ['orchestrator-output/stage-1/stage-1.md'],
         currentStageDraftOutputSummaries: [],
-        currentStageAllowedDispatchKinds: ['work'],
+        currentStageAllowedDispatchKinds: ['work'] as Array<'work' | 'review'>,
         activeTaskCount: 0,
         availableSlots: 2,
         readyTaskTitles: ['Stage 1'],
@@ -1345,8 +1351,9 @@ describe('orchestrator runtime', () => {
     });
 
     const tasks = await listTasksForRun(ctx, run.id);
-    expect(result.run.status).toBe('failed');
-    expect(result.run.failureState?.kind).toBe('review_deadlock');
+    const updatedRun = unwrapRun(result);
+    expect(updatedRun.status).toBe('failed');
+    expect(updatedRun.failureState?.kind).toBe('review_deadlock');
     expect(tasks.some((task) => task.source === 'rework')).toBe(false);
   });
 
@@ -1497,8 +1504,9 @@ describe('orchestrator runtime', () => {
       feedback: 'Rework is not converging.',
     });
 
-    expect(result.run.status).toBe('failed');
-    expect(result.run.failureState?.kind).toBe('non_converging_rework');
+    const updatedRun = unwrapRun(result);
+    expect(updatedRun.status).toBe('failed');
+    expect(updatedRun.failureState?.kind).toBe('non_converging_rework');
   });
 
   it('does not auto-recover runs that require human intervention', async () => {
@@ -1825,7 +1833,7 @@ describe('orchestrator runtime', () => {
       logicalKey: 'stage_leaf:leaf',
       status: 'draft',
       version: 1,
-      kind: 'document',
+      kind: 'report',
       format: 'markdown',
       filePaths: ['orchestrator-output/leaf-stage/leaf.md'],
       summary: 'Leaf draft summary',
@@ -1872,13 +1880,13 @@ describe('orchestrator runtime', () => {
       feedback: 'Approved after human review.',
     });
 
-    expect(['running', 'completed']).toContain(approvedRun.status);
+    expect(['running', 'completed']).toContain(unwrapRun(approvedRun).status);
 
     const afterApprovalTasks = await listTasksForRun(ctx, run.id);
     const refreshedContainer = afterApprovalTasks.find((task) => task.id === containerTask!.id);
     expect(refreshedContainer?.status).toBe('completed');
 
-    await wakeRunById(ctx, { runId: run.id, reason: 'manual' });
+    await wakeRunById(ctx, { runId: run.id, reason: 'user_request' });
 
     const finalTasks = await listTasksForRun(ctx, run.id);
     expect(finalTasks.filter((task) => task.kind === 'review')).toHaveLength(1);

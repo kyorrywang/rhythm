@@ -117,8 +117,28 @@ impl CronRunner {
     async fn run_prompt(&self, prompt: &str, cwd: &str) -> (bool, String) {
         let settings = config::load_settings();
         let cwd_path = PathBuf::from(cwd);
-        let client = Arc::from(llm::create_client(&settings.llm));
-        let system_prompt = build_runtime_prompt(&settings, &cwd_path, Some(prompt), false);
+        let runtime_spec = match config::resolve_runtime_spec(
+            &settings,
+            config::RuntimeIntent {
+                profile_id: Some("chat".to_string()),
+                provider_id: None,
+                model_id: None,
+                reasoning: None,
+                permission_mode: None,
+                allowed_tools: None,
+                disallowed_tools: None,
+            },
+        ) {
+            Ok(spec) => spec,
+            Err(error) => return (false, error),
+        };
+        let client = Arc::from(llm::create_client(&runtime_spec.llm));
+        let system_prompt = build_runtime_prompt(
+            &settings,
+            &cwd_path,
+            Some(prompt),
+            &runtime_spec,
+        );
 
         let merged_mcp_configs = McpClientManager::merged_server_configs(&settings, &cwd_path);
         let mcp_manager = if merged_mcp_configs.is_empty() {
@@ -130,7 +150,7 @@ impl CronRunner {
         };
 
         let tool_registry = Arc::new(ToolRegistry::create_with_mcp(mcp_manager.clone()));
-        let permission_checker = Arc::new(PermissionChecker::new(&settings.permission));
+        let permission_checker = Arc::new(PermissionChecker::new(&runtime_spec.permission));
         let hook_registry = load_hook_registry_for_cwd(&settings, &cwd_path);
         let hook_executor = Arc::new(HookExecutor::new(hook_registry));
 
@@ -142,10 +162,14 @@ impl CronRunner {
             hook_executor: Some(hook_executor),
             mcp_manager,
             cwd: cwd_path,
-            model: settings.llm.model.clone(),
+            provider_id: runtime_spec.llm.name.clone(),
+            model: runtime_spec.llm.model.clone(),
             reasoning: None,
             system_prompt,
-            agent_turn_limit: settings.agent_turn_limit,
+            agent_turn_limit: runtime_spec.agent_turn_limit,
+            delegation: runtime_spec.delegation.clone(),
+            completion: runtime_spec.completion.clone(),
+            requires_delegation_for_completion: false,
             agent_id: run_id.clone(),
             session_id: run_id,
         };

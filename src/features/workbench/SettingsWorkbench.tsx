@@ -48,7 +48,6 @@ export const SettingsWorkbench = ({ section }: { section: SettingsSection }) => 
                     <div className={`mt-1 text-[length:var(--theme-meta-size)] ${themeRecipes.description()}`}>{provider.provider} · {provider.baseUrl}</div>
                   </div>
                 )}
-                trailing={provider.isDefault ? <Badge tone="warning">默认 Provider</Badge> : undefined}
               />
               <div className="mt-[var(--theme-section-gap)] grid gap-[var(--theme-toolbar-gap)] md:grid-cols-2">
                 {provider.models.map((model) => (

@@ -5,13 +5,42 @@ export interface ChatStreamRequest {
   prompt: string;
   attachments?: Attachment[];
   cwd?: string;
+  profileId?: string;
   permissionMode?: "default" | "plan" | "full_auto";
   allowedTools?: string[];
   disallowedTools?: string[];
   providerId?: string;
   model?: string;
   reasoning?: "low" | "medium" | "high";
-  mode?: "chat" | "coordinate";
+}
+
+export interface BackendRuntimeProfilePermissions {
+  locked: boolean;
+  defaultMode?: "default" | "plan" | "full_auto";
+  allowedTools: string[];
+  disallowedTools: string[];
+}
+
+export interface BackendRuntimeProfile {
+  id: string;
+  label: string;
+  mode: "Chat" | "Coordinate";
+  description: string;
+  promptRefs?: string[];
+  model?: {
+    providerId?: string;
+    modelId?: string;
+    reasoning?: "low" | "medium" | "high" | string;
+  };
+  permissions: BackendRuntimeProfilePermissions;
+  execution?: {
+    agentTurnLimit?: number;
+    delegationPolicyRef?: string;
+    reviewPolicyRef?: string;
+    completionPolicyRef?: string;
+    observabilityPolicyRef?: string;
+    limitPolicyRef?: string;
+  };
 }
 
 export interface ChatStreamResponse {
@@ -32,6 +61,11 @@ export interface InterruptSessionRequest {
   sessionId: string;
 }
 
+export interface AttachSessionStreamRequest {
+  sessionId: string;
+  afterEventId?: number;
+}
+
 export interface LlmCompleteMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -46,6 +80,7 @@ export interface LlmCompleteRequest {
 
 export interface BackendSessionInfo {
   session_id: string;
+  agent_id: string;
   status: string;
   created_at: string;
 }
@@ -192,7 +227,6 @@ export interface BackendPluginContribution {
 export interface BackendProviderModel {
   id: string;
   name: string;
-  isDefault?: boolean;
   enabled: boolean;
   note?: string;
 }
@@ -203,7 +237,6 @@ export interface BackendProviderConfig {
   provider: string;
   baseUrl: string;
   apiKey: string;
-  isDefault?: boolean;
   models: BackendProviderModel[];
 }
 
@@ -286,9 +319,12 @@ export interface WorkspaceShellRunRequest {
 
 export interface BackendSettings {
   theme?: "light" | "dark" | "system";
+  themePreset?: string;
   autoSaveSessions?: boolean;
   providers?: BackendProviderConfig[];
   systemPrompt: string;
+  defaultProfileId: string;
+  defaultReasoning: "low" | "medium" | "high";
   permissionMode: "default" | "plan" | "full_auto";
   allowedTools: string[];
   deniedTools: string[];
@@ -300,6 +336,7 @@ export interface BackendSettings {
   hooks: BackendHookConfig[];
   mcpServers: BackendMcpServerConfig[];
   enabledPlugins: string[];
+  runtimeProfiles: BackendRuntimeProfile[];
 }
 
 export interface TauriCommands {
@@ -318,6 +355,10 @@ export interface TauriCommands {
   interrupt_session: {
     request: InterruptSessionRequest;
     response: void;
+  };
+  attach_session_stream: {
+    request: AttachSessionStreamRequest;
+    response: boolean;
   };
   llm_complete: {
     request: LlmCompleteRequest;

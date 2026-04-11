@@ -8,6 +8,7 @@ import { AskDock } from './components/AskDock';
 import { MainComposer } from './components/MainComposer';
 import { TaskDock } from './components/TaskDock';
 import { AppendDock } from './components/AppendDock';
+import { getCurrentAsk, getCurrentTasks, getSessionQueueState, getSessionRuntimeState } from '@/shared/lib/sessionState';
 
 export const ComposerBox = () => {
   const {
@@ -22,11 +23,12 @@ export const ComposerBox = () => {
   } = useSessionStore();
   const setPermissionConfig = usePermissionStore((s) => s.setConfig);
   const pendingPermissions = usePermissionStore((s) => s.pendingPermissions);
-  const providers = useSettingsStore((s) => s.settings.providers);
+  const providers = useSettingsStore((s) => s.settings.providers ?? []);
   const activeSession = activeSessionId ? sessions.get(activeSessionId) : undefined;
-  const currentAsk = activeSession?.currentAsk;
-  const currentTasks = activeSession?.currentTasks;
-  const phase = activeSession?.phase || 'idle';
+  const currentAsk = getCurrentAsk(activeSession);
+  const currentTasks = getCurrentTasks(activeSession);
+  const runtimeState = getSessionRuntimeState(activeSession);
+  const queueState = getSessionQueueState(activeSession);
   const isTaskMinimized = activeSession?.taskDockMinimized ?? false;
   const isAppendMinimized = activeSession?.appendDockMinimized ?? false;
   const hasTasks = !!(currentTasks && currentTasks.length > 0);
@@ -38,13 +40,12 @@ export const ComposerBox = () => {
     .map((provider) => ({
       providerId: provider.id,
       providerName: provider.name,
-      models: provider.models
+      models: (provider.models ?? [])
         .filter((model) => model.enabled)
         .map((model) => ({
           id: model.id,
           name: model.name,
           note: model.note,
-          isDefault: model.isDefault,
         })),
     }))
     .filter((group) => group.models.length > 0);
@@ -64,8 +65,11 @@ export const ComposerBox = () => {
       usePermissionStore.getState().resolvePending(request.toolId, true);
       resolvePermissionRequestInTimeline(request.sessionId, request.toolId, true);
       updateSession(request.sessionId, {
-        phase: 'streaming',
-        permissionPending: false,
+        runtime: {
+          state: 'streaming',
+          message: '正在流式生成。',
+          updatedAt: Date.now(),
+        },
       });
     });
   };
@@ -86,7 +90,8 @@ export const ComposerBox = () => {
     handleIgnoreAsk,
   } = useComposerActions({
     activeSessionId,
-    phase,
+    runtimeState,
+    queueState,
     currentAsk: currentAsk || null,
     allTasksDone,
     composerMode: composerControls.mode,
@@ -120,7 +125,7 @@ export const ComposerBox = () => {
           onRemoveItem={handleRemoveQueuedItem}
           onCancelAll={handleCancelQueue}
           onInterrupt={handleInterrupt}
-          phase={phase}
+          queueState={queueState}
           isMinimized={isAppendMinimized}
           onToggleMinimize={toggleAppendMinimized}
         />
@@ -140,7 +145,8 @@ export const ComposerBox = () => {
       headerContent={headerContent}
       controls={composerControls}
       modelGroups={modelGroups}
-      sessionPhase={phase}
+      runtimeState={runtimeState}
+      queueState={queueState}
       onSetMode={(mode) => setComposerControls({ mode })}
       onSetModel={(model) => setComposerControls(model)}
       onSetReasoning={(reasoning) => setComposerControls({ reasoning })}

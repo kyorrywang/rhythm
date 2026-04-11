@@ -11,6 +11,14 @@ use crate::swarm::agent_registry;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
+use tokio::time::{sleep, Duration};
+
+fn current_time_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
 
 pub struct SubagentTool;
 
@@ -90,9 +98,11 @@ impl BaseTool for SubagentTool {
             &ctx.session_id,
             EventPayload::SubagentStart {
                 parent_session_id: ctx.session_id.clone(),
+                parent_tool_call_id: ctx.tool_call_id.clone(),
                 sub_session_id: sub_session_id.clone(),
                 title: args.title.clone(),
                 message: args.message.clone(),
+                started_at: current_time_millis(),
             },
         );
 
@@ -110,14 +120,52 @@ impl BaseTool for SubagentTool {
         use crate::hooks::loader::load_hook_registry_for_cwd;
 
         let settings = config::load_settings();
-        let client = llm::create_client(&settings.llm);
         let agent_def = args.subagent_type.as_deref().and_then(get_builtin_agent);
+        let inherited_provider_id = ctx
+            .metadata
+            .get("provider_id")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let inherited_model = agent_def
+            .as_ref()
+            .and_then(|a| a.model.clone())
+            .or_else(|| {
+                ctx.metadata
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            });
+        let inherited_reasoning = ctx
+            .metadata
+            .get("reasoning")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let runtime_spec = match config::resolve_runtime_spec(
+            &settings,
+            config::RuntimeIntent {
+                profile_id: Some("chat".to_string()),
+                provider_id: inherited_provider_id.clone(),
+                model_id: inherited_model.clone(),
+                reasoning: inherited_reasoning.clone(),
+                permission_mode: agent_def.as_ref().and_then(|a| a.permission_mode.clone()),
+                allowed_tools: agent_def
+                    .as_ref()
+                    .and_then(|a| a.tools.as_ref().map(|tools| tools.to_vec())),
+                disallowed_tools: agent_def
+                    .as_ref()
+                    .and_then(|a| a.disallowed_tools.as_ref().map(|tools| tools.to_vec())),
+            },
+        ) {
+            Ok(config) => config,
+            Err(error) => return ToolResult::error(error),
+        };
+        let client = llm::create_client(&runtime_spec.llm);
         let system_prompt = build_runtime_prompt_with_addition(
             &settings,
             &ctx.cwd,
             Some(&args.message),
             args.system_prompt.as_deref(),
-            false,
+            &runtime_spec,
         );
         let merged_mcp_configs = McpClientManager::merged_server_configs(&settings, &ctx.cwd);
         let mcp_manager = if merged_mcp_configs.is_empty() {
@@ -129,16 +177,19 @@ impl BaseTool for SubagentTool {
         };
         let tool_registry = std::sync::Arc::new(crate::tools::ToolRegistry::create_for_agent(
             mcp_manager.clone(),
-            agent_def.as_ref().and_then(|a| a.tools.as_deref()),
-            agent_def
-                .as_ref()
-                .and_then(|a| a.disallowed_tools.as_deref()),
+            if runtime_spec.permission.allowed_tools.is_empty() {
+                None
+            } else {
+                Some(&runtime_spec.permission.allowed_tools)
+            },
+            if runtime_spec.permission.denied_tools.is_empty() {
+                None
+            } else {
+                Some(&runtime_spec.permission.denied_tools)
+            },
         ));
         let permission_checker = std::sync::Arc::new(
-            crate::permissions::checker::PermissionChecker::new_with_mode(
-                &settings.permission,
-                agent_def.as_ref().and_then(|a| a.permission_mode.clone()),
-            ),
+            crate::permissions::checker::PermissionChecker::new(&runtime_spec.permission),
         );
 
         let hook_executor = load_hook_registry_for_cwd(&settings, &ctx.cwd);
@@ -151,23 +202,30 @@ impl BaseTool for SubagentTool {
             hook_executor: Some(hook_executor),
             mcp_manager,
             cwd: ctx.cwd.clone(),
-            model: agent_def
-                .as_ref()
-                .and_then(|a| a.model.clone())
-                .unwrap_or_else(|| settings.llm.model.clone()),
-            reasoning: None,
+            provider_id: inherited_provider_id.unwrap_or_else(|| runtime_spec.llm.name.clone()),
+            model: runtime_spec.llm.model.clone(),
+            reasoning: runtime_spec.reasoning.clone(),
             system_prompt,
             agent_turn_limit: agent_def
                 .as_ref()
                 .and_then(|a| a.max_turns)
-                .or(settings.agent_turn_limit),
+                .or(runtime_spec.agent_turn_limit),
+            delegation: runtime_spec.delegation.clone(),
+            completion: runtime_spec.completion.clone(),
+            requires_delegation_for_completion: false,
             agent_id: sub_agent_id.clone(),
             session_id: sub_session_id.clone(),
         };
 
         let mut engine = QueryEngine::new(context);
 
-        let result = engine.submit_message(args.message).await;
+        let result: Result<String, crate::shared::error::RhythmError> = tokio::select! {
+            result = engine.submit_message(args.message) => result,
+            _ = wait_for_subagent_interrupt(&ctx.session_id, &sub_session_id) => {
+                let _ = crate::runtime::interrupts::request_interrupt(&sub_session_id).await;
+                Err(crate::shared::error::RhythmError::LlmError("Subagent interrupted".to_string()))
+            }
+        };
 
         let (result_str, is_error) = match result {
             Ok(text) if !text.is_empty() => (text, false),
@@ -179,6 +237,8 @@ impl BaseTool for SubagentTool {
             &sub_agent_id,
             &sub_session_id,
             EventPayload::SubagentEnd {
+                parent_session_id: ctx.session_id.clone(),
+                parent_tool_call_id: ctx.tool_call_id.clone(),
                 sub_session_id: sub_session_id.clone(),
                 result: result_str.clone(),
                 is_error,
@@ -187,11 +247,23 @@ impl BaseTool for SubagentTool {
 
         event_bus::unregister(&sub_agent_id);
         agent_registry::unregister_agent(&sub_agent_id);
+        session_tree::unregister_session_child(&ctx.session_id, &sub_session_id).await;
 
         if is_error {
             ToolResult::error(result_str)
         } else {
             ToolResult::ok(result_str)
         }
+    }
+}
+
+async fn wait_for_subagent_interrupt(parent_session_id: &str, sub_session_id: &str) {
+    loop {
+        if crate::runtime::interrupts::is_interrupted(parent_session_id).await
+            || crate::runtime::interrupts::is_interrupted(sub_session_id).await
+        {
+            return;
+        }
+        sleep(Duration::from_millis(50)).await;
     }
 }

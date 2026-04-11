@@ -8,9 +8,24 @@ pub fn get_rhythm_dir() -> PathBuf {
     path
 }
 
-/// Returns the settings file path: ~/.rhythm/settings.json
+/// Returns the unified settings file path: ~/.rhythm/settings.json
 pub fn get_settings_path() -> PathBuf {
     get_rhythm_dir().join("settings.json")
+}
+
+/// Returns the mode definitions directory: ~/.rhythm/modes/
+pub fn get_modes_dir() -> PathBuf {
+    get_rhythm_dir().join("modes")
+}
+
+/// Returns a single mode definition file: ~/.rhythm/modes/<mode_id>.yaml
+pub fn get_mode_definition_path(mode_id: &str) -> PathBuf {
+    get_modes_dir().join(format!("{}.yaml", sanitize_path_segment(mode_id)))
+}
+
+/// Returns the pre-refactor config file path: ~/.rhythm/config/config.json
+pub fn get_legacy_config_path() -> PathBuf {
+    get_rhythm_dir().join("config").join("config.json")
 }
 
 /// Returns the data directory: ~/.rhythm/data/
@@ -121,6 +136,7 @@ fn sanitize_path_segment(value: &str) -> String {
 /// Create all required Rhythm directories in one call.
 pub fn init_rhythm_dirs() -> std::io::Result<()> {
     ensure_dir(&get_rhythm_dir())?;
+    ensure_dir(&get_modes_dir())?;
     ensure_dir(&get_data_dir())?;
     ensure_dir(&get_memory_base_dir())?;
     ensure_dir(&get_sessions_dir())?;

@@ -72,6 +72,7 @@ pub struct LlmToolDefinition {
 pub enum LlmResponse {
     TextDelta(String),
     ThinkingDelta(String),
+    ToolCallDelta(LlmToolCall),
     ToolCall(LlmToolCall),
     ThinkingEnd,
     Done,

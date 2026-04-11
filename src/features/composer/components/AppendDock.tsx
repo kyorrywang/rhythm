@@ -4,8 +4,8 @@ import { themeRecipes } from '@/shared/theme/recipes';
 import { Button } from '@/shared/ui/Button';
 import type { AppendDockProps, PendingItem } from '../types';
 
-export const AppendDock = ({ items, onRemoveItem, onCancelAll, onInterrupt, phase, isMinimized, onToggleMinimize }: AppendDockProps) => {
-  const isInterrupting = phase === 'interrupting';
+export const AppendDock = ({ items, onRemoveItem, onCancelAll, onInterrupt, queueState, isMinimized, onToggleMinimize }: AppendDockProps) => {
+  const isInterrupting = queueState === 'interrupting';
   const queueItems = items.filter((item) => item.kind === 'queued_message');
   const queueLength = queueItems.length;
   const summaryLabel = buildSummaryLabel(items);
@@ -30,7 +30,7 @@ export const AppendDock = ({ items, onRemoveItem, onCancelAll, onInterrupt, phas
       <div className={`mb-[var(--theme-toolbar-gap)] flex items-center justify-between ${themeRecipes.sectionTitle()}`}>
         <div className="flex items-center gap-[var(--theme-toolbar-gap)]">
           <span>当前有 {items.length} 项待处理</span>
-          {phase === 'waiting_for_permission' && (
+          {items.some((item) => item.kind === 'permission_request') && (
             <span className={`${themeRecipes.badge('warning')} gap-1`}>
               <ShieldAlert size={10} />
               等待权限

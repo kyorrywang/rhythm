@@ -22,7 +22,15 @@ const previewText = (value: string, maxLength = 1200) => {
 const fallbackToolDetails = (tool: ToolCall) => {
   const args = toolArgs(tool);
   const path = typeof args.path === 'string' ? args.path : '';
-  const statusText = tool.status === 'running' ? '正在执行' : tool.status === 'error' ? '执行失败' : '执行完成';
+  const statusText = tool.isPreparing
+    ? '正在生成内容'
+    : tool.status === 'running'
+      ? '正在执行'
+      : tool.status === 'interrupted'
+        ? '已中断'
+      : tool.status === 'error'
+        ? '执行失败'
+        : '执行完成';
 
   if (tool.name === 'write') {
     const content = typeof args.content === 'string' ? args.content : '';
@@ -30,6 +38,7 @@ const fallbackToolDetails = (tool: ToolCall) => {
       `${statusText}: ${path || '目标文件'}`,
       content ? `待写入内容长度: ${content.length} 字符` : '待写入内容已生成，等待落盘。',
       content ? `\n--- Content Preview ---\n${previewText(content)}` : '',
+      !content && tool.rawArguments ? `\n--- Arguments Stream ---\n${previewText(tool.rawArguments)}` : '',
     ].join('\n');
   }
 
@@ -42,6 +51,7 @@ const fallbackToolDetails = (tool: ToolCall) => {
       replace ? `替换片段长度: ${replace.length} 字符` : '已收到替换片段。',
       search ? `\n--- Search Preview ---\n${previewText(search, 400)}` : '',
       replace ? `\n--- Replace Preview ---\n${previewText(replace)}` : '',
+      !search && !replace && tool.rawArguments ? `\n--- Arguments Stream ---\n${previewText(tool.rawArguments)}` : '',
     ].join('\n');
   }
 

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { MoreHorizontal, Archive, Pencil, Copy } from 'lucide-react';
+import { MoreHorizontal, Archive, Pencil, Copy, ChevronRight, ArrowDown } from 'lucide-react';
 import { ComposerBox } from '@/features/composer/ComposerBox';
 import { UserMessage } from './components/UserMessage';
 import { AgentMessage } from './components/AgentMessage';
@@ -12,20 +12,21 @@ import { themeRecipes } from '@/shared/theme/recipes';
 import { EmptyState } from './EmptyState';
 import type { Message, Session } from '@/shared/types/schema';
 import { Button, MenuContent, MenuItem, MenuPortal, MenuRoot, MenuTrigger } from '@/shared/ui';
+import { getMessageTextContent } from '@/shared/lib/sessionState';
 
 export const SessionContainer = () => {
   const activeSession = useActiveSession();
   const sessions = useSessionStore((s) => s.sessions);
+  const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const archiveSession = useSessionStore((s) => s.archiveSession);
   const renameSession = useSessionStore((s) => s.renameSession);
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(false);
-  const { scrollRef } = useAutoScroll([
-    activeSession?.id,
-    activeSession?.messages.length,
-    activeSession?.messages[activeSession.messages.length - 1]?.segments?.length,
-  ]);
-
   const messages = activeSession?.messages ?? [];
+  const autoScrollKey = useMemo(
+    () => buildContentVersion(activeSession),
+    [activeSession],
+  );
+  const { scrollRef, contentRef, isUserAtBottom, scrollToBottom } = useAutoScroll(autoScrollKey);
   const runtimeState = activeSession?.runtime?.state;
   const isSessionRunning = Boolean(
     runtimeState
@@ -34,9 +35,9 @@ export const SessionContainer = () => {
   const showErrorBanner = activeSession?.runtime?.state === 'failed' && activeSession?.error;
 
   const isEmpty = !activeSession || messages.length === 0;
-  const parentSession = useMemo(
-    () => (activeSession?.parentId ? sessions.get(activeSession.parentId) ?? null : null),
-    [activeSession?.parentId, sessions],
+  const sessionBreadcrumbs = useMemo(
+    () => collectSessionBreadcrumbs(activeSession, sessions),
+    [activeSession, sessions],
   );
 
   return (
@@ -51,15 +52,16 @@ export const SessionContainer = () => {
           <div className="shrink-0 px-6">
             <SessionHeader
               activeSession={activeSession}
-              parentSession={parentSession}
+              breadcrumbs={sessionBreadcrumbs}
+              onSelectSession={setActiveSession}
               onOpenContextPanel={() => setIsContextPanelOpen(true)}
               archiveSession={archiveSession}
               renameSession={renameSession}
             />
           </div>
 
-          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto no-scrollbar smooth-scroll">
-            <div className="max-w-[820px] w-full mx-auto relative pointer-events-auto z-10 px-6">
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
+            <div ref={contentRef} className="max-w-[820px] w-full mx-auto relative pointer-events-auto z-10 px-6">
             {showErrorBanner && (
               <div className="mb-4">
                 <ErrorBanner message={activeSession.error || ''} onDismiss={() => useSessionStore.getState().updateSession(activeSession.id, { error: null })} />
@@ -85,6 +87,19 @@ export const SessionContainer = () => {
             </div>
           </div>
         </div>
+        {!isUserAtBottom && (
+          <div className="pointer-events-none absolute bottom-[112px] right-8 z-20">
+            <Button
+              variant="unstyled"
+              size="none"
+              onClick={scrollToBottom}
+              className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full border-[var(--theme-border-width)] border-[var(--theme-border)] bg-[color:color-mix(in_srgb,var(--theme-surface)_92%,transparent)] text-[var(--theme-text-secondary)] shadow-[var(--theme-shadow-strong)] backdrop-blur-md transition-colors hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]"
+              title="滚到最下面"
+            >
+              <ArrowDown size={18} />
+            </Button>
+          </div>
+        )}
         </>
       )}
 
@@ -107,13 +122,15 @@ export const SessionContainer = () => {
 
 const SessionHeader = ({
   activeSession,
-  parentSession,
+  breadcrumbs,
+  onSelectSession,
   onOpenContextPanel,
   archiveSession,
   renameSession,
 }: {
   activeSession?: Session;
-  parentSession: Session | null;
+  breadcrumbs: Session[];
+  onSelectSession: (sessionId: string | null) => void;
   onOpenContextPanel: () => void;
   archiveSession: (sessionId: string) => void;
   renameSession: (sessionId: string, title: string) => void;
@@ -124,14 +141,15 @@ const SessionHeader = ({
   return (
     <div className="mx-auto flex w-full max-w-[820px] items-center justify-between py-[var(--theme-section-gap)]">
       <div className="flex min-w-0 items-center gap-[var(--theme-toolbar-gap)]">
-        <div className={`flex min-w-0 items-center gap-[var(--theme-toolbar-gap)] text-[length:var(--theme-body-size)] ${themeRecipes.description()}`}>
-          {parentSession && (
-            <>
-              <span className="shrink-0 truncate">{parentSession.title}</span>
-              <span>/</span>
-            </>
-          )}
-          <h2 className={`truncate ${themeRecipes.title()}`}>{activeSession?.title || '新会话'}</h2>
+        <div className="flex min-w-0 items-center gap-1.5 text-[length:var(--theme-body-size)]">
+          {breadcrumbs.map((session) => (
+            <BreadcrumbLink
+              key={session.id}
+              title={session.title}
+              onClick={() => onSelectSession(session.id)}
+            />
+          ))}
+          <h2 className={`min-w-0 truncate ${themeRecipes.title()}`}>{activeSession?.title || '新会话'}</h2>
         </div>
       </div>
       <div className={themeRecipes.toolbar()}>
@@ -222,3 +240,85 @@ const HeaderMenuAction = ({
     {label}
   </MenuItem>
 );
+
+const BreadcrumbLink = ({
+  title,
+  onClick,
+}: {
+  title: string;
+  onClick: () => void;
+}) => (
+  <>
+    <button
+      type="button"
+      onClick={onClick}
+      className="max-w-[180px] shrink-0 truncate rounded-[var(--theme-radius-control)] px-1.5 py-0.5 text-[13px] font-medium text-[var(--theme-text-muted)] transition-colors hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-secondary)]"
+      title={title}
+    >
+      {title}
+    </button>
+    <ChevronRight size={12} className="shrink-0 text-[var(--theme-border-strong)]" />
+  </>
+);
+
+function buildContentVersion(session?: Session) {
+  if (!session) return 'none';
+
+  const messageSignature = session.messages.map((message) => {
+    const segmentSignature = (message.segments || []).map((segment) => {
+      if (segment.type === 'text') return `text:${segment.content.length}`;
+      if (segment.type === 'thinking') return `thinking:${segment.content.length}:${segment.isLive ? 1 : 0}`;
+      if (segment.type === 'tool') {
+        const logsLength = segment.tool.logs?.join('\n').length || 0;
+        const resultLength = segment.tool.result?.length || 0;
+        const argsLength = JSON.stringify(segment.tool.arguments || {}).length;
+        return `tool:${segment.tool.id}:${segment.tool.status}:${segment.tool.subSessionId || 'none'}:${logsLength}:${resultLength}:${argsLength}`;
+      }
+      if (segment.type === 'retry') return `retry:${segment.state}:${segment.attempt}:${segment.retryInSeconds || 0}`;
+      if (segment.type === 'ask') return `ask:${segment.status}:${segment.questions?.length || 0}`;
+      if (segment.type === 'permission') return `permission:${segment.status}:${segment.request.toolId}`;
+      return 'unknown';
+    }).join('|');
+
+    return [
+      message.id,
+      message.role,
+      getMessageTextContent(message).length,
+      message.status || 'none',
+      message.startedAt || 0,
+      message.endedAt || 0,
+      segmentSignature,
+    ].join('~');
+  }).join('||');
+
+  return [
+    session.id,
+    session.messages.length,
+    session.updatedAt,
+    session.runtime?.state || 'idle',
+    session.runtime?.updatedAt || 0,
+    session.error || '',
+    messageSignature,
+  ].join(':');
+}
+
+const collectSessionBreadcrumbs = (
+  activeSession: Session | undefined,
+  sessions: Map<string, Session>,
+): Session[] => {
+  if (!activeSession?.parentId) return [];
+
+  const lineage: Session[] = [];
+  const visited = new Set<string>();
+  let currentId: string | undefined = activeSession.parentId;
+
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const session = sessions.get(currentId);
+    if (!session) break;
+    lineage.unshift(session);
+    currentId = session.parentId;
+  }
+
+  return lineage;
+};

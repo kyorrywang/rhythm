@@ -7,7 +7,6 @@ import type { ThemePresetName } from '@/shared/theme';
 export interface ProviderModel {
   id: string;
   name: string;
-  isDefault?: boolean;
   enabled: boolean;
   note?: string;
 }
@@ -18,7 +17,6 @@ export interface ProviderConfig {
   provider: string;
   baseUrl: string;
   apiKey: string;
-  isDefault?: boolean;
   models: ProviderModel[];
 }
 
@@ -54,6 +52,8 @@ export interface AppSettings {
   autoSaveSessions: boolean;
   providers: ProviderConfig[];
   systemPrompt: string;
+  defaultProfileId: string;
+  defaultReasoning: 'low' | 'medium' | 'high';
   permissionMode: 'default' | 'plan' | 'full_auto';
   allowedTools: string[];
   deniedTools: string[];
@@ -65,58 +65,31 @@ export interface AppSettings {
   hooks: HookConfig[];
   mcpServers: MCPServerConfig[];
   enabledPlugins: string[];
+  runtimeProfiles: BackendSettings['runtimeProfiles'];
   cronJobs: CronJobConfig[];
 }
 
-const DEFAULT_SETTINGS: AppSettings = {
+const INITIAL_SETTINGS_SNAPSHOT: AppSettings = {
   theme: 'system',
   themePreset: 'grand',
   autoSaveSessions: true,
-  providers: [
-    {
-      id: 'openai',
-      name: 'OpenAI',
-      provider: 'openai',
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: 'sk-••••••••',
-      isDefault: true,
-      models: [
-        { id: 'gpt-5.4', name: 'gpt-5.4', isDefault: true, enabled: true, note: '默认主力模型' },
-        { id: 'gpt-5.4-mini', name: 'gpt-5.4-mini', enabled: true, note: '快速处理轻量任务' },
-      ],
-    },
-    {
-      id: 'anthropic',
-      name: 'Anthropic',
-      provider: 'anthropic',
-      baseUrl: 'https://api.anthropic.com',
-      apiKey: 'sk-ant-••••••••',
-      models: [
-        { id: 'claude-sonnet', name: 'claude-sonnet', enabled: true, note: '长文与写作' },
-      ],
-    },
-  ],
-  systemPrompt: 'You are Rhythm, a focused coding assistant.',
+  providers: [],
+  systemPrompt: '',
+  defaultProfileId: 'chat',
+  defaultReasoning: 'medium',
   permissionMode: 'default',
-  allowedTools: ['read', 'shell'],
-  deniedTools: ['delete'],
-  pathRules: ['allow: C:\\Users\\Administrator\\Documents\\dev\\rhythm\\src'],
-  deniedCommands: ['rm -rf', 'del /f /s /q'],
+  allowedTools: [],
+  deniedTools: [],
+  pathRules: [],
+  deniedCommands: [],
   memoryEnabled: true,
-  memoryMaxFiles: 12,
-  memoryMaxEntrypointLines: 240,
-  hooks: [
-    { id: 'hook-1', stage: 'pre_tool_use', type: 'command', matcher: 'shell:*', timeout: 3000, blockOnFailure: false },
-    { id: 'hook-2', stage: 'session_end', type: 'http', matcher: 'session:end', timeout: 5000, blockOnFailure: false },
-  ],
-  mcpServers: [
-    { id: 'mcp-1', name: 'filesystem', transport: 'stdio', endpoint: 'npx @modelcontextprotocol/server-filesystem', enabled: true },
-    { id: 'mcp-2', name: 'browser', transport: 'http', endpoint: 'http://127.0.0.1:8787/mcp', enabled: false },
-  ],
-  enabledPlugins: ['runtime-tools'],
-  cronJobs: [
-    { id: 'cron-1', name: 'Morning Digest', schedule: 'Every weekday 09:00', prompt: 'Summarize repo changes and open issues.', cwd: 'C:\\Users\\Administrator\\Documents\\dev\\rhythm', enabled: true },
-  ],
+  memoryMaxFiles: 0,
+  memoryMaxEntrypointLines: 0,
+  hooks: [],
+  mcpServers: [],
+  enabledPlugins: [],
+  runtimeProfiles: [],
+  cronJobs: [],
 };
 
 interface SettingsState {
@@ -130,24 +103,44 @@ interface SettingsState {
   saveToBackend: () => Promise<void>;
 }
 
+function normalizeSettings(input?: Partial<AppSettings> | null): AppSettings {
+  return {
+    ...INITIAL_SETTINGS_SNAPSHOT,
+    ...input,
+    providers: input?.providers || [],
+    allowedTools: input?.allowedTools || [],
+    deniedTools: input?.deniedTools || [],
+    pathRules: input?.pathRules || [],
+    deniedCommands: input?.deniedCommands || [],
+    hooks: input?.hooks || [],
+    mcpServers: input?.mcpServers || [],
+    enabledPlugins: input?.enabledPlugins || [],
+    runtimeProfiles: input?.runtimeProfiles || [],
+    cronJobs: input?.cronJobs || [],
+  };
+}
+
 function mapBackendSettings(input: BackendSettings, cronJobs: BackendCronJobConfig[]): AppSettings {
   return {
     theme: input.theme || 'system',
-    themePreset: useSettingsStore.getState().settings.themePreset || 'grand',
+    themePreset: (input.themePreset as ThemePresetName | undefined) || 'grand',
     autoSaveSessions: input.autoSaveSessions ?? true,
     providers: input.providers || [],
-    systemPrompt: input.systemPrompt,
-    permissionMode: input.permissionMode,
-    allowedTools: input.allowedTools,
-    deniedTools: input.deniedTools,
-    pathRules: input.pathRules,
-    deniedCommands: input.deniedCommands,
-    memoryEnabled: input.memoryEnabled,
-    memoryMaxFiles: input.memoryMaxFiles,
-    memoryMaxEntrypointLines: input.memoryMaxEntrypointLines,
-    hooks: input.hooks,
-    mcpServers: input.mcpServers,
-    enabledPlugins: input.enabledPlugins,
+    systemPrompt: input.systemPrompt ?? '',
+    defaultProfileId: input.defaultProfileId ?? INITIAL_SETTINGS_SNAPSHOT.defaultProfileId,
+    defaultReasoning: input.defaultReasoning ?? INITIAL_SETTINGS_SNAPSHOT.defaultReasoning,
+    permissionMode: input.permissionMode ?? INITIAL_SETTINGS_SNAPSHOT.permissionMode,
+    allowedTools: input.allowedTools || [],
+    deniedTools: input.deniedTools || [],
+    pathRules: input.pathRules || [],
+    deniedCommands: input.deniedCommands || [],
+    memoryEnabled: input.memoryEnabled ?? INITIAL_SETTINGS_SNAPSHOT.memoryEnabled,
+    memoryMaxFiles: input.memoryMaxFiles ?? INITIAL_SETTINGS_SNAPSHOT.memoryMaxFiles,
+    memoryMaxEntrypointLines: input.memoryMaxEntrypointLines ?? INITIAL_SETTINGS_SNAPSHOT.memoryMaxEntrypointLines,
+    hooks: input.hooks || [],
+    mcpServers: input.mcpServers || [],
+    enabledPlugins: input.enabledPlugins || [],
+    runtimeProfiles: input.runtimeProfiles || [],
     cronJobs: cronJobs.map((job) => ({
       id: job.id,
       name: job.name,
@@ -160,38 +153,43 @@ function mapBackendSettings(input: BackendSettings, cronJobs: BackendCronJobConf
 }
 
 function toBackendSettings(settings: AppSettings): BackendSettings {
+  const normalized = normalizeSettings(settings);
   return {
-    theme: settings.theme,
-    autoSaveSessions: settings.autoSaveSessions,
-    providers: settings.providers,
-    systemPrompt: settings.systemPrompt,
-    permissionMode: settings.permissionMode,
-    allowedTools: settings.allowedTools,
-    deniedTools: settings.deniedTools,
-    pathRules: settings.pathRules,
-    deniedCommands: settings.deniedCommands,
-    memoryEnabled: settings.memoryEnabled,
-    memoryMaxFiles: settings.memoryMaxFiles,
-    memoryMaxEntrypointLines: settings.memoryMaxEntrypointLines,
-    hooks: settings.hooks,
-    mcpServers: settings.mcpServers,
-    enabledPlugins: settings.enabledPlugins,
+    theme: normalized.theme,
+    themePreset: normalized.themePreset,
+    autoSaveSessions: normalized.autoSaveSessions,
+    providers: normalized.providers,
+    systemPrompt: normalized.systemPrompt,
+    defaultProfileId: normalized.defaultProfileId,
+    defaultReasoning: normalized.defaultReasoning,
+    permissionMode: normalized.permissionMode,
+    allowedTools: normalized.allowedTools,
+    deniedTools: normalized.deniedTools,
+    pathRules: normalized.pathRules,
+    deniedCommands: normalized.deniedCommands,
+    memoryEnabled: normalized.memoryEnabled,
+    memoryMaxFiles: normalized.memoryMaxFiles,
+    memoryMaxEntrypointLines: normalized.memoryMaxEntrypointLines,
+    hooks: normalized.hooks,
+    mcpServers: normalized.mcpServers,
+    enabledPlugins: normalized.enabledPlugins,
+    runtimeProfiles: normalized.runtimeProfiles,
   };
 }
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      settings: DEFAULT_SETTINGS,
+      settings: INITIAL_SETTINGS_SNAPSHOT,
       isLoading: false,
       isHydratedFromBackend: false,
 
       updateSettings: (updates) =>
         set((state) => ({
-          settings: { ...state.settings, ...updates },
+          settings: normalizeSettings({ ...state.settings, ...updates }),
         })),
 
-      resetSettings: () => set({ settings: DEFAULT_SETTINGS }),
+      resetSettings: () => set({ settings: INITIAL_SETTINGS_SNAPSHOT }),
 
       setLoading: (loading) => set({ isLoading: loading }),
 
@@ -200,7 +198,7 @@ export const useSettingsStore = create<SettingsState>()(
         try {
           const [settings, cronJobs] = await Promise.all([fetchBackendSettings(), listCronJobs()]);
           set({
-            settings: mapBackendSettings(settings, cronJobs),
+            settings: normalizeSettings(mapBackendSettings(settings, cronJobs)),
             isLoading: false,
             isHydratedFromBackend: true,
           });
@@ -217,6 +215,14 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'rhythm-settings-v2',
       partialize: (state) => ({ settings: state.settings }),
+      merge: (persistedState, currentState) => {
+        const typedPersistedState = persistedState as Partial<SettingsState> | undefined;
+        return {
+          ...currentState,
+          ...typedPersistedState,
+          settings: normalizeSettings(typedPersistedState?.settings),
+        };
+      },
     },
   ),
 );

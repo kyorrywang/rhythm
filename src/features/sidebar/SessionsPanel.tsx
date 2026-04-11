@@ -1,6 +1,6 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { DEFAULT_WORKSPACE_PATH, useActiveWorkspace, useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
+import { DEFAULT_WORKSPACE_PATH, normalizeWorkspacePath, useActiveWorkspace, useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
 import { useSessions, useSessionStore } from '@/shared/state/useSessionStore';
 import { themeRecipes } from '@/shared/theme/recipes';
 import { EmptyState, SidebarPage } from '@/shared/ui';
@@ -16,9 +16,9 @@ export const SessionsPanel = ({ width }: { width: number }) => {
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
   const closeWorkbench = useSessionStore((state) => state.closeWorkbench);
 
+  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
   const workspaceSessions = sessions.filter((session) =>
-    session.workspacePath === workspacePath ||
-    (!session.workspacePath && workspacePath === DEFAULT_WORKSPACE_PATH)
+    normalizeWorkspacePath(session.workspacePath || DEFAULT_WORKSPACE_PATH) === normalizedWorkspacePath
   );
   const rootSessions = workspaceSessions.filter((session) => !session.parentId);
   const pinnedSessions = rootSessions.filter((session) => !session.archived && session.pinned);

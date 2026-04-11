@@ -1,12 +1,8 @@
-import type { Message, MessageSegment, ServerEventChunk, Session, QueuedMessage, Task, AskRequest } from '@/shared/types/schema';
+import type { Message, MessageSegment, ServerEventChunk, Session, QueuedMessage, SessionQueueState } from '@/shared/types/schema';
 import { reduceSessionChunk } from '@/shared/state/sessionChunkReducer';
 import { persistSession } from '@/shared/lib/sessionPersistence';
 
 interface MessageSliceState {
-  messages: Map<string, Message>;
-  queuedMessages: Map<string, QueuedMessage[]>;
-  currentAsk: Map<string, AskRequest | null>;
-  currentTasks: Map<string, Task[]>;
 }
 
 interface MessageSliceActions {
@@ -17,7 +13,7 @@ interface MessageSliceActions {
   removeQueuedMessage: (sessionId: string, queuedMessageId: string) => void;
   clearQueue: (sessionId: string) => void;
   getQueueLength: (sessionId: string) => number;
-  transitionPhase: (sessionId: string, phase: Session['phase']) => void;
+  setQueueState: (sessionId: string, queueState: SessionQueueState) => void;
   clearAskRequest: (sessionId: string) => void;
   recordAskAnswer: (sessionId: string, messageId: string, answer: { selected: string[]; text: string }) => void;
   clearTasks: (sessionId: string) => void;
@@ -29,7 +25,7 @@ interface MessageSliceActions {
 
 export type MessageSlice = MessageSliceState & MessageSliceActions;
 
-type SessionBackedState = MessageSliceState & {
+type SessionBackedState = {
   sessions: Map<string, Session>;
 };
 
@@ -37,11 +33,6 @@ export const createMessageSlice = (
   set: (partial: Partial<SessionBackedState> | ((state: SessionBackedState) => Partial<SessionBackedState>)) => void,
   get: () => SessionBackedState,
 ): MessageSliceState & MessageSliceActions => ({
-  messages: new Map(),
-  queuedMessages: new Map(),
-  currentAsk: new Map(),
-  currentTasks: new Map(),
-
   addMessage: (sessionId, message) =>
     set((state) => {
       const nextSessions = new Map(state.sessions);
@@ -62,11 +53,12 @@ export const createMessageSlice = (
       const nextSessions = new Map(state.sessions);
       const session = nextSessions.get(sessionId);
       if (!session) return state;
-      const updated = {
+      const messages: Message[] = session.messages.map((msg) =>
+        msg.id === messageId ? ({ ...msg, ...updates } as Message) : msg,
+      );
+      const updated: Session = {
         ...session,
-        messages: session.messages.map((msg) =>
-          msg.id === messageId ? { ...msg, ...updates } : msg,
-        ),
+        messages,
         updatedAt: Date.now(),
       };
       nextSessions.set(sessionId, updated);
@@ -150,15 +142,14 @@ export const createMessageSlice = (
     return state.sessions.get(sessionId)?.queuedMessages?.length || 0;
   },
 
-  transitionPhase: (sessionId, phase) =>
+  setQueueState: (sessionId, queueState) =>
     set((state) => {
       const nextSessions = new Map(state.sessions);
       const session = nextSessions.get(sessionId);
       if (!session) return state;
       const updated = {
         ...session,
-        phase,
-        currentAsk: phase !== 'waiting_for_ask' ? null : session.currentAsk,
+        queueState,
         updatedAt: Date.now(),
       };
       nextSessions.set(sessionId, updated);
@@ -171,7 +162,7 @@ export const createMessageSlice = (
       const nextSessions = new Map(state.sessions);
       const session = nextSessions.get(sessionId);
       if (!session) return state;
-      const updated = { ...session, currentAsk: null, updatedAt: Date.now() };
+      const updated = { ...session, updatedAt: Date.now() };
       nextSessions.set(sessionId, updated);
       persistSession(updated);
       return { sessions: nextSessions };
@@ -184,7 +175,6 @@ export const createMessageSlice = (
       if (!session) return state;
       const updated = {
         ...session,
-        currentAsk: null,
         messages: session.messages.map((msg) =>
           msg.id !== messageId || !msg.segments
             ? msg
@@ -205,16 +195,9 @@ export const createMessageSlice = (
       return { sessions: nextSessions };
     }),
 
-  clearTasks: (sessionId) =>
+  clearTasks: (_sessionId) =>
     set((state) => {
-      const nextSessions = new Map(state.sessions);
-      const session = nextSessions.get(sessionId);
-      if (!session) return state;
-      if (!session.currentTasks?.length) return state;
-      const updated = { ...session, currentTasks: [] };
-      nextSessions.set(sessionId, updated);
-      persistSession(updated);
-      return { sessions: nextSessions };
+      return state;
     }),
 
   resolvePermissionRequestInTimeline: (sessionId, toolId, approved) =>
@@ -254,11 +237,11 @@ export const createMessageSlice = (
     };
   },
 
-  migrateQueueToChild: (parentSessionId, childSessionId, sessions) => {
+  migrateQueueToChild: (_parentSessionId, _childSessionId, sessions) => {
     return sessions;
   },
 
-  restoreQueueToParent: (childSessionId, parentSessionId, sessions) => {
+  restoreQueueToParent: (_childSessionId, _parentSessionId, sessions) => {
     return sessions;
   },
 });

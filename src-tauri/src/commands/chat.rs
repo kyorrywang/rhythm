@@ -10,7 +10,7 @@ use crate::infrastructure::event_bus;
 use crate::llm;
 use crate::llm::{ChatAttachment, LlmClient};
 use crate::mcp::McpClientManager;
-use crate::permissions::{PermissionChecker, PermissionMode};
+use crate::permissions::PermissionChecker;
 use crate::prompts::builder::build_runtime_prompt;
 use crate::runtime::{ask, interrupts, permissions, session_tree, sessions};
 use crate::shared::schema::{EventPayload, ServerEventChunk};
@@ -44,34 +44,45 @@ pub async fn chat_stream(
     prompt: String,
     attachments: Option<Vec<ChatAttachment>>,
     cwd: Option<String>,
+    profile_id: Option<String>,
     permission_mode: Option<String>,
     allowed_tools: Option<Vec<String>>,
     disallowed_tools: Option<Vec<String>>,
     provider_id: Option<String>,
     model: Option<String>,
     reasoning: Option<String>,
-    mode: Option<String>,
     on_event: Channel<ServerEventChunk>,
 ) -> Result<(), String> {
     let settings = config::load_settings();
-    let llm_config = config::resolve_llm_config(&settings, provider_id.as_deref(), model.as_deref())?;
+    let runtime_spec = config::resolve_runtime_spec(
+        &settings,
+        config::RuntimeIntent {
+            profile_id: profile_id.clone(),
+            provider_id: provider_id.clone(),
+            model_id: model.clone(),
+            reasoning: reasoning.clone(),
+            permission_mode: permission_mode.as_deref().map(crate::permissions::modes::PermissionMode::from_str),
+            allowed_tools: allowed_tools.clone(),
+            disallowed_tools: disallowed_tools.clone(),
+        },
+    )?;
+    let llm_config = runtime_spec.llm.clone();
 
     let agent_id = agent_registry::register_agent(session_id.clone(), None, 0);
     event_bus::register_ipc_channel(&agent_id, on_event.clone());
-    sessions::register_session(session_id.clone());
+    sessions::register_session(session_id.clone(), agent_id.clone()).await;
     let cwd_path = crate::commands::workspace::resolve_workspace_path(cwd.as_deref())?;
 
     tokio::spawn(async move {
         let client: Arc<dyn LlmClient> = Arc::from(llm::create_client(&llm_config));
 
         // Build multi-layer system prompt
-        let coordinate_mode = mode
-            .as_deref()
-            .map(str::trim)
-            .map(|value| value.eq_ignore_ascii_case("coordinate"))
-            .unwrap_or(false);
-        let system_prompt =
-            build_runtime_prompt(&settings, &cwd_path, Some(&prompt), coordinate_mode);
+        let system_prompt = build_runtime_prompt(
+            &settings,
+            &cwd_path,
+            Some(&prompt),
+            &runtime_spec,
+        );
 
         let merged_mcp_configs = McpClientManager::merged_server_configs(&settings, &cwd_path);
         let mcp_manager = if merged_mcp_configs.is_empty() {
@@ -86,19 +97,25 @@ pub async fn chat_stream(
         let tool_registry = Arc::new(ToolRegistry::create_for_agent_with_plugins(
             &loaded_plugins,
             mcp_manager.clone(),
-            allowed_tools.as_deref(),
-            disallowed_tools.as_deref(),
+            if runtime_spec.permission.allowed_tools.is_empty() {
+                None
+            } else {
+                Some(&runtime_spec.permission.allowed_tools)
+            },
+            if runtime_spec.permission.denied_tools.is_empty() {
+                None
+            } else {
+                Some(&runtime_spec.permission.denied_tools)
+            },
         ));
-        let permission_mode_override = permission_mode.as_deref().map(PermissionMode::from_str);
-        let permission_checker = Arc::new(PermissionChecker::new_with_mode(
-            &settings.permission,
-            permission_mode_override,
-        ));
+        let permission_checker = Arc::new(PermissionChecker::new(&runtime_spec.permission));
 
         let hook_executor = load_hook_registry_for_cwd(&settings, &cwd_path);
         let hook_executor = Arc::new(HookExecutor::new(hook_executor));
 
         let attachments = attachments.unwrap_or_default();
+        let requires_delegation_for_completion =
+            config::should_delegate_task(&runtime_spec, &prompt, attachments.len());
         let mut retry_attempt: u32 = 0;
         emit_runtime_status(
             &agent_id,
@@ -133,10 +150,16 @@ pub async fn chat_stream(
                 hook_executor: Some(hook_executor.clone()),
                 mcp_manager: mcp_manager.clone(),
                 cwd: cwd_path.clone(),
+                provider_id: provider_id
+                    .clone()
+                    .unwrap_or_else(|| llm_config.name.clone()),
                 model: llm_config.model.clone(),
-                reasoning: reasoning.clone(),
+                reasoning: runtime_spec.reasoning.clone(),
                 system_prompt: system_prompt.clone(),
-                agent_turn_limit: settings.agent_turn_limit,
+                agent_turn_limit: runtime_spec.agent_turn_limit,
+                delegation: runtime_spec.delegation.clone(),
+                completion: runtime_spec.completion.clone(),
+                requires_delegation_for_completion,
                 agent_id: agent_id.clone(),
                 session_id: session_id.clone(),
             };
@@ -225,7 +248,7 @@ pub async fn chat_stream(
                             content: format!("\n[Error: {}]", e),
                         },
                     );
-                    event_bus::emit(&agent_id, &session_id, EventPayload::Done);
+                    event_bus::emit(&agent_id, &session_id, EventPayload::Failed);
                     break;
                 }
             }
@@ -234,10 +257,24 @@ pub async fn chat_stream(
         event_bus::unregister(&agent_id);
         agent_registry::unregister_agent(&agent_id);
         session_tree::unregister_session_tree(&session_id).await;
-        sessions::unregister_session(session_id);
+        sessions::unregister_session(session_id).await;
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn attach_session_stream(
+    session_id: String,
+    after_event_id: Option<u64>,
+    on_event: Channel<ServerEventChunk>,
+) -> Result<bool, String> {
+    let Some(session_info) = sessions::get_session_info(&session_id).await else {
+        return Ok(false);
+    };
+
+    event_bus::attach_ipc_channel(&session_info.agent_id, on_event, after_event_id);
+    Ok(true)
 }
 
 fn is_retryable_rate_limit_error(message: &str) -> bool {

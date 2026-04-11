@@ -5,6 +5,7 @@ import { useSessionStore } from '@/shared/state/useSessionStore';
 import { cn } from '@/shared/lib/utils';
 import { themeRecipes } from '@/shared/theme/recipes';
 import { Badge, IconButton, MenuContent, MenuItem, MenuPortal, MenuRoot, MenuTrigger } from '@/shared/ui';
+import { isSessionRunning } from '@/shared/lib/sessionState';
 
 interface SessionItemProps {
   session: Session;
@@ -31,9 +32,6 @@ const formatTime = (timestamp: number): string => {
   if (days < 7) return `${Math.max(1, days)}天前`;
   return '一周前';
 };
-
-const isSessionRunning = (session: Session): boolean =>
-  session.phase !== 'idle' && session.phase !== undefined && session.phase !== null;
 
 export const SessionItem = ({ session, isActive, onClick }: SessionItemProps) => {
   const [menuOpen, setMenuOpen] = useState(false);

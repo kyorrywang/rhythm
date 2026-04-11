@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, ArrowUp, Shield, ChevronDown, Square, Sparkles, Bot, BrainCircuit, FileText, Image as ImageIcon, SlidersHorizontal, X } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
+import { useSettingsStore } from '@/shared/state/useSettingsStore';
 import { themeRecipes } from '@/shared/theme/recipes';
 import { Button, MenuContent, MenuItem, MenuPortal, MenuRoot, MenuSub, MenuSubmenuContent, MenuSubmenuTrigger, MenuTrigger, PopoverArrow, PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from '@/shared/ui';
 import type { ComposerModelSelection, MainComposerProps, DockType } from '../types';
@@ -19,11 +20,6 @@ const SUBMIT_ICON_MAP: Record<DockType, React.ReactNode> = {
   append: <Square size={13} fill="currentColor" strokeWidth={0} />,
   ask: <ArrowUp size={16} strokeWidth={2.5} />,
 };
-
-const MODE_OPTIONS: Array<{ value: MainComposerProps['controls']['mode']; label: string; description: string }> = [
-  { value: 'Chat', label: 'Chat', description: '单 agent 普通对话' },
-  { value: 'Coordinate', label: 'Coordinate', description: '多 agent 协同处理' },
-];
 
 const REASONING_OPTIONS: Array<{ value: MainComposerProps['controls']['reasoning']; label: string; description: string }> = [
   { value: 'low', label: 'Low', description: '更快响应' },
@@ -128,7 +124,8 @@ export const MainComposer = ({
   headerContent,
   controls,
   modelGroups,
-  sessionPhase,
+  runtimeState,
+  queueState,
   onSetMode,
   onSetModel,
   onSetReasoning,
@@ -137,12 +134,24 @@ export const MainComposer = ({
 }: MainComposerProps) => {
   const hasContent = text.trim().length > 0;
   const canSubmit = hasContent || attachments.length > 0;
-  const isBusy = sessionPhase !== 'idle';
+  const isBusy = Boolean(
+    queueState && queueState !== 'idle'
+    || runtimeState
+    && !['idle', 'completed', 'failed', 'interrupted', 'waiting_for_user'].includes(runtimeState),
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const [isCompactControls, setIsCompactControls] = useState(false);
+  const runtimeProfiles = useSettingsStore((state) => state.settings.runtimeProfiles ?? []);
+  const modeOptions = useMemo(() =>
+    runtimeProfiles.map((profile) => ({
+      value: profile.mode,
+      label: profile.label,
+      description: profile.description,
+    })),
+  [runtimeProfiles]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -316,7 +325,7 @@ export const MainComposer = ({
                 icon={<Sparkles size={13} />}
                 label={controls.mode}
                 title="选择模式"
-                options={MODE_OPTIONS}
+                options={modeOptions.length > 0 ? modeOptions : [{ value: 'Chat', label: 'Chat', description: '单 agent 普通对话' }]}
                 value={controls.mode}
                 onSelect={onSetMode}
               />
@@ -379,6 +388,14 @@ const CompactControlsPopover = ({
 }) => {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const runtimeProfiles = useSettingsStore((state) => state.settings.runtimeProfiles ?? []);
+  const modeOptions = useMemo(() =>
+    runtimeProfiles.map((profile) => ({
+      value: profile.mode,
+      label: profile.label,
+      description: profile.description,
+    })),
+  [runtimeProfiles]);
 
   return (
     <MenuRoot
@@ -415,7 +432,7 @@ const CompactControlsPopover = ({
             </MenuSubmenuTrigger>
             <MenuPortal>
               <MenuSubmenuContent>
-                {MODE_OPTIONS.map((option) => (
+                {modeOptions.map((option) => (
                   <MenuItem
                     key={option.value}
                     onSelect={() => onSetMode(option.value)}
@@ -630,9 +647,9 @@ const ModelPopover = ({
                         >
                           <span>
                             <span className={themeRecipes.selectionTitle()}>{model.name}</span>
-                            {(model.note || model.isDefault) && (
+                            {model.note && (
                               <span className={themeRecipes.selectionDescription(selected)}>
-                                {model.isDefault ? '默认模型' : model.note}
+                                {model.note}
                               </span>
                             )}
                           </span>

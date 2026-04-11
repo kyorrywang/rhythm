@@ -89,9 +89,9 @@ impl TeamRegistry {
 
 // ─── Leader system-prompt context ─────────────────────────────────────────────
 
-/// Build the coordinator-mode addition to the system prompt.
+/// Build the coordinator-mode system prompt fragment.
 /// Injected when `is_coordinator_mode()` is `true`.
-pub fn build_coordinator_system_prompt_addition(agents: &[AgentDefinition]) -> String {
+pub fn build_coordinator_system_prompt_fragment(agents: &[AgentDefinition]) -> String {
     let mut s = String::from(
         "# Coordinator Mode\n\n\
          You are operating as a **Leader Agent** coordinating a team of Worker Agents.\n\n\

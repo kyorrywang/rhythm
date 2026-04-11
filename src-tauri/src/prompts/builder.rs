@@ -1,10 +1,6 @@
 use super::environment::{format_environment_section, get_environment_info};
 use super::rhythm_md::load_rhythm_md;
-use crate::coordinator::{
-    build_coordinator_system_prompt_addition, builtin_agents, is_coordinator_mode,
-};
-use crate::infrastructure::config::RhythmSettings;
-use crate::permissions::modes::PermissionMode;
+use crate::infrastructure::config::{ResolvedRuntimeSpec, RhythmSettings};
 use std::path::Path;
 
 const BASE_SYSTEM_PROMPT: &str = "\
@@ -29,9 +25,15 @@ pub fn build_runtime_prompt(
     settings: &RhythmSettings,
     cwd: &Path,
     latest_user_prompt: Option<&str>,
-    coordinate_mode: bool,
+    runtime_spec: &ResolvedRuntimeSpec,
 ) -> String {
-    build_runtime_prompt_with_addition(settings, cwd, latest_user_prompt, None, coordinate_mode)
+    build_runtime_prompt_with_addition(
+        settings,
+        cwd,
+        latest_user_prompt,
+        None,
+        runtime_spec,
+    )
 }
 
 pub fn build_runtime_prompt_with_addition(
@@ -39,7 +41,7 @@ pub fn build_runtime_prompt_with_addition(
     cwd: &Path,
     latest_user_prompt: Option<&str>,
     extra_prompt: Option<&str>,
-    coordinate_mode: bool,
+    runtime_spec: &ResolvedRuntimeSpec,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -72,9 +74,9 @@ pub fn build_runtime_prompt_with_addition(
     }
 
     // Layer 5: Memory [Phase 6 — disabled until memory module is ready]
-    if settings.memory.enabled {
+    if settings.core.memory.enabled {
         if let Some(mem_section) =
-            crate::memory::memdir::load_memory_prompt(cwd, settings.memory.max_entrypoint_lines)
+            crate::memory::memdir::load_memory_prompt(cwd, settings.core.memory.max_entrypoint_lines)
         {
             sections.push(mem_section);
 
@@ -83,7 +85,7 @@ pub fn build_runtime_prompt_with_addition(
                 let relevant = crate::memory::search::find_relevant_memories(
                     query,
                     cwd,
-                    settings.memory.max_files,
+                    settings.core.memory.max_files,
                 );
                 if !relevant.is_empty() {
                     let mut lines = vec!["# Relevant Memories".to_string()];
@@ -116,12 +118,19 @@ pub fn build_runtime_prompt_with_addition(
     }
 
     // Layer 6: User custom prompt
-    if let Some(custom) = &settings.system_prompt {
+    if let Some(custom) = &settings.prompts.system_prompt {
         sections.push(format!("# User Custom Instructions\n\n{}", custom));
     }
 
-    if coordinate_mode || is_coordinator_mode() {
-        sections.push(build_coordinator_system_prompt_addition(&builtin_agents()));
+    let profile_prompt = runtime_spec
+        .prompt_refs
+        .iter()
+        .filter_map(|prompt_ref| settings.prompts.fragments.get(prompt_ref))
+        .filter(|fragment| !fragment.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    if !profile_prompt.is_empty() {
+        sections.push(profile_prompt.join("\n\n"));
     }
 
     // Optional additive prompt for subagents / worker roles
@@ -132,10 +141,10 @@ pub fn build_runtime_prompt_with_addition(
     }
 
     // Layer 7: Permission mode explanation
-    let perm_note = match settings.permission.mode {
-        PermissionMode::Plan => "# Behaviour Mode\nYou are in PLAN mode. You may only read files and analyse code — all write/execute operations are blocked.",
-        PermissionMode::FullAuto => "# Behaviour Mode\nYou are in FULL AUTO mode. All operations are permitted without user confirmation.",
-        PermissionMode::Default => "# Behaviour Mode\nDefault mode: read operations are always allowed; write/execute operations will request user confirmation.",
+    let perm_note = match runtime_spec.permission.mode {
+        crate::permissions::modes::PermissionMode::Plan => "# Behaviour Mode\nYou are in PLAN mode. You may only read files and analyse code — all write/execute operations are blocked.",
+        crate::permissions::modes::PermissionMode::FullAuto => "# Behaviour Mode\nYou are in FULL AUTO mode. All operations are permitted without user confirmation.",
+        crate::permissions::modes::PermissionMode::Default => "# Behaviour Mode\nDefault mode: read operations are always allowed; write/execute operations will request user confirmation.",
     };
     sections.push(perm_note.to_string());
 

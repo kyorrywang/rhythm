@@ -5,6 +5,7 @@ import { formatTokenCount, formatPercentage } from '@/shared/lib/formatters';
 import { DEFAULT_MAX_TOKENS } from '@/shared/lib/constants';
 import { themeRecipes } from '@/shared/theme/recipes';
 import { Button } from '@/shared/ui/Button';
+import { getMessageTextContent } from '@/shared/lib/sessionState';
 
 interface ContextUsagePanelProps {
   session: Session;
@@ -138,7 +139,7 @@ export const ContextUsagePanel = ({ session, isOpen, onClose }: ContextUsagePane
                           content: getMessageText(msg).substring(0, 200),
                           segments: msg.segments?.length || 0,
                           status: msg.status,
-                          totalTimeMs: msg.totalTimeMs,
+                          durationMs: msg.startedAt && msg.endedAt ? Math.max(0, msg.endedAt - msg.startedAt) : undefined,
                         }, null, 2)}
                       </pre>
                     </div>
@@ -193,7 +194,8 @@ function estimateUsageFromMessages(messages: Message[]) {
 }
 
 function getMessageText(message: Message) {
-  if (message.content?.trim()) return message.content;
+  const derivedText = getMessageTextContent(message);
+  if (derivedText.trim()) return derivedText;
   return (message.segments || [])
     .filter((segment): segment is MessageSegment & { type: 'text' | 'thinking' } => segment.type === 'text' || segment.type === 'thinking')
     .map((segment) => segment.content)

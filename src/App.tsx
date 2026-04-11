@@ -22,7 +22,7 @@ export function App() {
   const closeWorkbench = useSessionStore((s) => s.closeWorkbench);
   const closeOverlay = useSessionStore((s) => s.closeOverlay);
   const setComposerControls = useSessionStore((s) => s.setComposerControls);
-  const setSessions = useSessionStore((s) => s.setSessions);
+  const hydrateWorkspaceSessions = useSessionStore((s) => s.hydrateWorkspaceSessions);
   const hydrateFromBackend = useSettingsStore((s) => s.hydrateFromBackend);
   const isHydratedFromBackend = useSettingsStore((s) => s.isHydratedFromBackend);
   const settings = useSettingsStore((s) => s.settings);
@@ -40,10 +40,10 @@ export function App() {
     void getSessions(activeWorkspace.path)
       .then((sessions) => {
         if (cancelled) return;
-        setSessions(sessions);
+        hydrateWorkspaceSessions(activeWorkspace.path, sessions);
         const current = useSessionStore.getState().activeSessionId;
         if (!current || !sessions.some((session) => session.id === current)) {
-          const nextActive = sessions.find((session) => !session.archived)?.id || null;
+          const nextActive = sessions.find((session) => !session.archived && !session.parentId)?.id || null;
           useSessionStore.getState().setActiveSession(nextActive);
         }
       })
@@ -54,11 +54,13 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspace.path, setSessions]);
+  }, [activeWorkspace.path, hydrateWorkspaceSessions]);
 
   useEffect(() => {
     const currentControls = useSessionStore.getState().composerControls;
     const selectedModel = resolveSelectedModel(settings, currentControls);
+    const runtimeProfiles = settings.runtimeProfiles ?? [];
+    const defaultProfile = runtimeProfiles.find((profile) => profile.id === settings.defaultProfileId);
     const permissionMode = currentControls.fullAuto
       ? 'full_auto'
       : settings.permissionMode === 'plan'
@@ -66,9 +68,11 @@ export function App() {
         : 'default';
 
     setComposerControls({
+      mode: defaultProfile?.mode || currentControls.mode,
       providerId: selectedModel.providerId,
       modelId: selectedModel.modelId,
       modelName: selectedModel.modelName,
+      reasoning: settings.defaultReasoning || currentControls.reasoning,
     });
     setPermissionConfig({
       mode: permissionMode,
@@ -109,10 +113,10 @@ function resolveSelectedModel(
   settings: AppSettings,
   current: ReturnType<typeof useSessionStore.getState>['composerControls'],
 ) {
-  const enabledProviders = settings.providers
+  const enabledProviders = (settings.providers ?? [])
     .map((provider) => ({
       ...provider,
-      models: provider.models.filter((model) => model.enabled),
+      models: (provider.models ?? []).filter((model) => model.enabled),
     }))
     .filter((provider) => provider.models.length > 0);
 

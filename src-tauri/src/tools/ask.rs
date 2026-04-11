@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::oneshot;
+use tokio::time::{sleep, Duration};
 
 pub struct AskTool;
 
@@ -158,7 +159,15 @@ impl BaseTool for AskTool {
             },
         );
 
-        match rx.await {
+        let answer = tokio::select! {
+            answer = rx => answer,
+            _ = wait_for_interrupt(&ctx.session_id) => {
+                let _ = ask::remove_ask_waiter(&ctx.tool_call_id).await;
+                return ToolResult::error("Ask request was interrupted");
+            }
+        };
+
+        match answer {
             Ok(answer) => ToolResult::ok(answer),
             Err(_) => {
                 // Clean up stale waiter on drop
@@ -166,5 +175,14 @@ impl BaseTool for AskTool {
                 ToolResult::error("Ask request was cancelled or dropped")
             }
         }
+    }
+}
+
+async fn wait_for_interrupt(session_id: &str) {
+    loop {
+        if crate::runtime::interrupts::is_interrupted(session_id).await {
+            return;
+        }
+        sleep(Duration::from_millis(50)).await;
     }
 }

@@ -104,7 +104,7 @@ function createWorkspace(path: string): Workspace {
   };
 }
 
-function normalizeWorkspacePath(path: string) {
+export function normalizeWorkspacePath(path: string) {
   const trimmed = path.trim();
   if (/^[a-zA-Z]:[\\\/]*$/.test(trimmed)) {
     return `${trimmed.slice(0, 2)}\\`;

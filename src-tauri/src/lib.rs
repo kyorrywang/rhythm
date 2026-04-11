@@ -9,6 +9,7 @@ pub mod engine;
 pub mod hooks;
 pub mod mcp;
 pub mod memory;
+pub mod modes;
 pub mod permissions;
 pub mod prompts;
 pub mod skills;
@@ -26,7 +27,6 @@ pub fn run() {
 
     // Ensure settings are loaded and folder/file is created at startup
     let _ = infrastructure::config::load_settings();
-
     let cron_registry = Arc::new(Mutex::new(cron::CronRegistry::load()));
     commands::cron::init_registry(cron_registry.clone());
 
@@ -41,6 +41,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // Core chat/session commands
             commands::chat::chat_stream,
+            commands::chat::attach_session_stream,
             commands::chat::submit_user_answer,
             commands::chat::approve_permission,
             commands::llm::llm_complete,

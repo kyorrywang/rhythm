@@ -3,19 +3,21 @@ import { createSession, submitUserAnswer } from '@/shared/api/commands';
 import { useSessionStore } from '@/shared/state/useSessionStore';
 import { useActiveWorkspace } from '@/shared/state/useWorkspaceStore';
 import { useLLMStream } from '@/features/session/hooks/useLLMStream';
-import { SessionPhase, SelectionType, AskQuestion, Message, Attachment } from '@/shared/types/schema';
+import { SelectionType, AskQuestion, Message, Attachment, SessionQueueState, StreamRuntimeState } from '@/shared/types/schema';
+import { getSessionQueueState, getSessionRuntimeState } from '@/shared/lib/sessionState';
 
 interface UseComposerActionsParams {
   activeSessionId: string | null;
-  phase: SessionPhase;
+  runtimeState: StreamRuntimeState;
+  queueState: SessionQueueState;
   currentAsk: { toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[] } | null;
   allTasksDone: boolean;
   composerMode: Message['mode'];
 }
 
-export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTasksDone, composerMode }: UseComposerActionsParams) => {
+export const useComposerActions = ({ activeSessionId, runtimeState, queueState, currentAsk, allTasksDone, composerMode }: UseComposerActionsParams) => {
   const activeWorkspace = useActiveWorkspace();
-  const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, transitionPhase, clearTasks, setTaskMinimized, recordAskAnswer, sessions, addSession, setActiveSession } = useSessionStore();
+  const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, setQueueState, clearTasks, setTaskMinimized, recordAskAnswer, sessions, addSession, setActiveSession } = useSessionStore();
   const { connectStream, requestInterrupt } = useLLMStream();
 
   const [text, setText] = useState('');
@@ -23,12 +25,11 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
   const [selectedAskOptions, setSelectedAskOptions] = useState<string[]>([]);
 
   useEffect(() => {
-    if (currentAsk && phase !== 'waiting_for_ask') {
-      transitionPhase(activeSessionId!, 'waiting_for_ask');
+    if (currentAsk && runtimeState !== 'waiting_for_user') {
       setSelectedAskOptions([]);
       setText('');
     }
-  }, [currentAsk?.toolId, phase, activeSessionId, transitionPhase]);
+  }, [currentAsk?.toolId, runtimeState]);
 
   useEffect(() => {
     if (allTasksDone && activeSessionId) {
@@ -37,10 +38,10 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
   }, [allTasksDone, activeSessionId, setTaskMinimized]);
 
   useEffect(() => {
-    if (phase === 'idle') {
+    if (runtimeState === 'idle') {
       clearTasks(activeSessionId!);
     }
-  }, [phase, activeSessionId, clearTasks]);
+  }, [runtimeState, activeSessionId, clearTasks]);
 
   const buildAskAnswer = useCallback((): { answer: string; record: { selected: string[]; text: string } } => {
     if (!currentAsk) {
@@ -69,7 +70,7 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
   }, [currentAsk, text, selectedAskOptions]);
 
   const handleSend = useCallback((submission?: { answer: string; record: { selected: string[]; text: string } }) => {
-    if (phase === 'waiting_for_ask' && currentAsk) {
+    if (runtimeState === 'waiting_for_user' && currentAsk) {
       if (!activeSessionId) return;
       const built = submission || buildAskAnswer();
       const answer = built.answer;
@@ -93,7 +94,7 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
       const outgoingAttachments = attachments;
       if (!trimmed && outgoingAttachments.length === 0) return;
 
-      let targetSessionId = activeSessionId;
+      let targetSessionId = activeSessionId && sessions.has(activeSessionId) ? activeSessionId : null;
       if (!targetSessionId) {
         const session = await createSession('新会话', activeWorkspace.path);
         addSession(session);
@@ -101,8 +102,19 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
         targetSessionId = session.id;
       }
 
-      const currentPhase = targetSessionId ? useSessionStore.getState().sessions.get(targetSessionId)?.phase || 'idle' : phase;
-      const isSessionStreaming = currentPhase === 'streaming' || currentPhase === 'streaming_with_queue' || currentPhase === 'processing_queue' || currentPhase === 'interrupting' || currentPhase === 'waiting_for_permission';
+      const currentRuntimeState = targetSessionId
+        ? getSessionRuntimeState(useSessionStore.getState().sessions.get(targetSessionId))
+        : runtimeState;
+      const currentQueueState = targetSessionId
+        ? getSessionQueueState(useSessionStore.getState().sessions.get(targetSessionId))
+        : queueState;
+      const isSessionStreaming =
+        currentRuntimeState === 'starting'
+        || currentRuntimeState === 'streaming'
+        || currentRuntimeState === 'backoff_waiting'
+        || currentRuntimeState === 'retrying'
+        || currentRuntimeState === 'interrupting'
+        || currentRuntimeState === 'waiting_for_permission';
       if (isSessionStreaming && targetSessionId) {
         enqueueMessage(targetSessionId, {
           id: Date.now().toString(),
@@ -114,8 +126,8 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
         }, 'urgent', 'append');
         setText('');
         setAttachments([]);
-        if (currentPhase === 'streaming') {
-          transitionPhase(targetSessionId, 'streaming_with_queue');
+        if (currentRuntimeState === 'streaming' && currentQueueState === 'idle') {
+          setQueueState(targetSessionId, 'streaming_with_queue');
         }
         return;
       }
@@ -126,7 +138,7 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
     };
 
     void sendNormalMessage();
-  }, [activeSessionId, phase, currentAsk, text, attachments, composerMode, activeWorkspace.path, enqueueMessage, connectStream, transitionPhase, buildAskAnswer, recordAskAnswer, sessions]);
+  }, [activeSessionId, runtimeState, queueState, currentAsk, text, attachments, composerMode, activeWorkspace.path, enqueueMessage, connectStream, setQueueState, buildAskAnswer, recordAskAnswer, sessions]);
 
   const handleIgnoreAsk = useCallback(() => {
     if (!activeSessionId || !currentAsk) return;
@@ -149,19 +161,19 @@ export const useComposerActions = ({ activeSessionId, phase, currentAsk, allTask
   const handleCancelQueue = useCallback(() => {
     if (!activeSessionId) return;
     clearQueue(activeSessionId);
-    if (phase === 'streaming_with_queue' || phase === 'processing_queue' || phase === 'interrupting') {
-      transitionPhase(activeSessionId, 'streaming');
+    if (queueState === 'streaming_with_queue' || queueState === 'processing_queue' || queueState === 'interrupting') {
+      setQueueState(activeSessionId, 'idle');
     }
-  }, [activeSessionId, phase, clearQueue, transitionPhase]);
+  }, [activeSessionId, queueState, clearQueue, setQueueState]);
 
   const handleRemoveQueuedItem = useCallback((queuedId: string) => {
     if (!activeSessionId) return;
     removeQueuedMessage(activeSessionId, queuedId);
     const remaining = getQueueLength(activeSessionId) - 1;
-    if (remaining <= 0 && (phase === 'streaming_with_queue' || phase === 'processing_queue' || phase === 'interrupting')) {
-      transitionPhase(activeSessionId, 'streaming');
+    if (remaining <= 0 && (queueState === 'streaming_with_queue' || queueState === 'processing_queue' || queueState === 'interrupting')) {
+      setQueueState(activeSessionId, 'idle');
     }
-  }, [activeSessionId, phase, removeQueuedMessage, getQueueLength, transitionPhase]);
+  }, [activeSessionId, queueState, removeQueuedMessage, getQueueLength, setQueueState]);
 
   const handleInterrupt = useCallback(() => {
     requestInterrupt();

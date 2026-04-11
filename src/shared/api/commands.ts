@@ -1,5 +1,6 @@
 import { Channel } from '@tauri-apps/api/core';
 import { client } from './client';
+import { sanitizeMessage, sanitizeSession } from '@/shared/lib/sessionSanitizer';
 import type {
   BackendSettings,
   BackendWorkspaceInfo,
@@ -11,6 +12,7 @@ import type {
   BackendPluginRuntimeInfo,
   BackendCronJobConfig,
   ChatStreamRequest,
+  AttachSessionStreamRequest,
   SubmitAnswerRequest,
   ApprovePermissionRequest,
   InterruptSessionRequest,
@@ -27,7 +29,7 @@ import type {
   PluginCommandEvent,
   WorkspaceShellRunRequest,
 } from '@/shared/types/api';
-import type { ServerEventChunk, Session } from '@/shared/types/schema';
+import type { Message, MessageSegment, ServerEventChunk, Session, StreamRuntimeState, ToolCall } from '@/shared/types/schema';
 
 export function chatStream(
   request: ChatStreamRequest,
@@ -38,19 +40,30 @@ export function chatStream(
     prompt: request.prompt,
     attachments: request.attachments,
     cwd: request.cwd,
+    profileId: request.profileId,
     permissionMode: request.permissionMode,
     allowedTools: request.allowedTools,
     disallowedTools: request.disallowedTools,
     providerId: request.providerId,
     model: request.model,
     reasoning: request.reasoning,
-    mode: request.mode,
     onEvent,
   } as never);
 }
 
 export function submitUserAnswer(request: SubmitAnswerRequest): Promise<void> {
   return client.invoke('submit_user_answer', request);
+}
+
+export function attachSessionStream(
+  request: AttachSessionStreamRequest,
+  onEvent: Channel<ServerEventChunk>,
+): Promise<boolean> {
+  return client.invoke('attach_session_stream', {
+    sessionId: request.sessionId,
+    afterEventId: request.afterEventId,
+    onEvent,
+  } as never);
 }
 
 export function approvePermission(request: ApprovePermissionRequest): Promise<void> {
@@ -181,6 +194,10 @@ export function listWorkspaceSessions(cwd: string): Promise<Session[]> {
   return client.invoke('list_workspace_sessions', { cwd } as never);
 }
 
+export function listRuntimeSessions(): Promise<import('@/shared/types/api').BackendSessionInfo[]> {
+  return client.invoke('get_sessions', {} as never);
+}
+
 export function getWorkspaceSession(cwd: string, sessionId: string): Promise<Session | null> {
   return client.invoke('get_workspace_session', { cwd, sessionId } as never);
 }
@@ -194,8 +211,14 @@ export function deleteWorkspaceSession(cwd: string, sessionId: string): Promise<
 }
 
 export async function getSessions(cwd: string): Promise<Session[]> {
-  const sessions = await listWorkspaceSessions(cwd);
-  return sessions.map(normalizeSession);
+  const [sessions, runtimeSessions] = await Promise.all([
+    listWorkspaceSessions(cwd),
+    listRuntimeSessions().catch(() => []),
+  ]);
+  return normalizeSessions(
+    sessions,
+    new Set(runtimeSessions.map((session) => session.session_id)),
+  );
 }
 
 export async function createSession(title = 'New Session', workspacePath?: string): Promise<Session> {
@@ -209,7 +232,7 @@ export async function createSession(title = 'New Session', workspacePath?: strin
     taskDockMinimized: false,
     appendDockMinimized: false,
     queuedMessages: [],
-    phase: 'idle',
+    queueState: 'idle',
     runtime: {
       state: 'idle',
       updatedAt: now,
@@ -217,17 +240,208 @@ export async function createSession(title = 'New Session', workspacePath?: strin
   };
 }
 
-function normalizeSession(session: Session): Session {
+const volatileRuntimeStates: StreamRuntimeState[] = [
+  'starting',
+  'streaming',
+  'backoff_waiting',
+  'retrying',
+  'interrupting',
+] as const;
+
+function getSessionFirstActivityTime(session: Session | undefined): number | undefined {
+  if (!session) return undefined;
+  const firstMessageTime = session.messages
+    ?.map((message) => message.startedAt || message.createdAt)
+    .filter((value): value is number => typeof value === 'number')
+    .sort((a, b) => a - b)[0];
+  return firstMessageTime || session.updatedAt || session.runtime?.updatedAt;
+}
+
+function resolveToolStartTime(
+  tool: ToolCall,
+  message: Message,
+  session: Session,
+  relatedSession?: Session,
+): number {
+  return (
+    tool.startedAt
+    || getSessionFirstActivityTime(relatedSession)
+    || message.startedAt
+    || message.createdAt
+    || getSessionFirstActivityTime(session)
+    || session.updatedAt
+    || Date.now()
+  );
+}
+
+function resolveToolEndTime(tool: ToolCall, referenceTime: number): number | undefined {
+  return tool.endedAt || (tool.status === 'running' ? undefined : referenceTime);
+}
+
+function resolveMessageStartTime(message: Message, session: Session): number {
+  return message.startedAt || message.createdAt || getSessionFirstActivityTime(session) || session.updatedAt || Date.now();
+}
+
+function resolveMessageEndTime(message: Message, referenceTime: number): number | undefined {
+  return message.endedAt || (message.status === 'completed' ? referenceTime : undefined);
+}
+
+export function normalizeSessions(sessions: Session[], activeRuntimeSessionIds: Set<string> = new Set()): Session[] {
+  const normalized = sessions.map((session) => normalizeSession(sanitizeSession(session), activeRuntimeSessionIds));
+  const byId = new Map(normalized.map((session) => [session.id, session]));
+
+  return normalized.map((session): Session => ({
+    ...sanitizeSession(session),
+    messages: (session.messages || []).map((message): Message => ({
+      ...sanitizeMessage(message),
+      segments: message.segments?.map((segment): MessageSegment => {
+        if (segment.type !== 'tool') return segment;
+        if (segment.tool.name !== 'spawn_subagent') return segment;
+        if (!segment.tool.subSessionId) return segment;
+
+        const childSession = byId.get(segment.tool.subSessionId);
+        const childState = childSession?.runtime?.state;
+        if (!childState || !['completed', 'failed', 'interrupted', 'idle'].includes(childState)) {
+          return segment;
+        }
+
+        const referenceTime =
+          childSession?.subagentResult?.endedAt
+          || childSession?.runtime?.updatedAt
+          || childSession?.updatedAt
+          || session.updatedAt
+          || Date.now();
+        const startTime = resolveToolStartTime(segment.tool, message, session, childSession);
+        const endTime = referenceTime;
+
+        return {
+          ...segment,
+          tool: {
+            ...segment.tool,
+            status: childState === 'failed' ? 'error' : childState === 'completed' || childState === 'idle' ? 'completed' : 'interrupted',
+            isPreparing: false,
+            startedAt: startTime,
+            endedAt: endTime,
+          },
+        };
+      }),
+    })),
+  }));
+}
+
+function normalizeSession(session: Session, activeRuntimeSessionIds: Set<string>): Session {
+  const runtime = session.runtime || {
+    state: 'idle',
+    updatedAt: session.updatedAt,
+  };
+
+  const shouldFinalizeVolatileState =
+    !activeRuntimeSessionIds.has(session.id) && (
+      volatileRuntimeStates.includes(runtime.state)
+    );
+
+  const normalizedRuntime = shouldFinalizeVolatileState
+    ? {
+        ...runtime,
+        state: 'interrupted' as const,
+        reason: 'interrupt' as const,
+        message: runtime.message || '会话已停止。',
+        updatedAt: runtime.updatedAt || session.updatedAt,
+      }
+    : runtime;
+
+  const referenceTime = Math.max(normalizedRuntime.updatedAt || 0, session.updatedAt || 0, 0) || Date.now();
+  const finalizedToolStatus: ToolCall['status'] | null =
+    normalizedRuntime.state === 'failed'
+      ? 'error'
+      : normalizedRuntime.state === 'completed' || normalizedRuntime.state === 'idle'
+        ? 'completed'
+        : normalizedRuntime.state === 'interrupted'
+          ? 'interrupted'
+          : null;
+  const dropRetrySegments =
+    normalizedRuntime.state === 'completed'
+    || normalizedRuntime.state === 'failed'
+    || normalizedRuntime.state === 'interrupted'
+    || normalizedRuntime.state === 'idle';
+
   return {
-    ...session,
-    messages: session.messages || [],
+    ...sanitizeSession(session),
+    messages: (session.messages || []).map((message): Message => {
+      const messageStartedAt = resolveMessageStartTime(message, session);
+      const messageEndedAt = resolveMessageEndTime(message, referenceTime);
+      const segments: MessageSegment[] = (message.segments || [])
+        .filter((segment) => !(dropRetrySegments && segment.type === 'retry'))
+        .map((segment): MessageSegment => {
+          if (segment.type === 'thinking' && segment.isLive) {
+            const startedAt = segment.startedAt || messageStartedAt;
+            const endedAt = messageEndedAt || referenceTime;
+            return {
+              ...segment,
+              isLive: false,
+              startedAt,
+              endedAt,
+            };
+          }
+
+          if (segment.type === 'tool' && segment.tool.status === 'running' && finalizedToolStatus) {
+            const startTime = resolveToolStartTime(segment.tool, message, session);
+            const endTime = resolveToolEndTime(segment.tool, referenceTime) || referenceTime;
+            return {
+              ...segment,
+              tool: {
+                ...segment.tool,
+                status: finalizedToolStatus,
+                isPreparing: false,
+                startedAt: startTime,
+                endedAt: endTime,
+              },
+            };
+          }
+
+          if (segment.type === 'thinking') {
+            const startedAt = segment.startedAt || messageStartedAt;
+            const endedAt = segment.endedAt;
+            return {
+              ...segment,
+              startedAt,
+              endedAt,
+            };
+          }
+
+          if (segment.type === 'ask' || segment.type === 'permission') {
+            const startedAt = segment.startedAt || messageStartedAt;
+            const endedAt = segment.endedAt;
+            return {
+              ...segment,
+              startedAt,
+              endedAt,
+            };
+          }
+
+          return segment;
+        });
+
+      const shouldFinalizeMessage =
+        message.status === 'running'
+        || message.role === 'assistant'
+        || segments.some((segment) => segment.type === 'thinking' || segment.type === 'tool');
+
+      return {
+        ...sanitizeMessage(message),
+        segments,
+        startedAt: messageStartedAt,
+        endedAt: messageEndedAt,
+        status: shouldFinalizeMessage && dropRetrySegments ? 'completed' : message.status,
+      };
+    }),
     queuedMessages: session.queuedMessages || [],
     taskDockMinimized: session.taskDockMinimized ?? false,
     appendDockMinimized: session.appendDockMinimized ?? false,
-    phase: session.phase === 'streaming' ? 'idle' : session.phase,
-    runtime: session.runtime || {
-      state: session.phase === 'waiting_for_permission' ? 'waiting_for_permission' : 'idle',
-      updatedAt: session.updatedAt,
-    },
+    queueState:
+      session.queueState === 'streaming_with_queue' || session.queueState === 'processing_queue' || session.queueState === 'interrupting'
+        ? session.queueState
+        : 'idle',
+    runtime: normalizedRuntime,
   };
 }

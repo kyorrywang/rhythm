@@ -181,7 +181,8 @@ pub async fn workspace_shell_run(
     }
     let settings = crate::infrastructure::config::load_settings();
     if settings
-        .permission
+        .policies
+        .permissions
         .denied_commands
         .iter()
         .any(|denied| !denied.trim().is_empty() && command.starts_with(denied.trim()))

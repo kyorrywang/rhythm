@@ -114,16 +114,18 @@ pub fn load_plugin(
 pub fn load_plugins(settings: &RhythmSettings, cwd: &Path) -> Vec<LoadedPlugin> {
     let mut plugins: Vec<LoadedPlugin> = discover_plugin_paths(cwd)
         .iter()
-        .filter_map(|(source, path)| load_plugin(*source, path, &settings.enabled_plugins))
+        .filter_map(|(source, path)| load_plugin(*source, path, &settings.core.plugins.enabled))
         .collect();
 
     resolve_plugin_activity(&mut plugins);
 
     for plugin in &mut plugins {
         plugin.granted_permissions = settings
-            .plugin_permissions
+            .core
+            .plugins
+            .permissions
             .get(&workspace_permission_key(cwd, &plugin.manifest.name))
-            .or_else(|| settings.plugin_permissions.get(&plugin.manifest.name))
+            .or_else(|| settings.core.plugins.permissions.get(&plugin.manifest.name))
             .cloned()
             .unwrap_or_else(|| {
                 if plugin.manifest.enabled_by_default {

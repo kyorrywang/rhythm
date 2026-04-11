@@ -7,6 +7,7 @@ const EVENT_TYPE_MAP: Record<ServerEventChunk['type'], InternalEventType> = {
   thinking_delta: 'THINKING_DELTA',
   thinking_end: 'THINKING_END',
   tool_start: 'TOOL_START',
+  tool_call_delta: 'TOOL_CALL_DELTA',
   tool_output: 'TOOL_OUTPUT',
   tool_result: 'TOOL_RESULT',
   tool_end: 'TOOL_END',
@@ -16,6 +17,7 @@ const EVENT_TYPE_MAP: Record<ServerEventChunk['type'], InternalEventType> = {
   subagent_end: 'SUBAGENT_END',
   done: 'DONE',
   interrupted: 'INTERRUPTED',
+  failed: 'FAILED',
   permission_request: 'PERMISSION_REQUEST',
   usage_update: 'USAGE_UPDATE',
   cron_job_triggered: 'CRON_JOB_TRIGGERED',
@@ -23,12 +25,12 @@ const EVENT_TYPE_MAP: Record<ServerEventChunk['type'], InternalEventType> = {
 };
 
 export function mapServerEventToInternal(chunk: ServerEventChunk): InternalEvent {
-  const { type, sessionId, ...rest } = chunk;
+  const { type, sessionId, timestamp, ...rest } = chunk;
 
   return {
     type: EVENT_TYPE_MAP[type],
     sessionId,
-    timestamp: Date.now(),
+    timestamp: timestamp ?? Date.now(),
     payload: rest as Record<string, unknown>,
   };
 }
@@ -39,7 +41,7 @@ export function isUserFacingEvent(eventType: InternalEventType): boolean {
 }
 
 export function isTerminalEvent(eventType: InternalEventType): boolean {
-  return eventType === 'DONE' || eventType === 'INTERRUPTED';
+  return eventType === 'DONE' || eventType === 'INTERRUPTED' || eventType === 'FAILED';
 }
 
 export function isBlockingEvent(eventType: InternalEventType): boolean {

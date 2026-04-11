@@ -58,7 +58,7 @@ export const SettingsPage = ({ onClose }: SettingsPageProps) => {
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6">
             <div className="mb-6 rounded-[var(--theme-radius-card)] border-[var(--theme-border-width)] border-[var(--theme-warning-border)] bg-[var(--theme-warning-surface)] px-4 py-3 text-sm text-[var(--theme-warning-text)]">
-              这里当前只管理前端偏好和显示行为。模型、权限和后端运行配置仍由后端配置文件控制，尚未从这个面板写回。
+              这里主要管理前端偏好与显示行为。完整的运行时配置已经统一到后端配置 bundle，并通过设置页同步。
             </div>
             {activeTab === 'general' && <GeneralSettings settings={settings} onUpdate={updateSettings} onReset={resetSettings} />}
             {activeTab === 'display' && <DisplaySettings preferences={preferences} onUpdate={setSegmentConfig} onReset={resetToDefaults} />}

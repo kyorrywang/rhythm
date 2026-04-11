@@ -48,3 +48,15 @@ pub async fn unregister_session_tree(session_id: &str) {
         children.retain(|c| c != session_id);
     }
 }
+
+pub async fn unregister_session_child(parent_session_id: &str, child_session_id: &str) {
+    let tree = get_session_tree();
+    let mut map = tree.lock().await;
+    if let Some(children) = map.get_mut(parent_session_id) {
+        children.retain(|c| c != child_session_id);
+        if children.is_empty() {
+            map.remove(parent_session_id);
+        }
+    }
+    map.remove(child_session_id);
+}

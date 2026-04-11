@@ -1670,14 +1670,14 @@ function inferDispatchCandidate(
   candidates: Dispatch[],
   context: OrchestrationContext,
 ) {
-  if (!dispatch.kind || !dispatch.parentTaskId) return null;
+  if (!dispatch.kind || !dispatch.parentTask?.id) return null;
   const stageScoped = context.run.currentStageId
     ? candidates.filter((candidate) => candidate.stage.id === context.run.currentStageId)
     : candidates;
   const matched = stageScoped.filter((candidate) =>
     candidate.kind === dispatch.kind
-    && candidate.parentTask.id === dispatch.parentTaskId
-    && (!dispatch.stageId || candidate.stage.id === dispatch.stageId)
+    && candidate.parentTask.id === dispatch.parentTask?.id
+    && (!dispatch.stage?.id || candidate.stage.id === dispatch.stage.id)
   );
   return matched.length === 1 ? matched[0] : null;
 }
@@ -2198,9 +2198,9 @@ export async function applyOrchestratorDecision(
       await updateTask(ctx, dispatch.parentTask.id, (current) => ({
         ...current,
         status: dispatch.kind === 'review' ? 'waiting_review' : 'running',
-        objective: current.objective || dispatch.assignmentBrief.goal,
-        inputs: current.inputs || [...dispatch.assignmentBrief.inputArtifacts],
-        expectedOutputs: current.expectedOutputs || [...dispatch.assignmentBrief.expectedFiles],
+        objective: current.objective || assignmentBrief.goal,
+        inputs: current.inputs || [...assignmentBrief.inputArtifacts],
+        expectedOutputs: current.expectedOutputs || [...assignmentBrief.expectedFiles],
         updatedAt: now,
       }));
       await saveAgentRun(ctx, agentRun);
@@ -2533,7 +2533,9 @@ function createDispatch(parentTask: OrchestratorAgentTask, stage: OrchestratorPl
         ? `Review the outputs of ${taskLabel}.`
         : parentTask.summary || stage.goal,
       context: [],
+      inputArtifacts: [],
       instructions: [],
+      acceptanceCriteria: [],
       deliverables,
       targetFolder,
       expectedFiles,
@@ -2711,7 +2713,11 @@ function getLatestAssistantContent(sessionId: string) {
   if (!session) return '';
   const assistantMessages = session.messages.filter((message) => message.role === 'assistant');
   for (let index = assistantMessages.length - 1; index >= 0; index -= 1) {
-    const content = assistantMessages[index]?.content?.trim() || '';
+    const content = (assistantMessages[index]?.segments || [])
+      .filter((segment) => segment.type === 'text')
+      .map((segment) => segment.content)
+      .join('')
+      .trim();
     if (content) {
       return content;
     }

@@ -1,19 +1,7 @@
-import { SessionPhase, SelectionType, Task, QueuedMessage, AskQuestion, MessageMode, Attachment, StreamRuntime, AskRequest } from '@/shared/types/schema';
+import { SessionQueueState, SelectionType, Task, QueuedMessage, AskQuestion, MessageMode, Attachment, StreamRuntime, AskRequest, StreamRuntimeState } from '@/shared/types/schema';
 import type { PermissionRequest } from '@/shared/state/usePermissionStore';
 
 export type DockType = 'none' | 'append' | 'ask';
-
-export const PHASE_TO_DOCK: Record<SessionPhase, DockType> = {
-  idle: 'none',
-  starting: 'none',
-  streaming: 'none',
-  retrying: 'none',
-  streaming_with_queue: 'append',
-  processing_queue: 'append',
-  waiting_for_ask: 'ask',
-  interrupting: 'none',
-  waiting_for_permission: 'none',
-};
 
 export interface AskDockProps {
   currentAsk: { toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[] };
@@ -37,7 +25,7 @@ export interface AppendDockProps {
   onRemoveItem: (queuedId: string) => void;
   onCancelAll: () => void;
   onInterrupt: () => void;
-  phase: SessionPhase;
+  queueState: SessionQueueState;
   isMinimized: boolean;
   onToggleMinimize: () => void;
 }
@@ -98,7 +86,8 @@ export interface MainComposerProps {
     fullAuto: boolean;
   };
   modelGroups: ComposerModelGroup[];
-  sessionPhase?: SessionPhase;
+  runtimeState?: StreamRuntimeState;
+  queueState?: SessionQueueState;
   onSetMode: (mode: MainComposerProps['controls']['mode']) => void;
   onSetModel: (model: ComposerModelSelection) => void;
   onSetReasoning: (reasoning: MainComposerProps['controls']['reasoning']) => void;
@@ -119,6 +108,5 @@ export interface ComposerModelGroup {
     id: string;
     name: string;
     note?: string;
-    isDefault?: boolean;
   }>;
 }

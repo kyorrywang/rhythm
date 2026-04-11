@@ -1,7 +1,9 @@
+use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use serde_json::Value;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
+use tokio::time::{sleep, Duration};
 
 use super::context::QueryContext;
 use super::stream_events::UsageTracker;
@@ -76,6 +78,7 @@ async fn run_query_inner(
         .collect();
 
     let mut turn = 0usize;
+    let mut used_subagent_tool = false;
     loop {
         if let Some(limit) = context.agent_turn_limit {
             if turn >= limit {
@@ -110,7 +113,6 @@ async fn run_query_inner(
         let mut output_chars_this_turn = 0usize;
 
         let mut thinking_ended = false;
-        let mut thinking_started_at: Option<std::time::Instant> = None;
         let mut pending_tool_calls = Vec::new();
         let mut ended_with_done = false;
         let mut continue_after_tools = false;
@@ -134,9 +136,6 @@ async fn run_query_inner(
 
             match res {
                 Ok(LlmResponse::ThinkingDelta(delta)) => {
-                    if thinking_started_at.is_none() {
-                        thinking_started_at = Some(std::time::Instant::now());
-                    }
                     event_bus::emit(
                         &context.agent_id,
                         &context.session_id,
@@ -147,15 +146,10 @@ async fn run_query_inner(
                 }
                 Ok(LlmResponse::TextDelta(delta)) => {
                     if !thinking_ended {
-                        let elapsed = thinking_started_at
-                            .map(|t| t.elapsed().as_millis() as u64)
-                            .unwrap_or(0);
                         event_bus::emit(
                             &context.agent_id,
                             &context.session_id,
-                            EventPayload::ThinkingEnd {
-                                time_cost_ms: elapsed,
-                            },
+                            EventPayload::ThinkingEnd,
                         );
                         thinking_ended = true;
                     }
@@ -170,33 +164,42 @@ async fn run_query_inner(
                     output_chars_this_turn += delta.len();
                 }
                 Ok(LlmResponse::ThinkingEnd) => {
-                    let elapsed = thinking_started_at
-                        .map(|t| t.elapsed().as_millis() as u64)
-                        .unwrap_or(0);
                     event_bus::emit(
                         &context.agent_id,
                         &context.session_id,
-                        EventPayload::ThinkingEnd {
-                            time_cost_ms: elapsed,
-                        },
+                        EventPayload::ThinkingEnd,
                     );
                     thinking_ended = true;
                 }
                 Ok(LlmResponse::ToolCall(tool_call)) => {
                     if !thinking_ended {
-                        let elapsed = thinking_started_at
-                            .map(|t| t.elapsed().as_millis() as u64)
-                            .unwrap_or(0);
                         event_bus::emit(
                             &context.agent_id,
                             &context.session_id,
-                            EventPayload::ThinkingEnd {
-                                time_cost_ms: elapsed,
-                            },
+                            EventPayload::ThinkingEnd,
                         );
                         thinking_ended = true;
                     }
                     pending_tool_calls.push(tool_call);
+                }
+                Ok(LlmResponse::ToolCallDelta(tool_call)) => {
+                    if !thinking_ended {
+                        event_bus::emit(
+                            &context.agent_id,
+                            &context.session_id,
+                            EventPayload::ThinkingEnd,
+                        );
+                        thinking_ended = true;
+                    }
+                    event_bus::emit(
+                        &context.agent_id,
+                        &context.session_id,
+                        EventPayload::ToolCallDelta {
+                            tool_id: tool_call.id,
+                            tool_name: tool_call.name,
+                            arguments_text: tool_call.arguments,
+                        },
+                    );
                 }
                 Ok(LlmResponse::Done) => {
                     ended_with_done = true;
@@ -214,6 +217,9 @@ async fn run_query_inner(
                         },
                     );
                     if !pending_tool_calls.is_empty() {
+                        if pending_tool_calls.iter().any(|call| call.name == "spawn_subagent") {
+                            used_subagent_tool = true;
+                        }
                         let result =
                             execute_tools(context, std::mem::take(&mut pending_tool_calls)).await;
 
@@ -242,6 +248,7 @@ async fn run_query_inner(
                     }
 
                     // No tool calls → agent is done
+                    enforce_completion_policy(context, assistant_text, used_subagent_tool)?;
                     event_bus::emit(&context.agent_id, &context.session_id, EventPayload::Done);
                     return Ok(assistant_text.clone());
                 }
@@ -255,6 +262,9 @@ async fn run_query_inner(
 
         // If stream ended without Done, handle remaining tool calls
         if !pending_tool_calls.is_empty() {
+            if pending_tool_calls.iter().any(|call| call.name == "spawn_subagent") {
+                used_subagent_tool = true;
+            }
             let result = execute_tools(context, std::mem::take(&mut pending_tool_calls)).await;
 
             messages.push(ChatMessage {
@@ -282,6 +292,7 @@ async fn run_query_inner(
 
         // Stream ended cleanly with no pending tool calls
         if ended_with_done {
+            enforce_completion_policy(context, assistant_text, used_subagent_tool)?;
             return Ok(assistant_text.clone());
         }
 
@@ -299,6 +310,33 @@ async fn run_query_inner(
     }
 
     // The loop exits only through Done, interrupt, stream error, or an optional future turn limit.
+}
+
+fn enforce_completion_policy(
+    context: &QueryContext,
+    assistant_text: &str,
+    used_subagent_tool: bool,
+) -> Result<(), RhythmError> {
+    if context.requires_delegation_for_completion && !used_subagent_tool {
+        let message = if context.completion.strategy == "delegate_then_summarize" {
+            "This task requires delegation before completion. Use `spawn_subagent` for the substantial work, then summarize the returned results."
+        } else {
+            "This task must delegate before it can be completed."
+        };
+        event_bus::emit(
+            &context.agent_id,
+            &context.session_id,
+            EventPayload::TextDelta {
+                content: format!(
+                    "\n[Policy] {} Final inline answer blocked: {}",
+                    message,
+                    assistant_text.trim()
+                ),
+            },
+        );
+        return Err(RhythmError::PolicyViolation(message.to_string()));
+    }
+    Ok(())
 }
 
 // ─── Tool execution helpers ──────────────────────────────────────────────────
@@ -322,8 +360,180 @@ async fn execute_tools(context: &QueryContext, tool_calls: Vec<LlmToolCall>) -> 
         .collect();
 
     let mut tool_results = Vec::new();
+    let mut index = 0usize;
 
-    for tool_call in &tool_calls {
+    while index < tool_calls.len() {
+        if interrupts::is_interrupted(&context.session_id).await {
+            break;
+        }
+
+        if tool_calls[index].name == "spawn_subagent" {
+            let batch_start = index;
+            while index < tool_calls.len() && tool_calls[index].name == "spawn_subagent" {
+                index += 1;
+            }
+
+            let batch_results =
+                execute_spawn_subagent_batch(context, &tool_calls[batch_start..index]).await;
+            tool_results.extend(batch_results);
+        } else {
+            let tool_call = &tool_calls[index];
+            let args: Value = serde_json::from_str(&tool_call.arguments).unwrap_or(Value::Null);
+
+            event_bus::emit(
+                &context.agent_id,
+                &context.session_id,
+                EventPayload::ToolStart {
+                    tool_id: tool_call.id.clone(),
+                    tool_name: tool_call.name.clone(),
+                    args: args.clone(),
+                },
+            );
+
+            let result_block = execute_single_tool(context, tool_call, args).await;
+            if let ChatMessageBlock::ToolResult {
+                content,
+                is_error,
+                ..
+            } = &result_block
+            {
+                event_bus::emit(
+                    &context.agent_id,
+                    &context.session_id,
+                    EventPayload::ToolResult {
+                        tool_id: tool_call.id.clone(),
+                        result: content.clone(),
+                        is_error: *is_error,
+                    },
+                );
+            }
+            let is_error =
+                matches!(&result_block, ChatMessageBlock::ToolResult { is_error, .. } if *is_error);
+
+            event_bus::emit(
+                &context.agent_id,
+                &context.session_id,
+                EventPayload::ToolEnd {
+                    tool_id: tool_call.id.clone(),
+                    exit_code: if is_error { 1 } else { 0 },
+                },
+            );
+
+            tool_results.push(result_block);
+            index += 1;
+        }
+
+        if interrupts::is_interrupted(&context.session_id).await {
+            break;
+        }
+    }
+
+    ToolExecutionBatch {
+        tool_call_blocks,
+        tool_results,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infrastructure::config::{ResolvedCompletionPolicy, ResolvedDelegationPolicy};
+    use crate::llm::{ChatMessage, LlmClient, LlmResponse, LlmResponseStream};
+    use crate::infrastructure::config::PermissionConfig;
+    use crate::permissions::PermissionChecker;
+    use crate::tools::ToolRegistry;
+    use async_trait::async_trait;
+    use futures::stream;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    struct MockLlmClient {
+        text: String,
+    }
+
+    #[async_trait]
+    impl LlmClient for MockLlmClient {
+        async fn chat_stream(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _tools: Vec<crate::llm::LlmToolDefinition>,
+        ) -> Result<LlmResponseStream, String> {
+            Ok(Box::pin(stream::iter(vec![
+                Ok(LlmResponse::TextDelta(self.text.clone())),
+                Ok(LlmResponse::Done),
+            ])))
+        }
+    }
+
+    fn make_context(requires_delegation_for_completion: bool) -> QueryContext {
+        QueryContext {
+            api_client: Arc::new(MockLlmClient { text: "inline answer".to_string() }),
+            tool_registry: Arc::new(ToolRegistry::new()),
+            permission_checker: Arc::new(PermissionChecker::new(&PermissionConfig::default())),
+            hook_executor: None,
+            mcp_manager: None,
+            cwd: PathBuf::from("."),
+            provider_id: "test".to_string(),
+            model: "test-model".to_string(),
+            reasoning: None,
+            system_prompt: String::new(),
+            agent_turn_limit: Some(4),
+            delegation: ResolvedDelegationPolicy {
+                id: Some("coordinate_delegate_first".to_string()),
+                enabled: true,
+                root_may_execute: false,
+                max_subagents_per_turn: Some(3),
+            },
+            completion: ResolvedCompletionPolicy {
+                id: Some("delegate_then_summarize".to_string()),
+                strategy: "delegate_then_summarize".to_string(),
+            },
+            requires_delegation_for_completion,
+            agent_id: "agent-test".to_string(),
+            session_id: "session-test".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn blocks_inline_completion_when_delegation_is_required() {
+        let context = make_context(true);
+        let mut messages = vec![ChatMessage {
+            role: "user".to_string(),
+            blocks: vec![crate::llm::ChatMessageBlock::Text {
+                text: "Write a novel outline".to_string(),
+            }],
+        }];
+        let mut usage = UsageTracker::default();
+
+        let result = run_query(&context, &mut messages, &mut usage).await;
+
+        assert!(matches!(result, Err(RhythmError::PolicyViolation(_))));
+    }
+
+    #[tokio::test]
+    async fn allows_inline_completion_when_delegation_is_not_required() {
+        let context = make_context(false);
+        let mut messages = vec![ChatMessage {
+            role: "user".to_string(),
+            blocks: vec![crate::llm::ChatMessageBlock::Text {
+                text: "Hello".to_string(),
+            }],
+        }];
+        let mut usage = UsageTracker::default();
+
+        let result = run_query(&context, &mut messages, &mut usage).await;
+
+        assert_eq!(result.expect("query should succeed"), "inline answer");
+    }
+}
+
+async fn execute_spawn_subagent_batch(
+    context: &QueryContext,
+    tool_calls: &[LlmToolCall],
+) -> Vec<ChatMessageBlock> {
+    let mut pending = FuturesUnordered::new();
+
+    for (index, tool_call) in tool_calls.iter().cloned().enumerate() {
         let args: Value = serde_json::from_str(&tool_call.arguments).unwrap_or(Value::Null);
 
         event_bus::emit(
@@ -336,7 +546,15 @@ async fn execute_tools(context: &QueryContext, tool_calls: Vec<LlmToolCall>) -> 
             },
         );
 
-        let result_block = execute_single_tool(context, tool_call, args).await;
+        pending.push(async move {
+            let result_block = execute_single_tool(context, &tool_call, args).await;
+            (index, tool_call, result_block)
+        });
+    }
+
+    let mut ordered_results: Vec<Option<ChatMessageBlock>> = vec![None; tool_calls.len()];
+
+    while let Some((index, tool_call, result_block)) = pending.next().await {
         if let ChatMessageBlock::ToolResult {
             content,
             is_error,
@@ -365,13 +583,13 @@ async fn execute_tools(context: &QueryContext, tool_calls: Vec<LlmToolCall>) -> 
             },
         );
 
-        tool_results.push(result_block);
+        ordered_results[index] = Some(result_block);
     }
 
-    ToolExecutionBatch {
-        tool_call_blocks,
-        tool_results,
-    }
+    ordered_results
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 async fn execute_single_tool(
@@ -500,15 +718,25 @@ async fn execute_single_tool(
                     },
                 );
 
-                match rx.await {
-                    Ok(true) => { /* approved — fall through to execute */ }
+                let approved = tokio::select! {
+                    approved = rx => approved.ok(),
+                    _ = wait_for_interrupt(&context.session_id) => None,
+                };
+
+                if approved.is_none() {
+                    permissions::remove_permission_waiter(tool_id).await;
+                }
+
+                match approved {
+                    Some(true) => { /* approved — fall through to execute */ }
                     _ => {
                         return ChatMessageBlock::ToolResult {
                             tool_call_id: tool_id.clone(),
-                            content: format!(
-                                "Permission denied for '{}': user rejected",
-                                tool_name
-                            ),
+                            content: if interrupts::is_interrupted(&context.session_id).await {
+                                format!("Tool '{}' interrupted", tool_name)
+                            } else {
+                                format!("Permission denied for '{}': user rejected", tool_name)
+                            },
                             is_error: true,
                         };
                     }
@@ -529,10 +757,30 @@ async fn execute_single_tool(
         agent_id: context.agent_id.clone(),
         session_id: context.session_id.clone(),
         tool_call_id: tool_id.clone(),
-        metadata: HashMap::new(),
+        metadata: HashMap::from([
+            (
+                "provider_id".to_string(),
+                Value::String(context.provider_id.clone()),
+            ),
+            (
+                "model".to_string(),
+                Value::String(context.model.clone()),
+            ),
+            (
+                "reasoning".to_string(),
+                context
+                    .reasoning
+                    .clone()
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
+            ),
+        ]),
     };
 
-    let result: ToolResult = tool.execute(args.clone(), &tool_ctx).await;
+    let result: ToolResult = tokio::select! {
+        result = tool.execute(args.clone(), &tool_ctx) => result,
+        _ = wait_for_interrupt(&context.session_id) => ToolResult::error(format!("Tool '{}' interrupted", tool_name)),
+    };
     let output = result.output;
     let is_error = result.is_error;
 
@@ -552,5 +800,14 @@ async fn execute_single_tool(
         tool_call_id: tool_id.clone(),
         content: output,
         is_error,
+    }
+}
+
+async fn wait_for_interrupt(session_id: &str) {
+    loop {
+        if interrupts::is_interrupted(session_id).await {
+            return;
+        }
+        sleep(Duration::from_millis(50)).await;
     }
 }

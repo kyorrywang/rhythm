@@ -20,6 +20,7 @@ import { resolvePermissionGrantSessionId } from '@/shared/lib/sessionPermissions
 import type { Message, MessageSegment, ToolCall } from '@/shared/types/schema';
 import { Badge, Button, CopyIconButton } from '@/shared/ui';
 import { CodeBlock } from '@/shared/ui/CodeBlock';
+import { getMessageTextContent } from '@/shared/lib/sessionState';
 
 interface AgentMessageProps {
   message: Message;
@@ -28,23 +29,32 @@ interface AgentMessageProps {
   isSessionRunning?: boolean;
 }
 
-type TextRenderBlock =
-  | { type: 'markdown'; content: string }
-  | { type: 'tool'; tool: ToolCall };
-
-const Timer = ({ isRunning, startTime, finalMs }: { isRunning: boolean; startTime: number; finalMs?: number }) => {
+const Timer = ({ isRunning, startedAt, finalMs }: { isRunning: boolean; startedAt: number; finalMs?: number }) => {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     if (!isRunning) return;
     const intervalId = setInterval(() => {
-      setElapsed(Date.now() - startTime);
+      setElapsed(Date.now() - startedAt);
     }, 100);
     return () => clearInterval(intervalId);
-  }, [isRunning, startTime]);
+  }, [isRunning, startedAt]);
 
   const ms = isRunning ? elapsed : (finalMs !== undefined ? finalMs : elapsed);
   return <>{(ms / 1000).toFixed(1)}s</>;
+};
+
+const deriveDurationMs = ({
+  startedAt,
+  endedAt,
+}: {
+  startedAt?: number;
+  endedAt?: number;
+}) => {
+  if (startedAt && endedAt) {
+    return Math.max(0, endedAt - startedAt);
+  }
+  return undefined;
 };
 
 const SegmentCard = ({
@@ -90,7 +100,7 @@ const SegmentCard = ({
           <span className={`shrink-0 ${themeRecipes.sectionTitle()}`}>{title}</span>
           {summary && <span className={`min-w-0 truncate ${themeRecipes.description()}`}>{summary}</span>}
           <span className="shrink-0 text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">
-            {timerStart !== undefined && <Timer isRunning={Boolean(running)} startTime={timerStart} finalMs={timerMs} />}
+            {timerStart !== undefined && <Timer isRunning={Boolean(running)} startedAt={timerStart} finalMs={timerMs} />}
           </span>
           {canExpand && (
             <span className="-ml-0.5 shrink-0 text-[var(--theme-text-muted)]">
@@ -142,7 +152,7 @@ const ToolBlock = ({ tool, sessionId }: { tool: ToolCall; sessionId: string }) =
           e.stopPropagation();
           setActiveSession(tool.subSessionId!);
         }}
-        className="min-w-0 truncate text-[13px] leading-6"
+        className="min-w-0 truncate px-0 text-[13px] leading-6 text-[var(--theme-accent)] underline underline-offset-4 hover:text-[var(--theme-accent-hover)]"
       >
         {presentation.summary || '打开子会话'}
       </Button>
@@ -152,9 +162,12 @@ const ToolBlock = ({ tool, sessionId }: { tool: ToolCall; sessionId: string }) =
       <SegmentCard
         title="Dynamic智能体"
         summary={subagentSummary}
-        running={false}
-        timerStart={tool.startTime || Date.now()}
-        timerMs={tool.executionTime}
+        running={isRunning}
+        timerStart={tool.startedAt}
+        timerMs={deriveDurationMs({
+          startedAt: tool.startedAt,
+          endedAt: tool.endedAt,
+        })}
         defaultExpanded={defaultExpanded}
       />
     );
@@ -163,11 +176,14 @@ const ToolBlock = ({ tool, sessionId }: { tool: ToolCall; sessionId: string }) =
   if (orchestratorSummary) {
     return (
       <SegmentCard
-        title={orchestratorSummary.title}
-        summary={orchestratorSummary.summary}
-        running={isRunning}
-        timerStart={tool.startTime || Date.now()}
-        timerMs={tool.executionTime}
+      title={orchestratorSummary.title}
+      summary={orchestratorSummary.summary}
+      running={isRunning}
+      timerStart={tool.startedAt}
+      timerMs={deriveDurationMs({
+        startedAt: tool.startedAt,
+        endedAt: tool.endedAt,
+      })}
         defaultExpanded={defaultExpanded}
         action={<ToolActionButtons actions={toolResultActions} tool={tool} sessionId={sessionId} />}
       />
@@ -179,8 +195,11 @@ const ToolBlock = ({ tool, sessionId }: { tool: ToolCall; sessionId: string }) =
       title={presentation.title}
       summary={presentation.summary}
       running={isRunning}
-      timerStart={tool.startTime || Date.now()}
-      timerMs={tool.executionTime}
+      timerStart={tool.startedAt}
+      timerMs={deriveDurationMs({
+        startedAt: tool.startedAt,
+        endedAt: tool.endedAt,
+      })}
       defaultExpanded={defaultExpanded}
       action={<ToolActionButtons actions={toolResultActions} tool={tool} sessionId={sessionId} />}
     >
@@ -189,8 +208,8 @@ const ToolBlock = ({ tool, sessionId }: { tool: ToolCall; sessionId: string }) =
           <div>
             <div className={themeRecipes.eyebrow()}>状态</div>
             <div className="mt-1">
-              <Badge tone={tool.status === 'running' ? 'warning' : tool.status === 'completed' ? 'success' : 'danger'}>
-                {tool.status === 'running' ? '执行中' : tool.status === 'completed' ? '已完成' : '失败'}
+              <Badge tone={tool.status === 'running' ? 'warning' : tool.status === 'completed' ? 'success' : tool.status === 'interrupted' ? 'muted' : 'danger'}>
+                {tool.isPreparing ? '生成中' : tool.status === 'running' ? '执行中' : tool.status === 'completed' ? '已完成' : tool.status === 'interrupted' ? '已中断' : '失败'}
               </Badge>
             </div>
           </div>
@@ -265,8 +284,11 @@ const ThinkingSegment = ({ segment, isLive }: { segment: MessageSegment & { type
     <SegmentCard
       title="Thinking"
       running={isLive}
-      timerStart={segment.startTime || Date.now()}
-      timerMs={segment.timeCostMs}
+      timerStart={segment.startedAt}
+      timerMs={deriveDurationMs({
+        startedAt: segment.startedAt,
+        endedAt: segment.endedAt,
+      })}
       defaultExpanded={defaultExpanded}
     >
       <div className={`whitespace-pre-wrap leading-7 ${themeRecipes.description()}`}>
@@ -307,8 +329,6 @@ const PermissionSegment = ({
     resolvePending(segment.request.toolId, approved);
     resolvePermissionRequestInTimeline(sessionId, segment.request.toolId, approved);
     updateSession(sessionId, {
-      phase: 'streaming',
-      permissionPending: false,
       runtime: {
         state: 'streaming',
         message: '正在流式生成。',
@@ -403,98 +423,6 @@ const RetryStatusSegment = ({ segment }: { segment: Extract<MessageSegment, { ty
     </motion.div>
   );
 };
-
-function tryParseInlineToolPayload(raw: string) {
-  const jsonMatches = raw.match(/\{[\s\S]*\}/g) || [];
-  for (const candidate of jsonMatches) {
-    try {
-      const parsed = JSON.parse(candidate) as Record<string, unknown>;
-      return parsed;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-function matchStringField(raw: string, keys: string[]) {
-  for (const key of keys) {
-    const quoted = new RegExp(`["']${key}["']\\s*[:=]\\s*["']([^"']+)["']`, 'i').exec(raw);
-    if (quoted?.[1]) return quoted[1];
-    const plain = new RegExp(`${key}\\s*[:=]\\s*([^\\n>]+)`, 'i').exec(raw);
-    if (plain?.[1]) return plain[1].trim();
-  }
-  return '';
-}
-
-function buildInlineToolCall(raw: string, index: number, startTime: number): ToolCall | null {
-  const parsed = tryParseInlineToolPayload(raw);
-  const toolName = String(
-    parsed?.name
-    || parsed?.tool
-    || parsed?.tool_name
-    || matchStringField(raw, ['name', 'tool', 'tool_name']),
-  ).trim();
-
-  const mappedName = toolName === 'write_file' ? 'write' : toolName === 'edit_file' ? 'edit' : toolName === 'read_file' ? 'read' : toolName;
-  if (!['write', 'edit', 'read', 'delete'].includes(mappedName)) {
-    return null;
-  }
-
-  const argumentsObject = (() => {
-    if (parsed && typeof parsed === 'object') {
-      const path = String(parsed.path || parsed.file || parsed.target_path || '').trim();
-      const content = String(parsed.content || parsed.text || '').trim();
-      const search = String(parsed.search || '').trim();
-      const replace = String(parsed.replace || '').trim();
-      return { path, content, search, replace };
-    }
-    return {
-      path: matchStringField(raw, ['path', 'file', 'target_path']),
-      content: matchStringField(raw, ['content', 'text']),
-      search: matchStringField(raw, ['search']),
-      replace: matchStringField(raw, ['replace']),
-    };
-  })();
-
-  return {
-    id: `provisional-inline-tool-${index}`,
-    name: mappedName,
-    arguments: argumentsObject,
-    status: 'running',
-    logs: ['Waiting for the actual tool execution to start.'],
-    startTime,
-  };
-}
-
-function buildTextRenderBlocks(content: string, startTime: number): TextRenderBlock[] {
-  const blocks: TextRenderBlock[] = [];
-  const pattern = /<(?:minimax:tool_call|invoke)\b[\s\S]*?(?:<\/(?:minimax:tool_call|invoke)>|$)/gi;
-  let cursor = 0;
-  let match: RegExpExecArray | null;
-  let inlineIndex = 0;
-
-  while ((match = pattern.exec(content)) !== null) {
-    const before = content.slice(cursor, match.index);
-    if (before) {
-      blocks.push({ type: 'markdown', content: before });
-    }
-    const tool = buildInlineToolCall(match[0], inlineIndex++, startTime);
-    if (tool) {
-      blocks.push({ type: 'tool', tool });
-    } else {
-      blocks.push({ type: 'markdown', content: match[0] });
-    }
-    cursor = match.index + match[0].length;
-  }
-
-  const tail = content.slice(cursor);
-  if (tail) {
-    blocks.push({ type: 'markdown', content: tail });
-  }
-
-  return blocks.length > 0 ? blocks : [{ type: 'markdown', content }];
-}
 
 const renderOrchestratorSummary = (tool: ToolCall): { title: string; summary: React.ReactNode } | null => {
   if (
@@ -720,14 +648,10 @@ const ToolActionButtons = ({
 
 export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: AgentMessageProps) => {
   const isMessageRunning = Boolean(isSessionRunning && isLast);
-  const isMessageComplete = !isSessionRunning && isLast;
   const segments = message.segments || [];
   const modelName = message.model || 'Rhythm AI';
   const messageActions = usePluginHostStore((s) => s.messageActions);
-  const copyText = segments
-    .filter((segment) => segment.type === 'text')
-    .map((segment) => segment.content)
-    .join('\n\n');
+  const copyText = getMessageTextContent(message);
 
   return (
     <motion.div
@@ -761,42 +685,34 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
                   transition={{ duration: 0.3 }}
                   className="border-t-[var(--theme-divider-width)] border-[var(--theme-border)] py-[var(--theme-section-gap)] first:border-t-0"
                 >
-                  {buildTextRenderBlocks(segment.content, message.createdAt).map((block, blockIndex) => (
-                    <div key={blockIndex}>
-                      {block.type === 'tool' ? (
-                        <ToolBlock tool={block.tool} sessionId={sessionId} />
-                      ) : (
-                        <div className="prose prose-sm max-w-none text-[var(--theme-text-primary)]">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              pre({ children }) {
-                                return <>{children}</>;
-                              },
-                              code({ inline, className, children }: any) {
-                                const match = /language-(\w+)/.exec(className || '');
-                                const code = String(children).replace(/\n$/, '');
-                                const isBlock = !inline && (match || String(children).includes('\n'));
+                  <div className="prose prose-sm max-w-none text-[var(--theme-text-primary)]">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        pre({ children }) {
+                          return <>{children}</>;
+                        },
+                        code({ inline, className, children }: any) {
+                          const match = /language-(\w+)/.exec(className || '');
+                          const code = String(children).replace(/\n$/, '');
+                          const isBlock = !inline && (match || String(children).includes('\n'));
 
-                                return isBlock ? (
-                                  <CodeBlock
-                                    language={match?.[1] || 'text'}
-                                    code={code}
-                                  />
-                                ) : (
-                                  <code className="rounded-[calc(var(--theme-radius-control)*0.7)] bg-[var(--theme-surface-muted)] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--theme-accent)]">
-                                    {children}
-                                  </code>
-                                );
-                              },
-                            }}
-                          >
-                            {block.content}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                          return isBlock ? (
+                            <CodeBlock
+                              language={match?.[1] || 'text'}
+                              code={code}
+                            />
+                          ) : (
+                            <code className="rounded-[calc(var(--theme-radius-control)*0.7)] bg-[var(--theme-surface-muted)] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--theme-accent)]">
+                              {children}
+                            </code>
+                          );
+                        },
+                      }}
+                    >
+                      {segment.content}
+                    </ReactMarkdown>
+                  </div>
                 </motion.div>
               )}
             </div>
@@ -812,8 +728,11 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
           <span className="mx-2 text-[var(--theme-border-strong)]">·</span>
           <Timer
             isRunning={isMessageRunning}
-            startTime={message.createdAt}
-            finalMs={isMessageComplete ? message.totalTimeMs : undefined}
+            startedAt={message.startedAt || message.createdAt}
+            finalMs={deriveDurationMs({
+              startedAt: message.startedAt,
+              endedAt: message.endedAt,
+            })}
           />
           <MessageActionButtons actions={messageActions} message={message} sessionId={sessionId} />
         </div>

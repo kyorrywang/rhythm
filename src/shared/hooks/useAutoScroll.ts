@@ -1,36 +1,103 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-export function useAutoScroll(dependency: unknown) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+type FollowMode = 'following' | 'detached';
+type ScrollSource = 'user' | 'programmatic';
+
+const BOTTOM_THRESHOLD_PX = 48;
+
+export function useAutoScroll(contentVersion: string) {
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
+  const [contentElement, setContentElement] = useState<HTMLDivElement | null>(null);
   const [isUserAtBottom, setIsUserAtBottom] = useState(true);
+  const followModeRef = useRef<FollowMode>('following');
+  const programmaticScrollRef = useRef(false);
+  const previousContentVersionRef = useRef(contentVersion);
+  const lastObservedScrollHeightRef = useRef(0);
 
-  const checkIfAtBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const threshold = 50;
-    setIsUserAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < threshold);
+  const scrollRef = useCallback((node: HTMLDivElement | null) => {
+    setScrollElement(node);
   }, []);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
+  const contentRef = useCallback((node: HTMLDivElement | null) => {
+    setContentElement(node);
+  }, []);
 
-    el.addEventListener('scroll', checkIfAtBottom);
-    return () => el.removeEventListener('scroll', checkIfAtBottom);
-  }, [checkIfAtBottom]);
+  const measureIsAtBottom = useCallback((element: HTMLDivElement | null) => {
+    if (!element) return true;
+    return element.scrollHeight - element.scrollTop - element.clientHeight <= BOTTOM_THRESHOLD_PX;
+  }, []);
 
-  useEffect(() => {
-    if (isUserAtBottom && scrollRef.current) {
-      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  const syncBottomState = useCallback((source: ScrollSource = 'user') => {
+    const nextIsAtBottom = measureIsAtBottom(scrollElement);
+    setIsUserAtBottom(nextIsAtBottom);
+
+    if (source === 'programmatic') {
+      if (nextIsAtBottom) {
+        followModeRef.current = 'following';
+      }
+      return nextIsAtBottom;
     }
-  }, [dependency, isUserAtBottom]);
+
+    followModeRef.current = nextIsAtBottom ? 'following' : 'detached';
+    return nextIsAtBottom;
+  }, [measureIsAtBottom, scrollElement]);
 
   const scrollToBottom = useCallback(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-      setIsUserAtBottom(true);
-    }
-  }, []);
+    if (!scrollElement) return;
+    followModeRef.current = 'following';
+    setIsUserAtBottom(true);
+    programmaticScrollRef.current = true;
+    scrollElement.scrollTop = scrollElement.scrollHeight;
+    window.requestAnimationFrame(() => {
+      programmaticScrollRef.current = false;
+      syncBottomState('programmatic');
+    });
+  }, [scrollElement, syncBottomState]);
 
-  return { scrollRef, isUserAtBottom, scrollToBottom };
+  useEffect(() => {
+    if (!scrollElement) return;
+
+    lastObservedScrollHeightRef.current = scrollElement.scrollHeight;
+    syncBottomState('programmatic');
+
+    const handleScroll = () => {
+      syncBottomState(programmaticScrollRef.current ? 'programmatic' : 'user');
+    };
+
+    scrollElement.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      scrollElement.removeEventListener('scroll', handleScroll);
+    };
+  }, [scrollElement, syncBottomState]);
+
+  useEffect(() => {
+    if (!scrollElement || !contentElement || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(() => {
+      const nextScrollHeight = scrollElement.scrollHeight;
+      if (nextScrollHeight === lastObservedScrollHeightRef.current) return;
+      lastObservedScrollHeightRef.current = nextScrollHeight;
+
+      if (followModeRef.current === 'following') {
+        scrollToBottom();
+      } else {
+        syncBottomState('programmatic');
+      }
+    });
+
+    observer.observe(contentElement);
+
+    return () => observer.disconnect();
+  }, [contentElement, scrollElement, scrollToBottom, syncBottomState]);
+
+  useLayoutEffect(() => {
+    const changed = previousContentVersionRef.current !== contentVersion;
+    previousContentVersionRef.current = contentVersion;
+    if (!changed) return;
+    if (followModeRef.current !== 'following') return;
+    scrollToBottom();
+  }, [contentVersion, scrollToBottom]);
+
+  return { scrollRef, contentRef, isUserAtBottom, scrollToBottom };
 }

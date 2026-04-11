@@ -200,9 +200,16 @@ fn process_anthropic_line(
             delta: AnthropicDelta::InputJsonDelta { partial_json },
             index,
         } => {
-            tool_use_accum
-                .entry(index)
-                .and_modify(|acc| acc.input_json.push_str(&partial_json));
+            if let Some(acc) = tool_use_accum.get_mut(&index) {
+                acc.input_json.push_str(&partial_json);
+                if !acc.id.is_empty() && !acc.name.is_empty() {
+                    deltas.push(Ok(LlmResponse::ToolCallDelta(super::LlmToolCall {
+                        id: acc.id.clone(),
+                        name: acc.name.clone(),
+                        arguments: acc.input_json.clone(),
+                    })));
+                }
+            }
         }
         AnthropicEvent::ContentBlockStop { index } => {
             if thinking_indices.contains(&index) {

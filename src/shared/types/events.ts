@@ -4,6 +4,7 @@ export type InternalEventType =
   | 'THINKING_DELTA'
   | 'THINKING_END'
   | 'TOOL_START'
+  | 'TOOL_CALL_DELTA'
   | 'TOOL_OUTPUT'
   | 'TOOL_RESULT'
   | 'TOOL_END'
@@ -13,6 +14,7 @@ export type InternalEventType =
   | 'SUBAGENT_END'
   | 'DONE'
   | 'INTERRUPTED'
+  | 'FAILED'
   | 'PERMISSION_REQUEST'
   | 'USAGE_UPDATE'
   | 'CRON_JOB_TRIGGERED'
@@ -49,12 +51,17 @@ export interface ThinkingDeltaEvent extends InternalEvent {
 
 export interface ThinkingEndEvent extends InternalEvent {
   type: 'THINKING_END';
-  payload: { timeCostMs: number };
+  payload: Record<string, never>;
 }
 
 export interface ToolStartEvent extends InternalEvent {
   type: 'TOOL_START';
   payload: { toolId: string; toolName: string; args: unknown };
+}
+
+export interface ToolCallDeltaEvent extends InternalEvent {
+  type: 'TOOL_CALL_DELTA';
+  payload: { toolId: string; toolName: string; argumentsText: string };
 }
 
 export interface ToolOutputEvent extends InternalEvent {
@@ -93,15 +100,17 @@ export interface SubagentStartEvent extends InternalEvent {
   type: 'SUBAGENT_START';
   payload: {
     parentSessionId: string;
+    parentToolCallId: string;
     subSessionId: string;
     title: string;
     message: string;
+    startedAt: number;
   };
 }
 
 export interface SubagentEndEvent extends InternalEvent {
   type: 'SUBAGENT_END';
-  payload: { subSessionId: string; result: string; isError: boolean };
+  payload: { parentSessionId: string; parentToolCallId: string; subSessionId: string; result: string; isError: boolean };
 }
 
 export interface DoneEvent extends InternalEvent {
@@ -111,6 +120,11 @@ export interface DoneEvent extends InternalEvent {
 
 export interface InterruptedEvent extends InternalEvent {
   type: 'INTERRUPTED';
+  payload: Record<string, never>;
+}
+
+export interface FailedEvent extends InternalEvent {
+  type: 'FAILED';
   payload: Record<string, never>;
 }
 
@@ -144,6 +158,7 @@ export type InternalEventUnion =
   | ThinkingDeltaEvent
   | ThinkingEndEvent
   | ToolStartEvent
+  | ToolCallDeltaEvent
   | ToolOutputEvent
   | ToolResultEvent
   | ToolEndEvent
@@ -151,8 +166,9 @@ export type InternalEventUnion =
   | TaskUpdateEvent
   | SubagentStartEvent
   | SubagentEndEvent
-  | DoneEvent
-  | InterruptedEvent
+| DoneEvent
+| InterruptedEvent
+| FailedEvent
   | PermissionRequestEventInternal
   | UsageUpdateEvent
   | CronJobTriggeredEvent

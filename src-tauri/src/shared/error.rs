@@ -13,6 +13,7 @@ pub enum RhythmError {
     SerdeError(String),
     HookError(String),
     SchedulerError(String),
+    PolicyViolation(String),
 }
 
 impl fmt::Display for RhythmError {
@@ -33,6 +34,7 @@ impl fmt::Display for RhythmError {
             RhythmError::SerdeError(msg) => write!(f, "Serialization error: {}", msg),
             RhythmError::HookError(msg) => write!(f, "Hook error: {}", msg),
             RhythmError::SchedulerError(msg) => write!(f, "Scheduler error: {}", msg),
+            RhythmError::PolicyViolation(msg) => write!(f, "Policy violation: {}", msg),
         }
     }
 }

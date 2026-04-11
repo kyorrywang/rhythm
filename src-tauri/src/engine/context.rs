@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::hooks::executor::HookExecutor;
+use crate::infrastructure::config::{ResolvedCompletionPolicy, ResolvedDelegationPolicy};
 use crate::llm::LlmClient;
 use crate::mcp::client::McpClientManager;
 use crate::permissions::PermissionChecker;
@@ -22,6 +23,8 @@ pub struct QueryContext {
     pub mcp_manager: Option<Arc<Mutex<McpClientManager>>>,
     /// Working directory for file-relative tool operations.
     pub cwd: PathBuf,
+    /// Provider ID or name selected for the current query.
+    pub provider_id: String,
     /// LLM model name.
     pub model: String,
     /// Optional reasoning effort requested by the UI. Individual providers may map or ignore it.
@@ -30,6 +33,12 @@ pub struct QueryContext {
     pub system_prompt: String,
     /// Optional hard cap on agent turns. None means unlimited.
     pub agent_turn_limit: Option<usize>,
+    /// Resolved delegation contract for this run.
+    pub delegation: ResolvedDelegationPolicy,
+    /// Resolved completion contract for this run.
+    pub completion: ResolvedCompletionPolicy,
+    /// Whether this specific task must delegate before completion.
+    pub requires_delegation_for_completion: bool,
     /// Agent ID (for event_bus routing).
     pub agent_id: String,
     /// Session ID (for event_bus routing and state lookups).

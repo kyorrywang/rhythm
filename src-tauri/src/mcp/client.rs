@@ -47,7 +47,7 @@ impl McpClientManager {
         settings: &crate::infrastructure::config::RhythmSettings,
         cwd: &std::path::Path,
     ) -> HashMap<String, McpServerConfig> {
-        let mut configs = settings.mcp_servers.clone();
+        let mut configs = settings.core.mcp_servers.clone();
         for plugin in crate::plugins::load_plugins(settings, cwd) {
             if plugin.is_runtime_active() {
                 for (name, config) in plugin.mcp_servers {

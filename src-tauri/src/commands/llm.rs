@@ -47,6 +47,7 @@ pub async fn llm_complete(
                     LlmResponse::Done => break,
                     LlmResponse::ThinkingDelta(_)
                     | LlmResponse::ThinkingEnd
+                    | LlmResponse::ToolCallDelta(_)
                     | LlmResponse::ToolCall(_) => {}
                 }
             }

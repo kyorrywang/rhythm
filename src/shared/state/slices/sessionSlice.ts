@@ -1,5 +1,6 @@
 import type { Session } from '@/shared/types/schema';
 import { persistSession, removePersistedSession } from '@/shared/lib/sessionPersistence';
+import { DEFAULT_WORKSPACE_PATH, normalizeWorkspacePath } from '@/shared/state/useWorkspaceStore';
 
 interface SessionSliceState {
   sessions: Map<string, Session>;
@@ -9,7 +10,7 @@ interface SessionSliceState {
 
 interface SessionSliceActions {
   setActiveSession: (id: string | null) => void;
-  setSessions: (sessions: Session[]) => void;
+  hydrateWorkspaceSessions: (workspacePath: string, sessions: Session[]) => void;
   addSession: (session: Session) => void;
   removeSession: (id: string) => void;
   updateSession: (id: string, updates: Partial<Session>) => void;
@@ -48,11 +49,42 @@ export const createSessionSlice = (
       return { activeSessionId: id, sessions: next };
     }),
 
-  setSessions: (sessions) => {
-    set({
-      sessions: new Map(sessions.map((s) => [s.id, s])),
-    });
-  },
+  hydrateWorkspaceSessions: (workspacePath, sessions) =>
+    set((state) => {
+      const targetWorkspacePath = normalizeWorkspacePath(workspacePath);
+      const loadedIds = new Set(sessions.map((session) => session.id));
+      const next = new Map<string, Session>();
+
+      for (const [id, session] of state.sessions.entries()) {
+        const sessionWorkspacePath = normalizeWorkspacePath(session.workspacePath || DEFAULT_WORKSPACE_PATH);
+        const belongsToTargetWorkspace = sessionWorkspacePath === targetWorkspacePath;
+
+        if (!belongsToTargetWorkspace) {
+          next.set(id, session);
+          continue;
+        }
+
+        const runtimeState = session.runtime?.state || 'idle';
+        const shouldPreserveLocalSession =
+          !loadedIds.has(id)
+          && (
+            !['idle', 'completed', 'failed', 'interrupted'].includes(runtimeState)
+            || (state.activeSessionId === id && session.messages.length > 0)
+          );
+
+        if (shouldPreserveLocalSession) {
+          next.set(id, session);
+        }
+      }
+
+      for (const session of sessions) {
+        next.set(session.id, session);
+      }
+
+      return {
+        sessions: next,
+      };
+    }),
 
   addSession: (session) =>
     set((state) => {

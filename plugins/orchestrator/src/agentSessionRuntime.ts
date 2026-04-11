@@ -42,7 +42,11 @@ export async function ensureAgentSession(
     workspacePath,
     messages: [],
     parentId: parentSessionId,
-    phase: 'idle',
+    queueState: 'idle',
+    runtime: {
+      state: 'idle',
+      updatedAt: Date.now(),
+    },
   };
   useSessionStore.getState().addSession(nextSession);
   persistSession(nextSession);
@@ -65,7 +69,7 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
     const workspacePath = executionContext.workspacePath;
 
     store.updateSession(input.sessionId, {
-      phase: 'streaming',
+      queueState: 'idle',
       workspacePath,
       error: null,
       runtime: {
@@ -87,10 +91,11 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
     store.addMessage(input.sessionId, {
       id: aiMessageId,
       role: 'assistant',
-      content: '',
       model,
       createdAt: Date.now(),
       segments: [],
+      status: 'running',
+      startedAt: Date.now(),
     });
     const hydratedSession = useSessionStore.getState().sessions.get(input.sessionId);
     if (hydratedSession) {
@@ -152,7 +157,7 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
       providerId,
       model,
       reasoning,
-      mode: 'chat',
+      profileId: 'chat',
       cwd: workspacePath,
     }, onEvent);
   } catch (error) {
@@ -199,7 +204,7 @@ async function finalizeAgentSession(
           updatedAt: Date.now(),
         };
   store.updateSession(input.sessionId, {
-    phase: 'idle',
+    queueState: 'idle',
     error: outcome === 'failed' && error ? (error instanceof Error ? error.message : String(error)) : null,
     runtime: runtimeState,
   });
@@ -230,8 +235,12 @@ async function safeInvokeCallback(
     const callbackMessage = callbackError instanceof Error ? callbackError.message : String(callbackError);
     if (existing) {
       store.updateSession(sessionId, {
-        phase: 'idle',
+        queueState: 'idle',
         error: existing.error || `[${label}] ${callbackMessage}`,
+        runtime: existing.runtime || {
+          state: 'idle',
+          updatedAt: Date.now(),
+        },
       });
       const session = useSessionStore.getState().sessions.get(sessionId);
       if (session) {

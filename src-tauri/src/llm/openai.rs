@@ -187,6 +187,13 @@ fn process_openai_line(
                     }
                     if let Some(args) = &func.arguments {
                         entry.arguments.push_str(args);
+                        if !entry.id.is_empty() && !entry.name.is_empty() {
+                            deltas.push(Ok(LlmResponse::ToolCallDelta(super::LlmToolCall {
+                                id: entry.id.clone(),
+                                name: entry.name.clone(),
+                                arguments: entry.arguments.clone(),
+                            })));
+                        }
                     }
                 }
             }

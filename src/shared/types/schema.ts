@@ -2,11 +2,13 @@ export interface ToolCall {
   id: string;
   name: string;
   arguments: unknown;
+  rawArguments?: string;
+  isPreparing?: boolean;
   result?: string;
-  status: 'running' | 'completed' | 'error';
-  executionTime?: number;
+  status: 'running' | 'completed' | 'error' | 'interrupted';
   logs?: string[];
-  startTime?: number;
+  startedAt?: number;
+  endedAt?: number;
   subSessionId?: string;
 }
 
@@ -87,25 +89,33 @@ export interface Attachment {
   text?: string;
 }
 
+type EventChunkBase = {
+  sessionId: string;
+  eventId?: number;
+  timestamp?: number;
+};
+
 export type ServerEventChunk =
-  | { type: 'runtime_status'; sessionId: string; state: StreamRuntimeState; reason?: StreamRuntimeReason; message?: string; attempt?: number; retryAt?: number; retryInSeconds?: number }
-  | { type: 'text_delta'; sessionId: string; content: string }
-  | { type: 'thinking_delta'; sessionId: string; content: string }
-  | { type: 'thinking_end'; sessionId: string; timeCostMs: number }
-  | { type: 'tool_start'; sessionId: string; toolId: string; toolName: string; args: unknown }
-  | { type: 'tool_output'; sessionId: string; toolId: string; logLine: string }
-  | { type: 'tool_result'; sessionId: string; toolId: string; result: string; isError: boolean }
-  | { type: 'tool_end'; sessionId: string; toolId: string; exitCode: number }
-  | { type: 'ask_request'; sessionId: string; toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[] }
-  | { type: 'task_update'; sessionId: string; tasks: Task[] }
-  | { type: 'subagent_start'; sessionId: string; parentSessionId: string; subSessionId: string; title: string; message: string }
-  | { type: 'subagent_end'; sessionId: string; subSessionId: string; result: string; isError: boolean }
-  | { type: 'permission_request'; sessionId: string; toolId: string; toolName: string; reason: string }
-  | { type: 'done'; sessionId: string }
-  | { type: 'interrupted'; sessionId: string }
-  | { type: 'usage_update'; sessionId: string; inputTokens: number; outputTokens: number }
-  | { type: 'cron_job_triggered'; sessionId: string; jobId: string; name: string }
-  | { type: 'cron_job_completed'; sessionId: string; jobId: string; name: string; success: boolean; output: string; durationMs: number };
+  | (EventChunkBase & { type: 'runtime_status'; state: StreamRuntimeState; reason?: StreamRuntimeReason; message?: string; attempt?: number; retryAt?: number; retryInSeconds?: number })
+  | (EventChunkBase & { type: 'text_delta'; content: string })
+  | (EventChunkBase & { type: 'thinking_delta'; content: string })
+  | (EventChunkBase & { type: 'thinking_end' })
+  | (EventChunkBase & { type: 'tool_start'; toolId: string; toolName: string; args: unknown })
+  | (EventChunkBase & { type: 'tool_call_delta'; toolId: string; toolName: string; argumentsText: string })
+  | (EventChunkBase & { type: 'tool_output'; toolId: string; logLine: string })
+  | (EventChunkBase & { type: 'tool_result'; toolId: string; result: string; isError: boolean })
+  | (EventChunkBase & { type: 'tool_end'; toolId: string; exitCode: number })
+  | (EventChunkBase & { type: 'ask_request'; toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[] })
+  | (EventChunkBase & { type: 'task_update'; tasks: Task[] })
+  | (EventChunkBase & { type: 'subagent_start'; parentSessionId: string; parentToolCallId: string; subSessionId: string; title: string; message: string; startedAt: number })
+  | (EventChunkBase & { type: 'subagent_end'; parentSessionId: string; parentToolCallId: string; subSessionId: string; result: string; isError: boolean })
+  | (EventChunkBase & { type: 'permission_request'; toolId: string; toolName: string; reason: string })
+  | (EventChunkBase & { type: 'done' })
+  | (EventChunkBase & { type: 'interrupted' })
+  | (EventChunkBase & { type: 'failed' })
+  | (EventChunkBase & { type: 'usage_update'; inputTokens: number; outputTokens: number })
+  | (EventChunkBase & { type: 'cron_job_triggered'; jobId: string; name: string })
+  | (EventChunkBase & { type: 'cron_job_completed'; jobId: string; name: string; success: boolean; output: string; durationMs: number });
 
 export interface QueuedMessage {
   id: string;
@@ -117,37 +127,44 @@ export interface QueuedMessage {
 
 export type MessageMode = 'Chat' | 'Coordinate';
 
-export type SessionPhase =
+export type SessionQueueState =
   | 'idle'
-  | 'starting'
-  | 'streaming'
-  | 'retrying'
   | 'streaming_with_queue'
   | 'processing_queue'
-  | 'waiting_for_ask'
-  | 'interrupting'
-  | 'waiting_for_permission';
+  | 'interrupting';
 
 export type MessageSegment =
-  | { type: 'thinking'; content: string; timeCostMs?: number; isLive?: boolean; startTime?: number }
+  | { type: 'thinking'; content: string; isLive?: boolean; startedAt?: number; endedAt?: number }
   | { type: 'tool'; tool: ToolCall }
-  | { type: 'ask'; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[]; status: 'waiting' | 'answered'; answer?: { selected: string[]; text: string }; startTime?: number; timeCostMs?: number }
+  | { type: 'ask'; toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[]; status: 'waiting' | 'answered'; answer?: { selected: string[]; text: string }; startedAt?: number; endedAt?: number }
+  | { type: 'tasks'; tasks: Task[]; startedAt?: number; endedAt?: number }
   | { type: 'retry'; state: 'backoff_waiting' | 'retrying'; reason?: StreamRuntimeReason; message: string; attempt: number; retryAt?: number; retryInSeconds?: number; updatedAt: number }
   | { type: 'text'; content: string }
-  | { type: 'permission'; request: PermissionRequestEvent; status: 'waiting' | 'approved' | 'denied'; startTime?: number };
+  | { type: 'permission'; request: PermissionRequestEvent; status: 'waiting' | 'approved' | 'denied'; startedAt?: number; endedAt?: number };
 
-export interface Message {
+export interface BaseMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
-  content?: string;
   attachments?: Attachment[];
   mode?: MessageMode;
   model?: string;
   createdAt: number;
   segments?: MessageSegment[];
   status?: 'running' | 'waiting_for_user' | 'waiting_for_permission' | 'completed';
-  totalTimeMs?: number;
+  startedAt?: number;
+  endedAt?: number;
 }
+
+export interface UserOrSystemMessage extends BaseMessage {
+  role: 'user' | 'system';
+  content?: string;
+}
+
+export interface AssistantMessage extends BaseMessage {
+  role: 'assistant';
+  content?: never;
+}
+
+export type Message = UserOrSystemMessage | AssistantMessage;
 
 export interface Session {
   id: string;
@@ -162,17 +179,14 @@ export interface Session {
   appendDockMinimized?: boolean;
   parentId?: string;
   queuedMessages?: QueuedMessage[];
-  currentAsk?: AskRequest | null;
-  currentTasks?: Task[];
-  phase?: SessionPhase;
+  queueState?: SessionQueueState;
   usage?: UsageSnapshot;
   tokenCount?: number;
-  permissionPending?: boolean;
   permissionGrants?: string[];
   subagentResult?: {
     result: string;
     isError: boolean;
-    completedAt: number;
+    endedAt: number;
   };
   runtime?: StreamRuntime;
   error?: string | null;

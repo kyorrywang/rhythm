@@ -55,14 +55,43 @@ impl InProcessBackend {
 
         let task = tokio::spawn(async move {
             let settings = config::load_settings();
-            let client = Arc::from(llm::create_client(&settings.llm));
             let cwd = std::path::PathBuf::from(&config_clone.cwd);
             let agent_def = config_clone
                 .subagent_type
                 .as_deref()
                 .and_then(get_builtin_agent);
-            let system_prompt =
-                build_runtime_prompt(&settings, &cwd, Some(&config_clone.prompt), false);
+            let runtime_spec = match config::resolve_runtime_spec(
+                &settings,
+                config::RuntimeIntent {
+                    profile_id: Some("chat".to_string()),
+                    provider_id: None,
+                    model_id: config_clone.model.clone(),
+                    reasoning: None,
+                    permission_mode: config_clone
+                        .permission_mode
+                        .clone()
+                        .or_else(|| agent_def.as_ref().and_then(|a| a.permission_mode.clone())),
+                    allowed_tools: agent_def
+                        .as_ref()
+                        .and_then(|a| a.tools.as_ref().map(|tools| tools.to_vec())),
+                    disallowed_tools: agent_def
+                        .as_ref()
+                        .and_then(|a| a.disallowed_tools.as_ref().map(|tools| tools.to_vec())),
+                },
+            ) {
+                Ok(spec) => spec,
+                Err(error) => {
+                    eprintln!("[InProcessBackend] failed to resolve runtime spec: {}", error);
+                    return;
+                }
+            };
+            let client = Arc::from(llm::create_client(&runtime_spec.llm));
+            let system_prompt = build_runtime_prompt(
+                &settings,
+                &cwd,
+                Some(&config_clone.prompt),
+                &runtime_spec,
+            );
             let merged_mcp_configs = McpClientManager::merged_server_configs(&settings, &cwd);
             let mcp_manager = if merged_mcp_configs.is_empty() {
                 None
@@ -73,18 +102,18 @@ impl InProcessBackend {
             };
             let tool_registry = Arc::new(ToolRegistry::create_for_agent(
                 mcp_manager.clone(),
-                agent_def.as_ref().and_then(|a| a.tools.as_deref()),
-                agent_def
-                    .as_ref()
-                    .and_then(|a| a.disallowed_tools.as_deref()),
+                if runtime_spec.permission.allowed_tools.is_empty() {
+                    None
+                } else {
+                    Some(&runtime_spec.permission.allowed_tools)
+                },
+                if runtime_spec.permission.denied_tools.is_empty() {
+                    None
+                } else {
+                    Some(&runtime_spec.permission.denied_tools)
+                },
             ));
-            let permission_checker = Arc::new(PermissionChecker::new_with_mode(
-                &settings.permission,
-                config_clone
-                    .permission_mode
-                    .clone()
-                    .or_else(|| agent_def.as_ref().and_then(|a| a.permission_mode.clone())),
-            ));
+            let permission_checker = Arc::new(PermissionChecker::new(&runtime_spec.permission));
 
             let hook_executor = load_hook_registry_for_cwd(&settings, &cwd);
             let hook_executor = Arc::new(HookExecutor::new(hook_executor));
@@ -104,17 +133,17 @@ impl InProcessBackend {
                 hook_executor: Some(hook_executor),
                 mcp_manager,
                 cwd,
-                model: config_clone
-                    .model
-                    .clone()
-                    .or_else(|| agent_def.as_ref().and_then(|a| a.model.clone()))
-                    .unwrap_or_else(|| settings.llm.model.clone()),
+                provider_id: runtime_spec.llm.name.clone(),
+                model: runtime_spec.llm.model.clone(),
                 reasoning: None,
                 system_prompt,
                 agent_turn_limit: agent_def
                     .as_ref()
                     .and_then(|a| a.max_turns)
-                    .or(settings.agent_turn_limit),
+                    .or(runtime_spec.agent_turn_limit),
+                delegation: runtime_spec.delegation.clone(),
+                completion: runtime_spec.completion.clone(),
+                requires_delegation_for_completion: false,
                 agent_id: registered_id.clone(),
                 session_id: sub_session_id.clone(),
             };

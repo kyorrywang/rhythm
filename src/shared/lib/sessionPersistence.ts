@@ -1,9 +1,10 @@
 import type { Session } from '@/shared/types/schema';
 import { deleteWorkspaceSession, saveWorkspaceSession } from '@/shared/api/commands';
+import { sanitizeSession } from '@/shared/lib/sessionSanitizer';
 
 export function persistSession(session: Session): void {
   if (!session.workspacePath) return;
-  void saveWorkspaceSession(session.workspacePath, session).catch((error) => {
+  void saveWorkspaceSession(session.workspacePath, sanitizeSession(session)).catch((error) => {
     console.error('Failed to persist session', error);
   });
 }

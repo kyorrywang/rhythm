@@ -31,3 +31,9 @@ pub async fn resolve_permission(tool_id: &str, approved: bool) -> Result<(), Str
         ))
     }
 }
+
+pub async fn remove_permission_waiter(tool_id: &str) {
+    let arc = get_permission_waiters();
+    let mut waiters = arc.lock().await;
+    waiters.remove(tool_id);
+}

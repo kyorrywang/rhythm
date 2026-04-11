@@ -8,8 +8,6 @@ use crate::infrastructure::config::{
 pub struct FrontendProviderModel {
     pub id: String,
     pub name: String,
-    #[serde(rename = "isDefault")]
-    pub is_default: bool,
     pub enabled: bool,
     pub note: Option<String>,
     #[serde(default)]
@@ -26,8 +24,6 @@ pub struct FrontendProviderConfig {
     pub base_url: String,
     #[serde(rename = "apiKey")]
     pub api_key: String,
-    #[serde(rename = "isDefault")]
-    pub is_default: bool,
     #[serde(default)]
     pub capabilities: config::ProviderCapabilities,
     pub models: Vec<FrontendProviderModel>,
@@ -61,6 +57,8 @@ pub struct FrontendMcpServerConfig {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct FrontendSettings {
     pub theme: String,
+    #[serde(rename = "themePreset")]
+    pub theme_preset: String,
     #[serde(rename = "autoSaveSessions")]
     pub auto_save_sessions: bool,
     pub providers: Vec<FrontendProviderConfig>,
@@ -87,6 +85,12 @@ pub struct FrontendSettings {
     pub mcp_servers: Vec<FrontendMcpServerConfig>,
     #[serde(rename = "enabledPlugins")]
     pub enabled_plugins: Vec<String>,
+    #[serde(rename = "defaultProfileId")]
+    pub default_profile_id: String,
+    #[serde(rename = "defaultReasoning")]
+    pub default_reasoning: String,
+    #[serde(rename = "runtimeProfiles")]
+    pub runtime_profiles: Vec<config::RuntimeProfile>,
 }
 
 #[tauri::command]
@@ -101,9 +105,11 @@ pub async fn save_settings(settings: FrontendSettings) -> Result<(), String> {
 
 fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
     FrontendSettings {
-        theme: "system".to_string(),
-        auto_save_sessions: true,
+        theme: settings.core.theme,
+        theme_preset: settings.core.theme_preset,
+        auto_save_sessions: settings.core.auto_save_sessions,
         providers: settings
+            .models
             .providers
             .into_iter()
             .map(|provider| FrontendProviderConfig {
@@ -112,7 +118,6 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
                 provider: provider.provider,
                 base_url: provider.base_url,
                 api_key: provider.api_key,
-                is_default: provider.is_default,
                 capabilities: provider.capabilities,
                 models: provider
                     .models
@@ -120,7 +125,6 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
                     .map(|model| FrontendProviderModel {
                         id: model.id,
                         name: model.name,
-                        is_default: model.is_default,
                         enabled: model.enabled,
                         note: model.note,
                         capabilities: model.capabilities,
@@ -128,16 +132,17 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
                     .collect(),
             })
             .collect(),
-        system_prompt: settings.system_prompt.unwrap_or_default(),
-        permission_mode: match settings.permission.mode {
+        system_prompt: settings.prompts.system_prompt.unwrap_or_default(),
+        permission_mode: match settings.policies.permissions.mode {
             crate::permissions::modes::PermissionMode::Default => "default".to_string(),
             crate::permissions::modes::PermissionMode::Plan => "plan".to_string(),
             crate::permissions::modes::PermissionMode::FullAuto => "full_auto".to_string(),
         },
-        allowed_tools: settings.permission.allowed_tools.clone(),
-        denied_tools: settings.permission.denied_tools.clone(),
+        allowed_tools: settings.policies.permissions.allowed_tools.clone(),
+        denied_tools: settings.policies.permissions.denied_tools.clone(),
         path_rules: settings
-            .permission
+            .policies
+            .permissions
             .path_rules
             .iter()
             .map(|rule| {
@@ -148,12 +153,13 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
                 )
             })
             .collect(),
-        denied_commands: settings.permission.denied_commands.clone(),
-        memory_enabled: settings.memory.enabled,
-        memory_max_files: settings.memory.max_files,
-        memory_max_entrypoint_lines: settings.memory.max_entrypoint_lines,
-        hooks: flatten_hooks(&settings.hooks),
+        denied_commands: settings.policies.permissions.denied_commands.clone(),
+        memory_enabled: settings.core.memory.enabled,
+        memory_max_files: settings.core.memory.max_files,
+        memory_max_entrypoint_lines: settings.core.memory.max_entrypoint_lines,
+        hooks: flatten_hooks(&settings.core.hooks),
         mcp_servers: settings
+            .core
             .mcp_servers
             .iter()
             .map(|(name, server)| match server {
@@ -181,10 +187,15 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
             })
             .collect(),
         enabled_plugins: settings
-            .enabled_plugins
+            .core
+            .plugins
+            .enabled
             .iter()
             .filter_map(|(name, enabled)| enabled.then_some(name.clone()))
             .collect(),
+        default_profile_id: settings.profiles.default_profile_id,
+        default_reasoning: settings.models.defaults.reasoning,
+        runtime_profiles: settings.profiles.items,
     }
 }
 
@@ -202,7 +213,6 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
                 provider: provider_format,
                 base_url: provider.base_url,
                 api_key: provider.api_key,
-                is_default: provider.is_default,
                 capabilities: provider.capabilities,
                 models: provider
                 .models
@@ -210,7 +220,6 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
                 .map(|model| config::ProviderModelConfig {
                     id: model.id,
                     name: model.name,
-                    is_default: model.is_default,
                     enabled: model.enabled,
                     note: model.note,
                     capabilities: model.capabilities,
@@ -220,30 +229,19 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
         })
         .collect::<Vec<_>>();
 
-    let active = config::resolve_llm_config(&RhythmSettings {
-        llm: existing.llm.clone(),
-        providers: providers.clone(),
-        agent_turn_limit: existing.agent_turn_limit,
-        system_prompt: existing.system_prompt.clone(),
-        permission: existing.permission.clone(),
-        memory: existing.memory.clone(),
-        hooks: existing.hooks.clone(),
-        mcp_servers: existing.mcp_servers.clone(),
-        enabled_plugins: existing.enabled_plugins.clone(),
-        plugin_permissions: existing.plugin_permissions.clone(),
-    }, None, None)
-    .unwrap_or_else(|_| existing.llm.clone());
-
-    RhythmSettings {
-        llm: active,
-        providers,
-        agent_turn_limit: None,
-        system_prompt: if settings.system_prompt.trim().is_empty() {
-            None
-        } else {
-            Some(settings.system_prompt)
-        },
-        permission: config::PermissionConfig {
+    let mut bundle = existing.clone();
+    bundle.core.theme = settings.theme;
+    bundle.core.theme_preset = settings.theme_preset;
+    bundle.core.auto_save_sessions = settings.auto_save_sessions;
+    bundle.models.providers = providers;
+    bundle.prompts.system_prompt = if settings.system_prompt.trim().is_empty() {
+        None
+    } else {
+        Some(settings.system_prompt)
+    };
+    bundle.profiles.default_profile_id = settings.default_profile_id;
+    bundle.models.defaults.reasoning = settings.default_reasoning;
+    bundle.policies.permissions = config::PermissionConfig {
             mode: crate::permissions::modes::PermissionMode::from_str(&settings.permission_mode),
             allowed_tools: settings.allowed_tools,
             denied_tools: settings.denied_tools,
@@ -262,44 +260,44 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
                 })
                 .collect(),
             denied_commands: settings.denied_commands,
-        },
-        memory: config::MemoryConfig {
-            enabled: settings.memory_enabled,
-            max_files: settings.memory_max_files,
-            max_entrypoint_lines: settings.memory_max_entrypoint_lines,
-        },
-        hooks: inflate_hooks(settings.hooks),
-        mcp_servers: settings
-            .mcp_servers
-            .into_iter()
-            .map(|server| {
-                let config = if server.transport == "stdio" {
-                    crate::mcp::types::McpServerConfig::Stdio(
-                        crate::mcp::types::McpStdioServerConfig {
-                            command: server.endpoint.clone(),
-                            args: vec![],
-                            env: HashMap::new(),
-                            cwd: None,
-                        },
-                    )
-                } else {
-                    crate::mcp::types::McpServerConfig::Http(
-                        crate::mcp::types::McpHttpServerConfig {
-                            url: server.endpoint.clone(),
-                            headers: HashMap::new(),
-                        },
-                    )
-                };
-                (server.name, config)
-            })
-            .collect::<HashMap<_, _>>(),
-        enabled_plugins: settings
-            .enabled_plugins
-            .into_iter()
-            .map(|name| (name, true))
-            .collect(),
-        plugin_permissions: existing.plugin_permissions,
-    }
+        };
+    bundle.core.memory = config::MemoryConfig {
+        enabled: settings.memory_enabled,
+        max_files: settings.memory_max_files,
+        max_entrypoint_lines: settings.memory_max_entrypoint_lines,
+    };
+    bundle.core.hooks = inflate_hooks(settings.hooks);
+    bundle.profiles.items = settings.runtime_profiles;
+    bundle.core.mcp_servers = settings
+        .mcp_servers
+        .into_iter()
+        .map(|server| {
+            let config = if server.transport == "stdio" {
+                crate::mcp::types::McpServerConfig::Stdio(
+                    crate::mcp::types::McpStdioServerConfig {
+                        command: server.endpoint.clone(),
+                        args: vec![],
+                        env: HashMap::new(),
+                        cwd: None,
+                    },
+                )
+            } else {
+                crate::mcp::types::McpServerConfig::Http(
+                    crate::mcp::types::McpHttpServerConfig {
+                        url: server.endpoint.clone(),
+                        headers: HashMap::new(),
+                    },
+                )
+            };
+            (server.name, config)
+        })
+        .collect::<HashMap<_, _>>();
+    bundle.core.plugins.enabled = settings
+        .enabled_plugins
+        .into_iter()
+        .map(|name| (name, true))
+        .collect();
+    bundle
 }
 
 fn resolve_provider_format(provider: &FrontendProviderConfig) -> Option<String> {

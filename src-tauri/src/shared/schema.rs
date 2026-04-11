@@ -39,6 +39,9 @@ pub struct Task {
 pub struct ServerEventChunk {
     #[serde(rename = "sessionId")]
     pub session_id: String,
+    #[serde(rename = "eventId")]
+    pub event_id: u64,
+    pub timestamp: u64,
     #[serde(flatten)]
     pub payload: EventPayload,
 }
@@ -53,10 +56,7 @@ pub enum EventPayload {
     ThinkingDelta { content: String },
 
     #[serde(rename = "thinking_end")]
-    ThinkingEnd {
-        #[serde(rename = "timeCostMs")]
-        time_cost_ms: u64,
-    },
+    ThinkingEnd,
 
     #[serde(rename = "tool_start")]
     ToolStart {
@@ -65,6 +65,16 @@ pub enum EventPayload {
         #[serde(rename = "toolName")]
         tool_name: String,
         args: Value,
+    },
+
+    #[serde(rename = "tool_call_delta")]
+    ToolCallDelta {
+        #[serde(rename = "toolId")]
+        tool_id: String,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(rename = "argumentsText")]
+        arguments_text: String,
     },
 
     #[serde(rename = "tool_output")]
@@ -112,14 +122,22 @@ pub enum EventPayload {
     SubagentStart {
         #[serde(rename = "parentSessionId")]
         parent_session_id: String,
+        #[serde(rename = "parentToolCallId")]
+        parent_tool_call_id: String,
         #[serde(rename = "subSessionId")]
         sub_session_id: String,
         title: String,
         message: String,
+        #[serde(rename = "startedAt")]
+        started_at: u64,
     },
 
     #[serde(rename = "subagent_end")]
     SubagentEnd {
+        #[serde(rename = "parentSessionId")]
+        parent_session_id: String,
+        #[serde(rename = "parentToolCallId")]
+        parent_tool_call_id: String,
         #[serde(rename = "subSessionId")]
         sub_session_id: String,
         result: String,
@@ -154,6 +172,9 @@ pub enum EventPayload {
 
     #[serde(rename = "interrupted")]
     Interrupted,
+
+    #[serde(rename = "failed")]
+    Failed,
 
     #[serde(rename = "usage_update")]
     UsageUpdate {

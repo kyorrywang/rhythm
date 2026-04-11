@@ -136,13 +136,13 @@ pub async fn list_plugins(cwd: String) -> Result<Vec<PluginSummary>, String> {
     Ok(loaded.iter().map(PluginSummary::from).collect())
 }
 
-/// Enable a plugin by name (persisted to settings.json).
+/// Enable a plugin by name (persisted to the unified config bundle).
 #[tauri::command]
 pub async fn enable_plugin(name: String) -> Result<(), String> {
     set_plugin_enabled(&name, true)
 }
 
-/// Disable a plugin by name (persisted to settings.json).
+/// Disable a plugin by name (persisted to the unified config bundle).
 #[tauri::command]
 pub async fn disable_plugin(name: String) -> Result<(), String> {
     set_plugin_enabled(&name, false)
@@ -534,13 +534,9 @@ fn find_preferred_plugin<'a>(
 }
 
 fn set_plugin_enabled(name: &str, enabled: bool) -> Result<(), String> {
-    let settings_path = crate::infrastructure::paths::get_settings_path();
-    let text = std::fs::read_to_string(&settings_path).unwrap_or_default();
-    let mut settings: config::RhythmSettings = serde_json::from_str(&text).unwrap_or_default();
-    settings.enabled_plugins.insert(name.to_string(), enabled);
-    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    std::fs::write(&settings_path, json).map_err(|e| e.to_string())?;
-    Ok(())
+    let mut settings = config::load_settings();
+    settings.core.plugins.enabled.insert(name.to_string(), enabled);
+    config::save_settings(&settings)
 }
 
 fn set_plugin_permission(
@@ -549,9 +545,7 @@ fn set_plugin_permission(
     granted: bool,
     cwd: Option<&str>,
 ) -> Result<(), String> {
-    let settings_path = crate::infrastructure::paths::get_settings_path();
-    let text = std::fs::read_to_string(&settings_path).unwrap_or_default();
-    let mut settings: config::RhythmSettings = serde_json::from_str(&text).unwrap_or_default();
+    let mut settings = config::load_settings();
     let key = match cwd {
         Some(cwd) => {
             let cwd_path = crate::commands::workspace::resolve_workspace_path(Some(cwd))?;
@@ -559,7 +553,7 @@ fn set_plugin_permission(
         }
         None => name.to_string(),
     };
-    let permissions = settings.plugin_permissions.entry(key).or_default();
+    let permissions = settings.core.plugins.permissions.entry(key).or_default();
     if granted {
         if !permissions.iter().any(|entry| entry == permission) {
             permissions.push(permission.to_string());
@@ -567,9 +561,7 @@ fn set_plugin_permission(
     } else {
         permissions.retain(|entry| entry != permission);
     }
-    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    std::fs::write(&settings_path, json).map_err(|e| e.to_string())?;
-    Ok(())
+    config::save_settings(&settings)
 }
 
 fn rand_suffix() -> String {
