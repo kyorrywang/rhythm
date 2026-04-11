@@ -581,6 +581,10 @@ const applyChunkToMessage = (
     return message;
   }
 
+  if (chunk.type === 'heartbeat') {
+    return message;
+  }
+
   if (chunk.type === 'task_update') {
     return message;
   }
@@ -792,6 +796,10 @@ export const reduceSessionChunk = (
         },
         tokenCount: chunk.inputTokens + chunk.outputTokens,
       };
+    } else if (chunk.type === 'heartbeat') {
+      nextSession = {
+        ...nextSession,
+      };
     } else if (chunk.type === 'cron_job_triggered') {
       nextSession = {
         ...nextSession,
@@ -821,6 +829,7 @@ export const reduceSessionChunk = (
     } else if (chunk.type === 'done') {
       nextSession = {
         ...nextSession,
+        queueState: 'idle',
         runtime: {
           state: 'completed',
           reason: 'completed',
@@ -832,6 +841,7 @@ export const reduceSessionChunk = (
     } else if (chunk.type === 'failed') {
       nextSession = {
         ...nextSession,
+        queueState: 'idle',
         runtime: {
           state: 'failed',
           reason: 'error',
@@ -842,6 +852,7 @@ export const reduceSessionChunk = (
     } else if (chunk.type === 'interrupted') {
       nextSession = {
         ...nextSession,
+        queueState: 'idle',
         runtime: {
           state: 'interrupted',
           reason: 'interrupt',

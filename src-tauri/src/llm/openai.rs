@@ -23,6 +23,37 @@ impl OpenAiClient {
     }
 }
 
+fn summarize_http_error(prefix: &str, status: reqwest::StatusCode, body: &str) -> String {
+    let compact_body = body.replace('\n', " ");
+    let trimmed = compact_body.trim();
+    let excerpt = if trimmed.len() > 400 {
+        &trimmed[..400]
+    } else {
+        trimmed
+    };
+    if excerpt.is_empty() {
+        format!("{prefix}: http {}", status.as_u16())
+    } else {
+        format!("{prefix}: http {} - {}", status.as_u16(), excerpt)
+    }
+}
+
+fn summarize_reqwest_error(prefix: &str, error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        return format!("{prefix}: timeout - {error}");
+    }
+    if error.is_connect() {
+        return format!("{prefix}: connect error - {error}");
+    }
+    if error.is_request() {
+        return format!("{prefix}: request failed - {error}");
+    }
+    if error.is_body() {
+        return format!("{prefix}: response body error - {error}");
+    }
+    format!("{prefix}: {error}")
+}
+
 #[derive(Serialize)]
 struct OpenAiTool {
     #[serde(rename = "type")]
@@ -126,6 +157,31 @@ struct ToolCallAccumulator {
     id: String,
     name: String,
     arguments: String,
+    emitted: bool,
+}
+
+fn emit_completed_tool_calls(
+    tool_calls_accum: &mut HashMap<usize, ToolCallAccumulator>,
+) -> Vec<Result<LlmResponse, String>> {
+    let mut deltas = Vec::new();
+
+    for tc in tool_calls_accum.values_mut() {
+        if tc.emitted || tc.id.is_empty() || tc.name.is_empty() {
+            continue;
+        }
+        deltas.push(Ok(LlmResponse::ToolCall(super::LlmToolCall {
+            id: tc.id.clone(),
+            name: tc.name.clone(),
+            arguments: if tc.arguments.is_empty() {
+                "{}".to_string()
+            } else {
+                tc.arguments.clone()
+            },
+        })));
+        tc.emitted = true;
+    }
+
+    deltas
 }
 
 fn process_openai_line(
@@ -135,19 +191,7 @@ fn process_openai_line(
     let mut deltas = Vec::new();
 
     if data == "[DONE]" {
-        for (_, tc) in tool_calls_accum.iter() {
-            if !tc.id.is_empty() && !tc.name.is_empty() {
-                deltas.push(Ok(LlmResponse::ToolCall(super::LlmToolCall {
-                    id: tc.id.clone(),
-                    name: tc.name.clone(),
-                    arguments: if tc.arguments.is_empty() {
-                        "{}".to_string()
-                    } else {
-                        tc.arguments.clone()
-                    },
-                })));
-            }
-        }
+        deltas.extend(emit_completed_tool_calls(tool_calls_accum));
         deltas.push(Ok(LlmResponse::Done));
         return deltas;
     }
@@ -205,19 +249,7 @@ fn process_openai_line(
             deltas.push(Ok(LlmResponse::Done));
         }
         Some("tool_calls") => {
-            for (_, tc) in tool_calls_accum.iter() {
-                if !tc.id.is_empty() && !tc.name.is_empty() {
-                    deltas.push(Ok(LlmResponse::ToolCall(super::LlmToolCall {
-                        id: tc.id.clone(),
-                        name: tc.name.clone(),
-                        arguments: if tc.arguments.is_empty() {
-                            "{}".to_string()
-                        } else {
-                            tc.arguments.clone()
-                        },
-                    })));
-                }
-            }
+            deltas.extend(emit_completed_tool_calls(tool_calls_accum));
         }
         _ => {}
     }
@@ -363,8 +395,12 @@ impl LlmClient for OpenAiClient {
             .json(&req)
             .send()
             .await
-            .map_err(|e| e.to_string())?;
-        let response = response.error_for_status().map_err(|e| e.to_string())?;
+            .map_err(|e| summarize_reqwest_error("openai request", e))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(summarize_http_error("openai request failed", status, &body));
+        }
 
         let tool_calls_accum: Arc<Mutex<HashMap<usize, ToolCallAccumulator>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -416,9 +452,7 @@ impl LlmClient for OpenAiClient {
                         }
                     }
 
-                    if deltas.is_empty() {
-                        deltas.push(Err(e.to_string()));
-                    }
+                    deltas.push(Err(summarize_reqwest_error("openai stream", e)));
 
                     futures::stream::iter(deltas)
                 }

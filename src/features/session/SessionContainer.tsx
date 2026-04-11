@@ -71,7 +71,7 @@ export const SessionContainer = () => {
             <div className="relative space-y-[calc(var(--theme-section-gap)*1.15)] pb-12 text-[length:var(--theme-body-size)] leading-relaxed text-[var(--theme-text-primary)]">
               {messages.map((msg: Message, index: number) => (
                 msg.role === 'user' ? (
-                  <UserMessage key={msg.id || index} message={msg} />
+                  <UserMessage key={msg.id || index} sessionId={activeSession.id} message={msg} />
                 ) : msg.role === 'system' ? (
                   <SystemMessage key={msg.id || index} message={msg} />
                 ) : (

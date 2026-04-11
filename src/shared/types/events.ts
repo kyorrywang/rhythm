@@ -1,5 +1,6 @@
 export type InternalEventType =
   | 'RUNTIME_STATUS'
+  | 'RUNTIME_HEARTBEAT'
   | 'TEXT_DELTA'
   | 'THINKING_DELTA'
   | 'THINKING_END'
@@ -37,6 +38,11 @@ export interface RuntimeStatusEvent extends InternalEvent {
     retryAt?: number;
     retryInSeconds?: number;
   };
+}
+
+export interface RuntimeHeartbeatEvent extends InternalEvent {
+  type: 'RUNTIME_HEARTBEAT';
+  payload: Record<string, never>;
 }
 
 export interface TextDeltaEvent extends InternalEvent {
@@ -154,6 +160,7 @@ export interface CronJobCompletedEvent extends InternalEvent {
 
 export type InternalEventUnion =
   | RuntimeStatusEvent
+  | RuntimeHeartbeatEvent
   | TextDeltaEvent
   | ThinkingDeltaEvent
   | ThinkingEndEvent

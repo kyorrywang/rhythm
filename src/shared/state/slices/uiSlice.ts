@@ -1,4 +1,4 @@
-import type { MessageMode } from '@/shared/types/schema';
+import type { Attachment, MessageMode } from '@/shared/types/schema';
 
 interface WorkbenchItem {
   id: string;
@@ -50,6 +50,10 @@ interface UiSliceState {
     reasoning: 'low' | 'medium' | 'high';
     fullAuto: boolean;
   };
+  composerDraft: {
+    text: string;
+    attachments: Attachment[];
+  } | null;
 }
 
 interface UiSliceActions {
@@ -64,6 +68,8 @@ interface UiSliceActions {
   openOverlay: (overlay: OpenOverlayInput) => void;
   closeOverlay: () => void;
   setComposerControls: (updates: Partial<UiSliceState['composerControls']>) => void;
+  setComposerDraft: (draft: UiSliceState['composerDraft']) => void;
+  clearComposerDraft: () => void;
 }
 
 export type UiSlice = UiSliceState & UiSliceActions;
@@ -92,7 +98,7 @@ export const createUiSlice = (
     reasoning: 'medium',
     fullAuto: false,
   },
-
+  composerDraft: null,
   setContextPanelOpen: (open) => set({ isContextPanelOpen: open }),
   setLeftSidebarCollapsed: (collapsed) => set({ leftSidebarCollapsed: collapsed }),
   toggleLeftSidebarCollapsed: () =>
@@ -137,4 +143,6 @@ export const createUiSlice = (
         ...updates,
       },
     })),
+  setComposerDraft: (draft) => set({ composerDraft: draft }),
+  clearComposerDraft: () => set({ composerDraft: null }),
 });

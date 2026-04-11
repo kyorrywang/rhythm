@@ -38,6 +38,37 @@ impl AnthropicClient {
     }
 }
 
+fn summarize_http_error(prefix: &str, status: reqwest::StatusCode, body: &str) -> String {
+    let compact_body = body.replace('\n', " ");
+    let trimmed = compact_body.trim();
+    let excerpt = if trimmed.len() > 400 {
+        &trimmed[..400]
+    } else {
+        trimmed
+    };
+    if excerpt.is_empty() {
+        format!("{prefix}: http {}", status.as_u16())
+    } else {
+        format!("{prefix}: http {} - {}", status.as_u16(), excerpt)
+    }
+}
+
+fn summarize_reqwest_error(prefix: &str, error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        return format!("{prefix}: timeout - {error}");
+    }
+    if error.is_connect() {
+        return format!("{prefix}: connect error - {error}");
+    }
+    if error.is_request() {
+        return format!("{prefix}: request failed - {error}");
+    }
+    if error.is_body() {
+        return format!("{prefix}: response body error - {error}");
+    }
+    format!("{prefix}: {error}")
+}
+
 #[derive(Serialize)]
 struct AnthropicTool {
     name: String,
@@ -403,8 +434,12 @@ impl LlmClient for AnthropicClient {
             .json(&req)
             .send()
             .await
-            .map_err(|e| e.to_string())?;
-        let response = response.error_for_status().map_err(|e| e.to_string())?;
+            .map_err(|e| summarize_reqwest_error("anthropic request", e))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(summarize_http_error("anthropic request failed", status, &body));
+        }
 
         let thinking_indices: Arc<Mutex<HashSet<u32>>> = Arc::new(Mutex::new(HashSet::new()));
         let tool_use_accum: Arc<Mutex<HashMap<u32, ToolUseAccumulator>>> =
@@ -435,12 +470,7 @@ impl LlmClient for AnthropicClient {
                     let mut tools = tool_use_accum.lock().unwrap();
                     let mut deltas = Vec::new();
                     deltas.extend(flush_anthropic_buffer(&mut buf, &mut thinking, &mut tools));
-
-                    if deltas.is_empty() {
-                        deltas.push(Err(e.to_string()));
-                    } else if !deltas.iter().any(|item| matches!(item, Ok(LlmResponse::Done))) {
-                        deltas.push(Ok(LlmResponse::Done));
-                    }
+                    deltas.push(Err(summarize_reqwest_error("anthropic stream", e)));
 
                     futures::stream::iter(deltas)
                 }

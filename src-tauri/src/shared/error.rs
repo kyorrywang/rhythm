@@ -3,6 +3,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum RhythmError {
     LlmError(String),
+    LlmErrorAfterToolExecution(String),
     ToolNotFound(String),
     PermissionDenied { tool: String, reason: String },
     AgentTurnLimitExceeded(usize),
@@ -20,6 +21,9 @@ impl fmt::Display for RhythmError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RhythmError::LlmError(msg) => write!(f, "LLM error: {}", msg),
+            RhythmError::LlmErrorAfterToolExecution(msg) => {
+                write!(f, "LLM error after tool execution: {}", msg)
+            }
             RhythmError::ToolNotFound(name) => write!(f, "Tool not found: {}", name),
             RhythmError::PermissionDenied { tool, reason } => {
                 write!(f, "Permission denied for tool '{}': {}", tool, reason)
@@ -54,5 +58,20 @@ impl From<serde_json::Error> for RhythmError {
 impl From<String> for RhythmError {
     fn from(s: String) -> Self {
         RhythmError::LlmError(s)
+    }
+}
+
+impl RhythmError {
+    pub fn message(&self) -> String {
+        match self {
+            RhythmError::LlmError(message) | RhythmError::LlmErrorAfterToolExecution(message) => {
+                message.clone()
+            }
+            other => other.to_string(),
+        }
+    }
+
+    pub fn is_safe_to_retry(&self) -> bool {
+        matches!(self, RhythmError::LlmError(_))
     }
 }

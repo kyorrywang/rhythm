@@ -167,6 +167,9 @@ pub enum EventPayload {
         retry_at: Option<u64>,
     },
 
+    #[serde(rename = "heartbeat")]
+    Heartbeat,
+
     #[serde(rename = "done")]
     Done,
 

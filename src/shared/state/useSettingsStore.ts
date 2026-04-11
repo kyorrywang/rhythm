@@ -71,7 +71,7 @@ export interface AppSettings {
 
 const INITIAL_SETTINGS_SNAPSHOT: AppSettings = {
   theme: 'system',
-  themePreset: 'grand',
+  themePreset: 'refined',
   autoSaveSessions: true,
   providers: [],
   systemPrompt: '',
@@ -103,6 +103,28 @@ interface SettingsState {
   saveToBackend: () => Promise<void>;
 }
 
+let saveSettingsTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleBackendSettingsSave(settings: AppSettings) {
+  if (saveSettingsTimer) {
+    clearTimeout(saveSettingsTimer);
+  }
+
+  saveSettingsTimer = setTimeout(() => {
+    void persistBackendSettings(toBackendSettings(settings)).catch((error) => {
+      console.error('Failed to auto-save settings', error);
+    });
+    saveSettingsTimer = null;
+  }, 400);
+}
+
+function clearScheduledBackendSettingsSave() {
+  if (saveSettingsTimer) {
+    clearTimeout(saveSettingsTimer);
+    saveSettingsTimer = null;
+  }
+}
+
 function normalizeSettings(input?: Partial<AppSettings> | null): AppSettings {
   return {
     ...INITIAL_SETTINGS_SNAPSHOT,
@@ -123,7 +145,7 @@ function normalizeSettings(input?: Partial<AppSettings> | null): AppSettings {
 function mapBackendSettings(input: BackendSettings, cronJobs: BackendCronJobConfig[]): AppSettings {
   return {
     theme: input.theme || 'system',
-    themePreset: (input.themePreset as ThemePresetName | undefined) || 'grand',
+    themePreset: (input.themePreset as ThemePresetName | undefined) || 'refined',
     autoSaveSessions: input.autoSaveSessions ?? true,
     providers: input.providers || [],
     systemPrompt: input.systemPrompt ?? '',
@@ -185,11 +207,18 @@ export const useSettingsStore = create<SettingsState>()(
       isHydratedFromBackend: false,
 
       updateSettings: (updates) =>
-        set((state) => ({
-          settings: normalizeSettings({ ...state.settings, ...updates }),
-        })),
+        set((state) => {
+          const settings = normalizeSettings({ ...state.settings, ...updates });
+          scheduleBackendSettingsSave(settings);
+          return { settings };
+        }),
 
-      resetSettings: () => set({ settings: INITIAL_SETTINGS_SNAPSHOT }),
+      resetSettings: () =>
+        set(() => {
+          const settings = normalizeSettings(INITIAL_SETTINGS_SNAPSHOT);
+          scheduleBackendSettingsSave(settings);
+          return { settings };
+        }),
 
       setLoading: (loading) => set({ isLoading: loading }),
 
@@ -208,6 +237,7 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       saveToBackend: async () => {
+        clearScheduledBackendSettingsSave();
         const current = useSettingsStore.getState().settings;
         await persistBackendSettings(toBackendSettings(current));
       },

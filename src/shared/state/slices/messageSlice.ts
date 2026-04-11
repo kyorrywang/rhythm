@@ -8,6 +8,7 @@ interface MessageSliceState {
 interface MessageSliceActions {
   addMessage: (sessionId: string, message: Message) => void;
   updateMessage: (sessionId: string, messageId: string, updates: Partial<Message>) => void;
+  rewindSessionToMessage: (sessionId: string, messageId: string) => void;
   enqueueMessage: (sessionId: string, message: Message, priority: 'normal' | 'urgent', mode?: 'normal' | 'build' | 'task' | 'ask' | 'append') => void;
   dequeueMessage: (sessionId: string) => QueuedMessage | null;
   removeQueuedMessage: (sessionId: string, queuedMessageId: string) => void;
@@ -59,6 +60,33 @@ export const createMessageSlice = (
       const updated: Session = {
         ...session,
         messages,
+        updatedAt: Date.now(),
+      };
+      nextSessions.set(sessionId, updated);
+      persistSession(updated);
+      return { sessions: nextSessions };
+    }),
+
+  rewindSessionToMessage: (sessionId, messageId) =>
+    set((state) => {
+      const nextSessions = new Map(state.sessions);
+      const session = nextSessions.get(sessionId);
+      if (!session) return state;
+
+      const targetIndex = session.messages.findIndex((msg) => msg.id === messageId);
+      if (targetIndex < 0) return state;
+
+      const updated: Session = {
+        ...session,
+        messages: session.messages.slice(0, targetIndex),
+        queuedMessages: [],
+        queueState: 'idle',
+        hasUnreadCompleted: false,
+        error: null,
+        runtime: {
+          state: 'idle',
+          updatedAt: Date.now(),
+        },
         updatedAt: Date.now(),
       };
       nextSessions.set(sessionId, updated);

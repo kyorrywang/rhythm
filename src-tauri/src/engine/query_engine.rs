@@ -40,6 +40,32 @@ impl QueryEngine {
         &self.usage_tracker.total
     }
 
+    pub fn set_messages(&mut self, messages: Vec<ChatMessage>) {
+        self.messages = messages;
+    }
+
+    fn ensure_system_prompt(&mut self) {
+        if self.context.system_prompt.is_empty() {
+            return;
+        }
+
+        let system_message = ChatMessage {
+            role: "system".to_string(),
+            blocks: vec![ChatMessageBlock::Text {
+                text: self.context.system_prompt.clone(),
+            }],
+        };
+
+        match self.messages.first_mut() {
+            Some(first) if first.role == "system" => {
+                *first = system_message;
+            }
+            _ => {
+                self.messages.insert(0, system_message);
+            }
+        }
+    }
+
     /// Submit a user message and run the agent loop until completion.
     ///
     /// Returns the concatenated assistant text produced across all turns.
@@ -53,15 +79,7 @@ impl QueryEngine {
         prompt: String,
         attachments: Vec<ChatAttachment>,
     ) -> Result<String, RhythmError> {
-        // Prepend system prompt if not already present
-        if self.messages.is_empty() && !self.context.system_prompt.is_empty() {
-            self.messages.push(ChatMessage {
-                role: "system".to_string(),
-                blocks: vec![ChatMessageBlock::Text {
-                    text: self.context.system_prompt.clone(),
-                }],
-            });
-        }
+        self.ensure_system_prompt();
 
         // Append user message
         let mut blocks = Vec::new();

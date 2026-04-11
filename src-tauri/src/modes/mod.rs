@@ -146,7 +146,7 @@ fn default_coordinate_mode() -> ModeDefinition {
                 agent_turn_limit: None,
                 delegation_policy_ref: Some("coordinate_delegate_only".to_string()),
                 review_policy_ref: Some("coordinate_optional".to_string()),
-                completion_policy_ref: Some("delegate_then_summarize".to_string()),
+                completion_policy_ref: Some("direct_answer".to_string()),
                 observability_policy_ref: Some("standard".to_string()),
                 limit_policy_ref: Some("default".to_string()),
             },
@@ -162,7 +162,7 @@ fn default_coordinate_mode() -> ModeDefinition {
             ),
             (
                 "policy.no_direct_execution".to_string(),
-                "Hard rules:\n- You must not execute implementation work yourself.\n- You must not use mutating or execution tools yourself.\n- You may only use list_dir, read, and spawn_subagent.\n- You cannot complete the task without delegating at least once.".to_string(),
+                "Hard rules:\n- You must not execute implementation work yourself.\n- You must not use mutating or execution tools yourself.\n- You may only use list_dir, read, and spawn_subagent.".to_string(),
             ),
         ]),
         policies: ModePolicyCatalog {
@@ -196,8 +196,8 @@ fn default_coordinate_mode() -> ModeDefinition {
                 human_checkpoint_required: false,
             }],
             completion: vec![CompletionPolicyDefinition {
-                id: "delegate_then_summarize".to_string(),
-                strategy: "delegate_then_summarize".to_string(),
+                id: "direct_answer".to_string(),
+                strategy: "direct_answer".to_string(),
             }],
             observability: vec![ObservabilityPolicyDefinition {
                 id: "standard".to_string(),

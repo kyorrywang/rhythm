@@ -79,6 +79,7 @@ async fn run_query_inner(
 
     let mut turn = 0usize;
     let mut used_subagent_tool = false;
+    let mut executed_any_tools = false;
     loop {
         if let Some(limit) = context.agent_turn_limit {
             if turn >= limit {
@@ -89,7 +90,6 @@ async fn run_query_inner(
                         content: format!("\n[Agent turn limit ({limit}) exceeded]"),
                     },
                 );
-                event_bus::emit(&context.agent_id, &context.session_id, EventPayload::Done);
                 return Err(RhythmError::AgentTurnLimitExceeded(limit));
             }
         }
@@ -222,6 +222,7 @@ async fn run_query_inner(
                         }
                         let result =
                             execute_tools(context, std::mem::take(&mut pending_tool_calls)).await;
+                        executed_any_tools = true;
 
                         messages.push(ChatMessage {
                             role: "assistant".to_string(),
@@ -252,7 +253,13 @@ async fn run_query_inner(
                     event_bus::emit(&context.agent_id, &context.session_id, EventPayload::Done);
                     return Ok(assistant_text.clone());
                 }
-                Err(e) => return Err(RhythmError::LlmError(e)),
+                Err(e) => {
+                    return Err(if executed_any_tools {
+                        RhythmError::LlmErrorAfterToolExecution(e)
+                    } else {
+                        RhythmError::LlmError(e)
+                    });
+                }
             }
         }
 
@@ -266,6 +273,7 @@ async fn run_query_inner(
                 used_subagent_tool = true;
             }
             let result = execute_tools(context, std::mem::take(&mut pending_tool_calls)).await;
+            executed_any_tools = true;
 
             messages.push(ChatMessage {
                 role: "assistant".to_string(),
@@ -303,10 +311,12 @@ async fn run_query_inner(
                 content: "\n[Error: model stream ended unexpectedly]".to_string(),
             },
         );
-        event_bus::emit(&context.agent_id, &context.session_id, EventPayload::Done);
-        return Err(RhythmError::LlmError(
-            "Model stream ended unexpectedly before completion".to_string(),
-        ));
+        let message = "Model stream ended unexpectedly before completion".to_string();
+        return Err(if executed_any_tools {
+            RhythmError::LlmErrorAfterToolExecution(message)
+        } else {
+            RhythmError::LlmError(message)
+        });
     }
 
     // The loop exits only through Done, interrupt, stream error, or an optional future turn limit.

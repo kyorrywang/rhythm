@@ -3,6 +3,7 @@ import type { InternalEvent, InternalEventType } from '@/shared/types/events';
 
 const EVENT_TYPE_MAP: Record<ServerEventChunk['type'], InternalEventType> = {
   runtime_status: 'RUNTIME_STATUS',
+  heartbeat: 'RUNTIME_HEARTBEAT',
   text_delta: 'TEXT_DELTA',
   thinking_delta: 'THINKING_DELTA',
   thinking_end: 'THINKING_END',

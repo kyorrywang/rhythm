@@ -97,6 +97,7 @@ type EventChunkBase = {
 
 export type ServerEventChunk =
   | (EventChunkBase & { type: 'runtime_status'; state: StreamRuntimeState; reason?: StreamRuntimeReason; message?: string; attempt?: number; retryAt?: number; retryInSeconds?: number })
+  | (EventChunkBase & { type: 'heartbeat' })
   | (EventChunkBase & { type: 'text_delta'; content: string })
   | (EventChunkBase & { type: 'thinking_delta'; content: string })
   | (EventChunkBase & { type: 'thinking_end' })

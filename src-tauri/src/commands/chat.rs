@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::ipc::Channel;
 use tokio::time::{sleep, Duration};
 
@@ -17,18 +18,34 @@ use crate::shared::schema::{EventPayload, ServerEventChunk};
 use crate::swarm::agent_registry;
 use crate::tools::ToolRegistry;
 use tokio::sync::Mutex;
+use crate::infrastructure::session_repository::{self, MessageSegmentSnapshot, MessageSnapshot, SessionSnapshot};
+use crate::llm::{ChatMessage, ChatMessageBlock};
 
 const CHAT_AUTO_RETRY_DELAY_MS: u64 = 10_000;
+const CHAT_TRANSIENT_RETRY_DELAY_MS: u64 = 2_000;
+const CHAT_MAX_TRANSIENT_RETRIES: u32 = 2;
 
-fn runtime_state_message(state: &str, attempt: u32, retry_in_seconds: Option<u32>) -> String {
+fn runtime_state_message(
+    state: &str,
+    reason: Option<&str>,
+    attempt: u32,
+    retry_in_seconds: Option<u32>,
+) -> String {
     match state {
         "starting" => "正在启动会话流。".to_string(),
         "streaming" => "正在流式生成。".to_string(),
-        "backoff_waiting" => format!(
-            "429 Too Many Requests，第 {} 次自动重试将在 {} 秒后开始。",
-            attempt.max(1),
-            retry_in_seconds.unwrap_or((CHAT_AUTO_RETRY_DELAY_MS / 1000) as u32)
-        ),
+        "backoff_waiting" => match reason {
+            Some("rate_limit") => format!(
+                "429 Too Many Requests，第 {} 次自动重试将在 {} 秒后开始。",
+                attempt.max(1),
+                retry_in_seconds.unwrap_or((CHAT_AUTO_RETRY_DELAY_MS / 1000) as u32)
+            ),
+            _ => format!(
+                "连接暂时异常，第 {} 次自动重试将在 {} 秒后开始。",
+                attempt.max(1),
+                retry_in_seconds.unwrap_or((CHAT_TRANSIENT_RETRY_DELAY_MS / 1000) as u32)
+            ),
+        },
         "retrying" => format!("正在发起第 {} 次重试...", attempt.max(1)),
         "interrupted" => "会话已中断。".to_string(),
         "completed" => "会话已完成。".to_string(),
@@ -74,6 +91,20 @@ pub async fn chat_stream(
     let cwd_path = crate::commands::workspace::resolve_workspace_path(cwd.as_deref())?;
 
     tokio::spawn(async move {
+        let heartbeat_running = Arc::new(AtomicBool::new(true));
+        let heartbeat_flag = heartbeat_running.clone();
+        let heartbeat_agent_id = agent_id.clone();
+        let heartbeat_session_id = session_id.clone();
+        tokio::spawn(async move {
+            while heartbeat_flag.load(Ordering::Relaxed) {
+                sleep(Duration::from_secs(2)).await;
+                if !heartbeat_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                event_bus::emit(&heartbeat_agent_id, &heartbeat_session_id, EventPayload::Heartbeat);
+            }
+        });
+
         let client: Arc<dyn LlmClient> = Arc::from(llm::create_client(&llm_config));
 
         // Build multi-layer system prompt
@@ -165,6 +196,11 @@ pub async fn chat_stream(
             };
 
             let mut engine = QueryEngine::new(context);
+            if let Ok(history) = load_session_history(&cwd_path, &session_id, &prompt, &attachments).await {
+                if !history.is_empty() {
+                    engine.set_messages(history);
+                }
+            }
             emit_runtime_status(
                 &agent_id,
                 &session_id,
@@ -191,7 +227,7 @@ pub async fn chat_stream(
                     );
                     break;
                 }
-                Err(e) if is_retryable_rate_limit_error(&e.to_string()) => {
+                Err(e) if e.is_safe_to_retry() && is_retryable_rate_limit_error(&e.message()) => {
                     retry_attempt += 1;
                     let retry_at = current_time_millis() + CHAT_AUTO_RETRY_DELAY_MS;
                     emit_runtime_status(
@@ -205,9 +241,16 @@ pub async fn chat_stream(
                     );
                     eprintln!(
                         "Generation rate-limited, retrying in {} ms: {}",
-                        CHAT_AUTO_RETRY_DELAY_MS, e
+                        CHAT_AUTO_RETRY_DELAY_MS, e.message()
                     );
-                    if wait_for_retry_or_interrupt(&agent_id, &session_id, retry_attempt, retry_at).await {
+                    if wait_for_retry_or_interrupt(
+                        &agent_id,
+                        &session_id,
+                        retry_attempt,
+                        retry_at,
+                        Some("rate_limit"),
+                        CHAT_AUTO_RETRY_DELAY_MS,
+                    ).await {
                         emit_runtime_status(
                             &agent_id,
                             &session_id,
@@ -230,8 +273,58 @@ pub async fn chat_stream(
                         None,
                     );
                 }
+                Err(e)
+                    if e.is_safe_to_retry()
+                        && retry_attempt < CHAT_MAX_TRANSIENT_RETRIES
+                        && is_retryable_transient_error(&e.message()) =>
+                {
+                    retry_attempt += 1;
+                    let retry_at = current_time_millis() + CHAT_TRANSIENT_RETRY_DELAY_MS;
+                    emit_runtime_status(
+                        &agent_id,
+                        &session_id,
+                        "backoff_waiting",
+                        Some("unknown"),
+                        Some(retry_attempt),
+                        Some((CHAT_TRANSIENT_RETRY_DELAY_MS / 1000) as u32),
+                        Some(retry_at),
+                    );
+                    eprintln!(
+                        "Generation transient failure, retrying in {} ms: {}",
+                        CHAT_TRANSIENT_RETRY_DELAY_MS, e.message()
+                    );
+                    if wait_for_retry_or_interrupt(
+                        &agent_id,
+                        &session_id,
+                        retry_attempt,
+                        retry_at,
+                        Some("unknown"),
+                        CHAT_TRANSIENT_RETRY_DELAY_MS,
+                    ).await {
+                        emit_runtime_status(
+                            &agent_id,
+                            &session_id,
+                            "interrupted",
+                            Some("interrupt"),
+                            Some(retry_attempt),
+                            None,
+                            None,
+                        );
+                        event_bus::emit(&agent_id, &session_id, EventPayload::Interrupted);
+                        break;
+                    }
+                    emit_runtime_status(
+                        &agent_id,
+                        &session_id,
+                        "retrying",
+                        Some("unknown"),
+                        Some(retry_attempt),
+                        None,
+                        None,
+                    );
+                }
                 Err(e) => {
-                    eprintln!("Generation error: {}", e);
+                    eprintln!("Generation error: {}", e.message());
                     emit_runtime_status(
                         &agent_id,
                         &session_id,
@@ -245,7 +338,7 @@ pub async fn chat_stream(
                         &agent_id,
                         &session_id,
                         EventPayload::TextDelta {
-                            content: format!("\n[Error: {}]", e),
+                            content: format!("\n[Error: {}]", e.message()),
                         },
                     );
                     event_bus::emit(&agent_id, &session_id, EventPayload::Failed);
@@ -254,6 +347,7 @@ pub async fn chat_stream(
             }
         }
 
+        heartbeat_running.store(false, Ordering::Relaxed);
         event_bus::unregister(&agent_id);
         agent_registry::unregister_agent(&agent_id);
         session_tree::unregister_session_tree(&session_id).await;
@@ -284,6 +378,30 @@ fn is_retryable_rate_limit_error(message: &str) -> bool {
         || normalized.contains("rate limit")
 }
 
+fn is_retryable_transient_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    let transient_markers = [
+        "connection reset",
+        "connection aborted",
+        "connection closed",
+        "broken pipe",
+        "timed out",
+        "timeout",
+        "temporarily unavailable",
+        "temporary failure",
+        "unexpected eof",
+        "eof while",
+        "stream ended unexpectedly",
+        "network error",
+        "transport error",
+        "http2 error",
+        "tls",
+        "socket",
+        "io error",
+    ];
+    transient_markers.iter().any(|marker| normalized.contains(marker))
+}
+
 fn emit_runtime_status(
     agent_id: &str,
     session_id: &str,
@@ -300,7 +418,7 @@ fn emit_runtime_status(
         EventPayload::RuntimeStatus {
             state: state.to_string(),
             reason: reason.map(str::to_string),
-            message: runtime_state_message(state, normalized_attempt, retry_in_seconds),
+            message: runtime_state_message(state, reason, normalized_attempt, retry_in_seconds),
             attempt: normalized_attempt,
             retry_in_seconds,
             retry_at,
@@ -308,8 +426,15 @@ fn emit_runtime_status(
     );
 }
 
-async fn wait_for_retry_or_interrupt(agent_id: &str, session_id: &str, attempt: u32, retry_at: u64) -> bool {
-    let mut remaining_ms = CHAT_AUTO_RETRY_DELAY_MS;
+async fn wait_for_retry_or_interrupt(
+    agent_id: &str,
+    session_id: &str,
+    attempt: u32,
+    retry_at: u64,
+    reason: Option<&str>,
+    total_delay_ms: u64,
+) -> bool {
+    let mut remaining_ms = total_delay_ms;
     while remaining_ms > 0 {
         if interrupts::is_interrupted(session_id).await {
             interrupts::clear_interrupt(session_id).await;
@@ -324,7 +449,7 @@ async fn wait_for_retry_or_interrupt(agent_id: &str, session_id: &str, attempt: 
                 agent_id,
                 session_id,
                 "backoff_waiting",
-                Some("rate_limit"),
+                reason,
                 Some(attempt),
                 Some(seconds),
                 Some(retry_at),
@@ -336,6 +461,203 @@ async fn wait_for_retry_or_interrupt(agent_id: &str, session_id: &str, attempt: 
         return true;
     }
     false
+}
+
+async fn load_session_history(
+    cwd_path: &std::path::Path,
+    session_id: &str,
+    prompt: &str,
+    attachments: &[ChatAttachment],
+) -> Result<Vec<ChatMessage>, String> {
+    let Some(snapshot) = session_repository::get_session(cwd_path, session_id).await? else {
+        return Ok(Vec::new());
+    };
+
+    Ok(rebuild_history_from_snapshot(snapshot, prompt, attachments))
+}
+
+fn rebuild_history_from_snapshot(
+    snapshot: SessionSnapshot,
+    prompt: &str,
+    attachments: &[ChatAttachment],
+) -> Vec<ChatMessage> {
+    let mut messages: Vec<ChatMessage> = snapshot
+        .messages
+        .into_iter()
+        .filter_map(snapshot_message_to_chat_message)
+        .collect();
+
+    trim_pending_current_turn(&mut messages, prompt, attachments);
+    messages
+}
+
+fn trim_pending_current_turn(
+    messages: &mut Vec<ChatMessage>,
+    prompt: &str,
+    attachments: &[ChatAttachment],
+) {
+    while let Some(last) = messages.last() {
+        let only_empty_assistant = last.role == "assistant"
+            && !last
+                .blocks
+                .iter()
+                .any(|block| matches!(block, ChatMessageBlock::Text { text } if !text.trim().is_empty())
+                    || matches!(block, ChatMessageBlock::ToolCall { .. })
+                    || matches!(block, ChatMessageBlock::ToolResult { .. }));
+        if only_empty_assistant {
+            messages.pop();
+            continue;
+        }
+        break;
+    }
+
+    if matches!(
+        messages.last(),
+        Some(ChatMessage {
+            role,
+            blocks: _
+        }) if role == "assistant"
+    ) {
+        let should_trim_assistant = messages
+            .len()
+            .checked_sub(2)
+            .and_then(|index| messages.get(index))
+            .map(|message| user_message_matches_turn(message, prompt, attachments))
+            .unwrap_or(false);
+        if should_trim_assistant {
+            messages.pop();
+        }
+    }
+
+    if matches!(
+        messages.last(),
+        Some(message) if user_message_matches_turn(message, prompt, attachments)
+    ) {
+        messages.pop();
+    }
+}
+
+fn user_message_matches_turn(
+    message: &ChatMessage,
+    prompt: &str,
+    attachments: &[ChatAttachment],
+) -> bool {
+    message.role == "user"
+        && extract_text_from_blocks(&message.blocks).trim() == prompt.trim()
+        && blocks_match_attachments(&message.blocks, attachments)
+}
+
+fn snapshot_message_to_chat_message(message: MessageSnapshot) -> Option<ChatMessage> {
+    let role = message.role;
+    let mut blocks = Vec::new();
+
+    if let Some(content) = message.content {
+        if !content.trim().is_empty() {
+            blocks.push(ChatMessageBlock::Text { text: content });
+        }
+    }
+
+    for attachment in message.attachments.unwrap_or_default() {
+        if attachment.kind == "image" {
+            if let Some(data_url) = attachment.data_url.or(attachment.preview_url) {
+                if let Some((media_type, data)) = parse_data_url(&data_url) {
+                    blocks.push(ChatMessageBlock::Image { media_type, data });
+                    continue;
+                }
+            }
+        }
+
+        blocks.push(ChatMessageBlock::File {
+            name: attachment.name,
+            mime_type: attachment.mime_type,
+            size: attachment.size.max(0) as u64,
+            text: attachment.text,
+        });
+    }
+
+    for segment in message.segments.unwrap_or_default() {
+        match segment {
+            MessageSegmentSnapshot::Text { content } => {
+                if !content.trim().is_empty() {
+                    blocks.push(ChatMessageBlock::Text { text: content });
+                }
+            }
+            MessageSegmentSnapshot::Tool { tool } => {
+                blocks.push(ChatMessageBlock::ToolCall {
+                    id: tool.id.clone(),
+                    name: tool.name,
+                    arguments: tool.arguments,
+                });
+                if let Some(result) = tool.result {
+                    blocks.push(ChatMessageBlock::ToolResult {
+                        tool_call_id: tool.id,
+                        content: result,
+                        is_error: tool.status == "error",
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if blocks.is_empty() {
+        return None;
+    }
+
+    Some(ChatMessage { role, blocks })
+}
+
+fn extract_text_from_blocks(blocks: &[ChatMessageBlock]) -> String {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            ChatMessageBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn blocks_match_attachments(blocks: &[ChatMessageBlock], attachments: &[ChatAttachment]) -> bool {
+    let block_attachments: Vec<&ChatMessageBlock> = blocks
+        .iter()
+        .filter(|block| matches!(block, ChatMessageBlock::Image { .. } | ChatMessageBlock::File { .. }))
+        .collect();
+
+    if block_attachments.len() != attachments.len() {
+        return false;
+    }
+
+    block_attachments
+        .iter()
+        .zip(attachments.iter())
+        .all(|(block, attachment)| match (block, attachment.kind.as_str()) {
+            (ChatMessageBlock::Image { .. }, "image") => true,
+            (
+                ChatMessageBlock::File {
+                    name,
+                    mime_type,
+                    size,
+                    text,
+                },
+                "file",
+            ) => {
+                name == &attachment.name
+                    && mime_type == &attachment.mime_type
+                    && *size == attachment.size
+                    && text.as_deref() == attachment.text.as_deref()
+            }
+            _ => false,
+        })
+}
+
+fn parse_data_url(data_url: &str) -> Option<(String, String)> {
+    let (header, data) = data_url.split_once(',')?;
+    let media_type = header
+        .strip_prefix("data:")?
+        .strip_suffix(";base64")?
+        .to_string();
+    Some((media_type, data.to_string()))
 }
 
 fn current_time_millis() -> u64 {

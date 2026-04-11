@@ -5,7 +5,6 @@ use std::sync::OnceLock;
 use tokio::sync::mpsc;
 
 static EVENT_BUS: OnceLock<Mutex<InnerBus>> = OnceLock::new();
-const EVENT_BUFFER_LIMIT: usize = 512;
 
 struct InnerBus {
     subscribers: HashMap<String, mpsc::UnboundedSender<ServerEventChunk>>,
@@ -132,9 +131,6 @@ pub fn emit(agent_id: &str, session_id: &str, payload: EventPayload) {
         for target in buffer_targets {
             let buffer = bus.event_buffers.entry(target).or_default();
             buffer.push_back(chunk.clone());
-            while buffer.len() > EVENT_BUFFER_LIMIT {
-                buffer.pop_front();
-            }
         }
     }
 

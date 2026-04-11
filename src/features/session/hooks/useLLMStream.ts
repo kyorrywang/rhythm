@@ -8,7 +8,7 @@ import { useWorkspaceStore } from '@/shared/state/useWorkspaceStore';
 import { persistSession, persistSessions } from '@/shared/lib/sessionPersistence';
 import { hasSessionPermissionGrant } from '@/shared/lib/sessionPermissions';
 import { Attachment, Message, ServerEventChunk, Session } from '@/shared/types/schema';
-import { attachSessionStream, chatStream, submitUserAnswer, approvePermission, interruptSession, llmComplete } from '@/shared/api/commands';
+import { attachSessionStream, chatStream, submitUserAnswer, approvePermission, interruptSession, llmComplete, listRuntimeSessions } from '@/shared/api/commands';
 import { getMessageTextContent, isSessionRunning } from '@/shared/lib/sessionState';
 
 const TITLE_SYSTEM_PROMPT = [
@@ -30,6 +30,7 @@ export const useLLMStream = () => {
   const attachedSessionIdsRef = useRef<Set<string>>(new Set());
   const processQueueAfterDoneRef = useRef<((sessionId: string) => void) | null>(null);
   const lastEventIdByRootSessionRef = useRef<Map<string, number>>(new Map());
+  const lastActivityAtBySessionRef = useRef<Map<string, number>>(new Map());
 
   const isStreaming = useMemo(
     () => Array.from(sessions.values()).some((session) => !session.parentId && isSessionRunning(session)),
@@ -116,6 +117,9 @@ export const useLLMStream = () => {
     const liveState = store.getState();
     const targetSessionId = chunk.sessionId;
     const rootSessionId = options?.rootSessionId || targetSessionId;
+    const activityAt = chunk.timestamp ?? Date.now();
+    lastActivityAtBySessionRef.current.set(targetSessionId, activityAt);
+    lastActivityAtBySessionRef.current.set(rootSessionId, activityAt);
     const currentEventId = chunk.eventId || 0;
     const lastSeenEventId = lastEventIdByRootSessionRef.current.get(rootSessionId) || 0;
     if (currentEventId > 0 && currentEventId <= lastSeenEventId) {
@@ -269,9 +273,10 @@ export const useLLMStream = () => {
     messageMode: 'normal' | 'build' | 'task' | 'ask' | 'append',
     userMode?: Message['mode'],
     attachments: Attachment[] = [],
+    targetSessionId?: string,
   ) => {
     const state = store.getState();
-    const sessionId = state.activeSessionId;
+    const sessionId = targetSessionId || state.activeSessionId;
     if (!sessionId) return;
     const providerId = state.composerControls.providerId;
     const model = state.composerControls.modelName;
@@ -306,6 +311,7 @@ export const useLLMStream = () => {
 
     abortRef.current = false;
     attachedSessionIdsRef.current.add(sessionId);
+    lastActivityAtBySessionRef.current.set(sessionId, Date.now());
     state.updateSession(sessionId, {
       workspacePath,
       error: null,
@@ -368,23 +374,47 @@ export const useLLMStream = () => {
       }, onEvent);
     };
 
+    const startStreamWithRetry = async () => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          await startStreamAttempt();
+          return;
+        } catch (error) {
+          lastError = error;
+          if (attempt === 1) {
+            break;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 600));
+        }
+      }
+      throw lastError;
+    };
+
     const failStreamStart = (message: string) => {
       attachedSessionIdsRef.current.delete(sessionId);
       const currentState = store.getState();
-      const currentSessionId = currentState.activeSessionId || sessionId;
-      currentState.updateSession(currentSessionId, {
+      const failedAt = Date.now();
+      currentState.updateMessage(sessionId, aiMessageId, {
+        status: 'completed',
+        endedAt: failedAt,
+        segments: [{ type: 'text', content: `[Error: ${message || 'Stream connection failed'}]` }],
+      });
+      currentState.updateSession(sessionId, {
+        queueState: 'idle',
         error: message || 'Stream connection failed',
         runtime: {
           state: 'failed',
           reason: 'error',
           message: message || 'Stream connection failed',
-          updatedAt: Date.now(),
+          updatedAt: failedAt,
         },
       });
+      schedulePersistSession(sessionId, true);
     };
 
     try {
-      await startStreamAttempt();
+      await startStreamWithRetry();
     } catch (err) {
       console.error('Stream failed', err);
       const message = err instanceof Error ? err.message : String(err);
@@ -398,7 +428,13 @@ export const useLLMStream = () => {
       store.getState().updateSession(sessionId, { queueState: 'processing_queue' });
       await Promise.resolve();
       if (!abortRef.current) {
-        connectStream(getMessageTextContent(queuedItem.message), queuedItem.mode || 'normal', queuedItem.message.mode, queuedItem.message.attachments || []);
+        connectStream(
+          getMessageTextContent(queuedItem.message),
+          queuedItem.mode || 'normal',
+          queuedItem.message.mode,
+          queuedItem.message.attachments || [],
+          sessionId,
+        );
       }
     } else {
       store.getState().updateSession(sessionId, {
@@ -444,6 +480,93 @@ export const useLLMStream = () => {
     });
   }, [attachToRunningSession, sessions]);
 
+  useEffect(() => {
+    let disposed = false;
+
+    const markSessionDisconnected = (sessionId: string, updatedAt: number) => {
+      const liveState = store.getState();
+      const session = liveState.sessions.get(sessionId);
+      if (!session || !isSessionRunning(session)) return;
+
+      liveState.updateSession(sessionId, {
+        queueState: 'idle',
+        error: null,
+        runtime: {
+          state: 'interrupted',
+          reason: 'interrupt',
+          message: '会话连接已断开，可继续发送新消息。',
+          updatedAt,
+        },
+      });
+      schedulePersistSession(sessionId, true);
+    };
+
+    const monitorSessions = async () => {
+      const reconnectableStates = new Set([
+        'starting',
+        'streaming',
+        'retrying',
+        'backoff_waiting',
+        'waiting_for_permission',
+        'waiting_for_user',
+        'interrupting',
+      ]);
+      const liveSessions = Array.from(store.getState().sessions.values())
+        .filter((session) => !session.parentId && session.runtime?.state && reconnectableStates.has(session.runtime.state));
+      if (liveSessions.length === 0) return;
+
+      let runtimeSessionIds = new Set<string>();
+      let runtimeSessionsAvailable = false;
+      try {
+        const runtimeSessions = await listRuntimeSessions();
+        runtimeSessionIds = new Set(runtimeSessions.map((session) => session.session_id));
+        runtimeSessionsAvailable = true;
+      } catch (error) {
+        console.error('Failed to list runtime sessions', error);
+      }
+
+      if (disposed) return;
+      const now = Date.now();
+      for (const session of liveSessions) {
+        const runtimeState = session.runtime?.state;
+        const lastActivity = Math.max(
+          lastActivityAtBySessionRef.current.get(session.id) || 0,
+          session.runtime?.updatedAt || 0,
+          session.updatedAt || 0,
+        );
+        const inactivityMs = now - lastActivity;
+        const runtimeExists = runtimeSessionIds.has(session.id);
+        const reconnectAfterMs =
+          runtimeState === 'starting' ? 12_000
+          : runtimeState === 'interrupting' ? 8_000
+          : runtimeState === 'waiting_for_permission' || runtimeState === 'waiting_for_user' ? 45_000
+          : 20_000;
+
+        if (runtimeSessionsAvailable && !runtimeExists && inactivityMs > 5_000) {
+          attachedSessionIdsRef.current.delete(session.id);
+          interruptedSessionIdsRef.current.delete(session.id);
+          markSessionDisconnected(session.id, now);
+          continue;
+        }
+
+        if (runtimeExists && inactivityMs > reconnectAfterMs) {
+          attachedSessionIdsRef.current.delete(session.id);
+          void attachToRunningSession(session.id);
+        }
+      }
+    };
+
+    void monitorSessions();
+    const timer = window.setInterval(() => {
+      void monitorSessions();
+    }, 5_000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [attachToRunningSession, schedulePersistSession, store]);
+
   const requestInterrupt = useCallback(async () => {
     const state = store.getState();
     const targetSessionIds = Array.from(state.sessions.values())
@@ -467,6 +590,14 @@ export const useLLMStream = () => {
       console.error('Interrupt failed', error);
       for (const targetId of targetSessionIds) {
         interruptedSessionIdsRef.current.delete(targetId);
+        state.updateSession(targetId, {
+          runtime: {
+            state: 'streaming',
+            reason: 'unknown',
+            message: '中断请求失败，已恢复会话监听。',
+            updatedAt: Date.now(),
+          },
+        });
       }
     });
   }, [store]);

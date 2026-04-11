@@ -1497,6 +1497,10 @@ pub fn should_delegate_task(
     prompt: &str,
     _attachment_count: usize,
 ) -> bool {
+    if runtime_spec.completion.strategy != "delegate_then_summarize" {
+        return false;
+    }
+
     let policy = &runtime_spec.delegation;
     if !policy.enabled {
         return false;
@@ -1931,7 +1935,7 @@ mod tests {
         )
         .expect("chat spec");
 
-        assert!(should_delegate_task(&coordinate, "写一本修仙小说大纲", 0));
+        assert!(!should_delegate_task(&coordinate, "写一本修仙小说大纲", 0));
         assert!(!should_delegate_task(&chat, "你好", 0));
         clear_runtime_override_env();
     }
@@ -1975,7 +1979,7 @@ mod tests {
 
         assert_eq!(resolved.delegation.id.as_deref(), Some("coordinate_delegate_only"));
         assert!(!resolved.delegation.root_may_execute);
-        assert_eq!(resolved.completion.id.as_deref(), Some("delegate_then_summarize"));
+        assert_eq!(resolved.completion.id.as_deref(), Some("direct_answer"));
         assert_eq!(resolved.observability.id.as_deref(), Some("standard"));
         assert_eq!(resolved.provenance.profile_id, "coordinate");
         assert_eq!(resolved.provenance.delegation_policy_source, "coordinate_delegate_only");

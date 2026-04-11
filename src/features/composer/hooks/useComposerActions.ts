@@ -17,7 +17,7 @@ interface UseComposerActionsParams {
 
 export const useComposerActions = ({ activeSessionId, runtimeState, queueState, currentAsk, allTasksDone, composerMode }: UseComposerActionsParams) => {
   const activeWorkspace = useActiveWorkspace();
-  const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, setQueueState, clearTasks, setTaskMinimized, recordAskAnswer, sessions, addSession, setActiveSession } = useSessionStore();
+  const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, setQueueState, clearTasks, setTaskMinimized, recordAskAnswer, sessions, addSession, setActiveSession, composerDraft, clearComposerDraft } = useSessionStore();
   const { connectStream, requestInterrupt } = useLLMStream();
 
   const [text, setText] = useState('');
@@ -42,6 +42,13 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
       clearTasks(activeSessionId!);
     }
   }, [runtimeState, activeSessionId, clearTasks]);
+
+  useEffect(() => {
+    if (!composerDraft) return;
+    setText(composerDraft.text);
+    setAttachments(composerDraft.attachments);
+    clearComposerDraft();
+  }, [composerDraft, clearComposerDraft]);
 
   const buildAskAnswer = useCallback((): { answer: string; record: { selected: string[]; text: string } } => {
     if (!currentAsk) {
@@ -132,7 +139,7 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
         return;
       }
 
-      connectStream(trimmed, 'normal', composerMode, outgoingAttachments);
+      connectStream(trimmed, 'normal', composerMode, outgoingAttachments, targetSessionId);
       setText('');
       setAttachments([]);
     };

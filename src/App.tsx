@@ -68,11 +68,11 @@ export function App() {
         : 'default';
 
     setComposerControls({
-      mode: defaultProfile?.mode || currentControls.mode,
+      mode: defaultProfile?.mode || currentControls.mode || 'Chat',
       providerId: selectedModel.providerId,
       modelId: selectedModel.modelId,
       modelName: selectedModel.modelName,
-      reasoning: settings.defaultReasoning || currentControls.reasoning,
+      reasoning: settings.defaultReasoning || currentControls.reasoning || 'medium',
     });
     setPermissionConfig({
       mode: permissionMode,
@@ -127,6 +127,16 @@ function resolveSelectedModel(
       providerId: currentProvider.id,
       modelId: currentModel.id,
       modelName: currentModel.name,
+    };
+  }
+
+  const firstProvider = enabledProviders[0];
+  const firstModel = firstProvider?.models[0];
+  if (firstProvider && firstModel) {
+    return {
+      providerId: firstProvider.id,
+      modelId: firstModel.id,
+      modelName: firstModel.name,
     };
   }
 
