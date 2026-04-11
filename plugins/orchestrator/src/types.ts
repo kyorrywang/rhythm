@@ -39,11 +39,16 @@ export type OrchestratorFailureKind =
   | 'agent_runtime_error'
   | 'human_required';
 
+export interface OrchestratorToolPolicy {
+  permissionMode: 'full_auto' | 'manual';
+}
+
 export interface OrchestratorExecutionContext {
   providerId?: string;
   model?: string;
   reasoning?: string;
   workspacePath: string;
+  toolPolicy?: OrchestratorToolPolicy;
   capturedAt: number;
 }
 
@@ -60,6 +65,29 @@ export interface OrchestratorFailureState {
   lastOccurredAt: number;
   retryCount: number;
   runtime?: StreamRuntime;
+}
+
+export interface OrchestratorPendingHumanAction {
+  kind: 'checkpoint' | 'review_override' | 'rework_approval' | 'failure_recovery';
+  summary: string;
+  taskId?: string;
+  reviewLogId?: string;
+  requestedAt: number;
+}
+
+export interface OrchestratorRunMetrics {
+  totalTasks: number;
+  completedTasks: number;
+  acceptedArtifacts: number;
+  reviewCount: number;
+  lastComputedAt: number;
+}
+
+export interface OrchestratorMaintenanceLease {
+  ownerId: string;
+  acquiredAt: number;
+  heartbeatAt: number;
+  expiresAt: number;
 }
 
 export interface OrchestratorTemplate {
@@ -100,17 +128,19 @@ export interface OrchestratorPlanStage {
   failurePolicy?: OrchestratorAgent['failurePolicy'];
 }
 
+export interface OrchestratorStagePolicy {
+  stageId: string;
+  stageName: string;
+  requiresReview: boolean;
+  humanCheckpointRequired: boolean;
+}
+
 export interface OrchestratorReviewPolicy {
   schemaVersion?: number;
   runId?: string;
   defaultRequiresReview: boolean;
   allowHumanOverride: boolean;
-  stagePolicies: Array<{
-    stageId: string;
-    stageName: string;
-    requiresReview: boolean;
-    humanCheckpointRequired: boolean;
-  }>;
+  stagePolicies: OrchestratorStagePolicy[];
   createdAt: number;
   updatedAt: number;
 }
@@ -118,6 +148,7 @@ export interface OrchestratorReviewPolicy {
 export interface OrchestratorPlanDraft {
   schemaVersion?: number;
   id: string;
+  revision?: number;
   title: string;
   goal: string;
   sourceSessionId?: string;
@@ -139,6 +170,7 @@ export interface OrchestratorPlanDraft {
 
 export interface OrchestratorConfirmedPlan {
   id: string;
+  revision?: number;
   title: string;
   goal: string;
   overview: string;
@@ -191,6 +223,7 @@ export interface OrchestratorRun {
   schemaVersion?: number;
   id: string;
   planId: string;
+  planRevision?: number;
   planTitle: string;
   confirmedPlan: OrchestratorConfirmedPlan;
   goal: string;
@@ -215,12 +248,15 @@ export interface OrchestratorRun {
   lastHumanInterventionAt?: number;
   lastHumanInterventionSummary?: string;
   pendingHumanCheckpoint?: string;
+  pendingHumanAction?: OrchestratorPendingHumanAction;
   failureState?: OrchestratorFailureState;
   currentOrchestratorAgentRunId?: string;
   lastOrchestratorAgentRunId?: string;
   orchestrationInput?: OrchestrationInputSnapshot;
   orchestrationPrompt?: string;
   orchestrationDecision?: OrchestrationDecisionRecord;
+  maintenanceLease?: OrchestratorMaintenanceLease;
+  metrics?: OrchestratorRunMetrics;
   pauseRequestedAt?: number;
   pausedAt?: number;
   createdAt: number;
@@ -261,6 +297,8 @@ export interface OrchestratorAgentTask {
   source: OrchestratorTaskSource;
   latestAgentRunId?: string;
   attemptCount: number;
+  assignedAgentType?: 'work' | 'review' | 'checkpoint' | 'orchestrator';
+  retryPolicy?: 'never' | 'manual' | 'auto_transient';
   sessionId?: string;
   stageId?: string;
   planStageId?: string;
@@ -435,6 +473,7 @@ export interface ReviewAgentInputSnapshot {
   reviewedArtifactIds: string[];
   reviewedArtifactSummaries: string[];
   reviewedArtifactPaths: string[];
+  reviewedArtifactContents: string[];
   projectStateSummary: string[];
 }
 
@@ -442,6 +481,9 @@ export interface ReviewAgentOutputSnapshot {
   decision: 'approved' | 'needs_changes' | 'rejected';
   summary: string;
   feedback: string;
+  issues: string[];
+  requiredRework: string[];
+  confidence?: number;
   reviewedArtifactIds: string[];
   completedAt: number;
   source: 'agent' | 'human_override';
@@ -471,6 +513,9 @@ export interface OrchestrationDispatchDecision {
 export interface OrchestrationDecision {
   status: 'dispatch' | 'wait' | 'throttle' | 'complete';
   summary: string;
+  ruleHits?: string[];
+  risks?: string[];
+  requiresHuman?: boolean;
   taskOperations: OrchestrationTaskOperation[];
   currentStageId?: string;
   currentStageName?: string;
@@ -510,11 +555,16 @@ export interface OrchestrationInputSnapshot {
 export interface OrchestrationDecisionRecord {
   status: OrchestrationDecision['status'];
   summary: string;
+  inputSummary: string[];
   dispatchCount: number;
+  candidateActionCount: number;
   currentStageId?: string;
   currentStageName?: string;
   currentAgentId?: string;
   currentAgentName?: string;
+  requiresHuman: boolean;
+  ruleHits: string[];
+  risks: string[];
   allowedDispatchKinds: Array<'work' | 'review'>;
   candidateDispatches: string[];
   selectedParentTaskIds: string[];
@@ -553,6 +603,9 @@ export interface OrchestratorReviewLog {
   decision: 'approved' | 'needs_changes' | 'rejected';
   summary: string;
   feedback: string;
+  issues: string[];
+  requiredRework: string[];
+  confidence?: number;
   source: 'agent' | 'human_override';
   overrideReason?: string;
   overriddenAgentRunId?: string;

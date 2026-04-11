@@ -1,4 +1,5 @@
 import { definePlugin } from '../../../src/plugin/sdk';
+import type { PluginContext } from '../../../src/plugin/sdk';
 import { registerOrchestratorCommands } from './commands';
 import { AgentSessionView } from './components/AgentSessionView';
 import { OrchestratorAgentSessionView } from './components/OrchestratorAgentSessionView';
@@ -8,7 +9,7 @@ import { RunView } from './components/RunView';
 import { TemplateView } from './components/TemplateView';
 import { ORCHESTRATOR_VIEWS } from './constants';
 import { registerOrchestratorMessageActions } from './messageActions';
-import { listRuns } from './storage';
+import { getRun, listRuns, saveRun, withRunLock } from './storage';
 import { recoverOrchestratorRun, watchdogOrchestratorRun } from './runtime';
 import { registerOrchestratorToolActions } from './toolActions';
 import type { OrchestratorAgentRunPayload, OrchestratorCoordinatorRunPayload, OrchestratorPlanDraftPayload, OrchestratorRunPayload, OrchestratorTemplatePayload } from './types';
@@ -16,6 +17,43 @@ import type { OrchestratorAgentRunPayload, OrchestratorCoordinatorRunPayload, Or
 let watchdogTimer: number | null = null;
 let orchestratorPluginActive = false;
 const runMaintenanceInFlight = new Map<string, Promise<void>>();
+const MAINTENANCE_LEASE_MS = 45_000;
+const maintenanceOwnerId = `orchestrator-plugin-${Math.random().toString(36).slice(2, 10)}`;
+
+async function acquireMaintenanceLease(ctx: PluginContext, runId: string) {
+  return withRunLock(runId, async () => {
+    const run = await getRun(ctx, runId);
+    if (!run) return false;
+    const now = Date.now();
+    const lease = run.maintenanceLease;
+    if (lease && lease.ownerId !== maintenanceOwnerId && lease.expiresAt > now) {
+      return false;
+    }
+    await saveRun(ctx, {
+      ...run,
+      maintenanceLease: {
+        ownerId: maintenanceOwnerId,
+        acquiredAt: lease?.ownerId === maintenanceOwnerId ? lease.acquiredAt : now,
+        heartbeatAt: now,
+        expiresAt: now + MAINTENANCE_LEASE_MS,
+      },
+      updatedAt: run.updatedAt,
+    });
+    return true;
+  });
+}
+
+async function releaseMaintenanceLease(ctx: PluginContext, runId: string) {
+  await withRunLock(runId, async () => {
+    const run = await getRun(ctx, runId);
+    if (!run?.maintenanceLease || run.maintenanceLease.ownerId !== maintenanceOwnerId) return;
+    await saveRun(ctx, {
+      ...run,
+      maintenanceLease: undefined,
+      updatedAt: run.updatedAt,
+    });
+  });
+}
 
 export default definePlugin({
   activate(ctx) {
@@ -71,15 +109,18 @@ export default definePlugin({
     const maintainRun = (runId: string) => {
       const existing = runMaintenanceInFlight.get(runId);
       if (existing) return existing;
-      let next: Promise<void>;
+      let next: Promise<void> | null = null;
       next = (async () => {
         try {
           if (!orchestratorPluginActive) return;
+          const leaseAcquired = await acquireMaintenanceLease(ctx, runId);
+          if (!leaseAcquired) return;
           await recoverOrchestratorRun(ctx, runId);
           if (!orchestratorPluginActive) return;
           await watchdogOrchestratorRun(ctx, runId);
         } finally {
-          if (runMaintenanceInFlight.get(runId) === next) {
+          await releaseMaintenanceLease(ctx, runId);
+          if (next && runMaintenanceInFlight.get(runId) === next) {
             runMaintenanceInFlight.delete(runId);
           }
         }

@@ -2,7 +2,7 @@ import type { PluginContext } from '../../../src/plugin/sdk';
 import { useSessionStore } from '../../../src/shared/state/useSessionStore';
 import { useWorkspaceStore } from '../../../src/shared/state/useWorkspaceStore';
 import { ORCHESTRATOR_COMMANDS, ORCHESTRATOR_EVENTS, ORCHESTRATOR_VIEWS } from './constants';
-import { appendRunEvent, deleteTemplate, getPlanDraft, getRun, getTemplate, listPlanDrafts, listRuns, listTasks, listTemplates, savePlanDraft, saveReviewPolicy, saveRun, saveTemplate, updatePlanDraft, } from './storage';
+import { appendRunEvent, deleteTemplate, getPlanDraft, getRun, getTemplate, listPlanDrafts, listRuns, listTasks, listTemplates, savePlanDraft, saveReviewPolicy, saveRun, saveTemplate } from './storage';
 import { startOrchestratorRun, wakeRunById } from './runtime';
 import type {
   OrchestratorCancelRunInput,
@@ -19,6 +19,7 @@ import type {
   OrchestratorOverrideReviewInput,
   OrchestratorPauseRunInput,
   OrchestratorPlanDraft,
+  OrchestratorExecutionContext,
   OrchestratorRetryTaskInput,
   OrchestratorResumeRunInput,
   OrchestratorSkipTaskInput,
@@ -48,7 +49,6 @@ import {
   updateOrchestratorTask,
 } from './runtime';
 import { cancelOrchestratorRun } from './runtime';
-import { updateTemplate } from './storage';
 
 export function registerOrchestratorCommands(ctx: PluginContext) {
   ctx.commands.register<OrchestratorCreatePlanDraftInput, OrchestratorPlanDraft>(
@@ -116,12 +116,21 @@ export function registerOrchestratorCommands(ctx: PluginContext) {
   ctx.commands.register<OrchestratorUpdatePlanDraftInput, OrchestratorPlanDraft | null>(
     ORCHESTRATOR_COMMANDS.updatePlanDraft,
     async ({ planDraftId, patch }) => {
-      const planDraft = await updatePlanDraft(ctx, planDraftId, (current) => ({
+      const current = await getPlanDraft(ctx, planDraftId);
+      if (!current) throw new Error(`Plan draft not found: ${planDraftId}`);
+      if (current.status === 'confirmed') {
+        const mutableAfterConfirm = new Set(['runId']);
+        const attemptedProtectedChanges = Object.keys(patch).filter((key) => !mutableAfterConfirm.has(key));
+        if (attemptedProtectedChanges.length > 0) {
+          throw new Error('Confirmed plans are immutable. Create a new draft revision instead of editing the confirmed plan in place.');
+        }
+      }
+      const planDraft: OrchestratorPlanDraft = {
         ...current,
         ...patch,
         updatedAt: Date.now(),
-      }));
-      if (!planDraft) throw new Error(`Plan draft not found: ${planDraftId}`);
+      };
+      await savePlanDraft(ctx, planDraft);
       ctx.events.emit(ORCHESTRATOR_EVENTS.planDraftsChanged, { planDraftId: planDraft.id });
       return planDraft;
     },
@@ -146,13 +155,14 @@ export function registerOrchestratorCommands(ctx: PluginContext) {
     async ({ planDraftId }) => {
       const planDraft = await getPlanDraft(ctx, planDraftId);
       if (!planDraft) throw new Error(`Plan draft not found: ${planDraftId}`);
-      const confirmedPlan = await updatePlanDraft(ctx, planDraftId, (current) => ({
-        ...current,
+      const confirmedPlan: OrchestratorPlanDraft = {
+        ...planDraft,
         status: 'confirmed',
+        revision: Math.max(1, planDraft.revision || 1),
         confirmedAt: Date.now(),
         updatedAt: Date.now(),
-      }));
-      if (!confirmedPlan) throw new Error(`Plan draft not found: ${planDraftId}`);
+      };
+      await savePlanDraft(ctx, confirmedPlan);
       const confirmedSnapshot = createConfirmedPlanFromDraft(confirmedPlan);
       const baseRun = createRunFromPlan(confirmedSnapshot, confirmedPlan.sourceSessionId ? 'chat' : 'workbench');
       const run = {
@@ -168,17 +178,19 @@ export function registerOrchestratorCommands(ctx: PluginContext) {
         stagePolicies: confirmedSnapshot.stages.map((stage) => ({
           stageId: stage.id,
           stageName: stage.name,
-          requiresReview: confirmedSnapshot.reviewCheckpoints.some((item) => item.includes(stage.name)) || true,
+          requiresReview: confirmedSnapshot.reviewCheckpoints.length === 0
+            ? true
+            : confirmedSnapshot.reviewCheckpoints.some((item) => item.includes(stage.name)),
           humanCheckpointRequired: confirmedSnapshot.humanCheckpoints.some((item) => item.includes(stage.name)),
         })),
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
-      await updatePlanDraft(ctx, planDraftId, (current) => ({
-        ...current,
+      await savePlanDraft(ctx, {
+        ...confirmedPlan,
         runId: run.id,
         updatedAt: Date.now(),
-      }));
+      });
       await appendRunEvent(ctx, createRunCreatedEvent(run));
       const startedRun = await startOrchestratorRun(ctx, run);
       ctx.events.emit(ORCHESTRATOR_EVENTS.planDraftsChanged, { planDraftId: confirmedPlan.id });
@@ -244,12 +256,14 @@ export function registerOrchestratorCommands(ctx: PluginContext) {
   ctx.commands.register<OrchestratorUpdateTemplateInput, unknown>(
     ORCHESTRATOR_COMMANDS.updateTemplate,
     async ({ templateId, patch }) => {
-      const template = await updateTemplate(ctx, templateId, (current) => ({
+      const current = await getTemplate(ctx, templateId);
+      if (!current) throw new Error(`Template not found: ${templateId}`);
+      const template = {
         ...current,
         ...patch,
         updatedAt: Date.now(),
-      }));
-      if (!template) throw new Error(`Template not found: ${templateId}`);
+      };
+      await saveTemplate(ctx, template);
       ctx.events.emit(ORCHESTRATOR_EVENTS.templatesChanged, { templateId: template.id });
       return template;
     },
@@ -429,6 +443,9 @@ function captureExecutionContext() {
     model: sessionState.composerControls.modelName,
     reasoning: sessionState.composerControls.reasoning,
     workspacePath,
+    toolPolicy: {
+      permissionMode: sessionState.composerControls.fullAuto ? 'full_auto' as const : 'manual' as const,
+    },
     capturedAt: Date.now(),
-  };
+  } satisfies OrchestratorExecutionContext;
 }

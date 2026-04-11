@@ -168,7 +168,7 @@ export function OrchestratorAgentSessionView({ ctx, payload }: WorkbenchProps<Or
             <div className="mt-3 space-y-6 pb-8">
               {session.messages.map((msg, index) => (
                 msg.role === 'user' ? (
-                  <UserMessage key={msg.id || index} message={msg} />
+                  <UserMessage key={msg.id || index} sessionId={session.id} message={msg} />
                 ) : msg.role === 'system' ? (
                   <SystemMessage key={msg.id || index} message={msg} />
                 ) : (

@@ -37,7 +37,7 @@ function shellToolToLogPayload(tool: ToolCall): LogPayload {
     success: tool.status !== 'error',
     timed_out: false,
     truncated: false,
-    duration_ms: tool.executionTime || 0,
+    duration_ms: (tool.endedAt && tool.startedAt) ? Math.max(0, tool.endedAt - tool.startedAt) : 0,
     source: 'tool',
   };
 }

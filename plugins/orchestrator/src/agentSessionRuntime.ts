@@ -261,12 +261,12 @@ function getActiveWorkspacePath() {
 }
 
 function resolveExecutionContext(executionContext?: OrchestratorExecutionContext) {
-  const store = useSessionStore.getState();
   return {
-    providerId: executionContext?.providerId || store.composerControls.providerId,
-    model: executionContext?.model || store.composerControls.modelName,
-    reasoning: executionContext?.reasoning || store.composerControls.reasoning,
+    providerId: executionContext?.providerId || 'openai',
+    model: executionContext?.model || 'gpt-5.4',
+    reasoning: executionContext?.reasoning || 'medium',
     workspacePath: executionContext?.workspacePath || getActiveWorkspacePath(),
+    toolPolicy: executionContext?.toolPolicy || { permissionMode: 'full_auto' as const },
     capturedAt: executionContext?.capturedAt || Date.now(),
   } satisfies OrchestratorExecutionContext;
 }

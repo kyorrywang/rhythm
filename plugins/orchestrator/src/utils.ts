@@ -53,6 +53,7 @@ export function createPlanDraft(input: {
   const now = Date.now();
   return {
     id: createId('plan'),
+    revision: 0,
     title: input.title || input.goal,
     goal: input.goal,
     sourceSessionId: input.sourceSessionId,
@@ -90,6 +91,7 @@ export function createPlanDraft(input: {
 export function createConfirmedPlanFromDraft(planDraft: OrchestratorPlanDraft): OrchestratorConfirmedPlan {
   return {
     id: planDraft.id,
+    revision: Math.max(1, planDraft.revision || 1),
     title: planDraft.title,
     goal: planDraft.goal,
     overview: planDraft.overview,
@@ -420,6 +422,7 @@ export function createRunFromPlan(
   return {
     id: createId('run'),
     planId: plan.id,
+    planRevision: plan.revision || 1,
     planTitle: plan.title,
     confirmedPlan: plan,
     goal: plan.goal,
@@ -432,6 +435,13 @@ export function createRunFromPlan(
     currentStageName: firstStage?.name,
     currentAgentId: undefined,
     currentAgentName: firstStage ? `${firstStage.name} Work Agent` : undefined,
+    metrics: {
+      totalTasks: 0,
+      completedTasks: 0,
+      acceptedArtifacts: 0,
+      reviewCount: 0,
+      lastComputedAt: now,
+    },
     createdAt: now,
     updatedAt: now,
   };

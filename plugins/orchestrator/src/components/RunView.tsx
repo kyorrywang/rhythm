@@ -289,7 +289,7 @@ export function RunView({ ctx, payload }: WorkbenchProps<OrchestratorRunPayload>
               <InfoCard label="Requires Human" value={run.failureState.requiresHuman ? 'yes' : 'no'} />
               <InfoCard label="First Seen" value={formatDateTime(run.failureState.firstOccurredAt)} />
               <InfoCard label="Retry Count" value={String(run.failureState.retryCount)} />
-              <InfoCard label="Auto Retry At" value={formatDateTime(autoRetryAt)} />
+              <InfoCard label="Auto Retry At" value={formatDateTime(autoRetryAt ?? undefined)} />
               <InfoCard label="Retry In" value={autoRetryPending ? `${autoRetryCountdownSeconds}s` : (autoRetryAt ? 'due now' : '-')} />
             </div>
             <div className="mt-3 rounded-xl border border-rose-200 bg-white px-3 py-3 text-sm text-rose-900">

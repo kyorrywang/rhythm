@@ -1,9 +1,23 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PluginContext } from '@/plugin/sdk';
-import { applyOrchestratorDecision, failOrchestratorTask, listReviewedArtifacts, overrideReviewDecision, recoverOrchestratorRun, retryOrchestratorTask, startOrchestratorRun, wakeRunById } from '../../plugins/orchestrator/src/runtime';
-import { getProjectState, getRun, listAgentRunsForRun, listArtifactsForRun, listTasksForRun, saveAgentRun, saveArtifact, saveRun, saveTask } from '../../plugins/orchestrator/src/storage';
+import { launchAgentSession } from '../../plugins/orchestrator/src/agentSessionRuntime';
+import { applyOrchestratorDecision, completeOrchestratorTask, failOrchestratorTask, listReviewedArtifacts, overrideReviewDecision, recoverOrchestratorRun, retryOrchestratorTask, startOrchestratorRun, wakeRunById } from '../../plugins/orchestrator/src/runtime';
+import { getProjectState, getRun, listAgentRunsForRun, listArtifactsForRun, listCoordinatorRunsForRun, listTasksForRun, saveAgentRun, saveArtifact, saveReviewPolicy, saveRun, saveTask, updateTask } from '../../plugins/orchestrator/src/storage';
 import { createRunFromPlan } from '../../plugins/orchestrator/src/utils';
 import type { OrchestrationDecision, OrchestratorConfirmedPlan, OrchestratorReviewLog, OrchestratorRun } from '../../plugins/orchestrator/src/types';
+
+const mockSessionState = {
+  sessions: new Map(),
+  composerControls: {
+    providerId: 'openai',
+    modelName: 'gpt-5.4',
+    reasoning: 'medium' as const,
+    fullAuto: true,
+  },
+};
 
 vi.mock('../../plugins/orchestrator/src/agentSessionRuntime', () => ({
   interruptAgentSession: vi.fn(async () => {}),
@@ -15,9 +29,7 @@ vi.mock('../../plugins/orchestrator/src/agentSessionRuntime', () => ({
 
 vi.mock('../shared/state/useSessionStore', () => ({
   useSessionStore: {
-    getState: () => ({
-      sessions: new Map(),
-    }),
+    getState: () => mockSessionState,
   },
 }));
 
@@ -32,6 +44,8 @@ describe('orchestrator runtime', () => {
   beforeEach(() => {
     files = new Map();
     ctx = createMockContext(files);
+    mockSessionState.sessions = new Map();
+    vi.mocked(launchAgentSession).mockClear();
   });
 
   it('seeds all plan stages and starts the orchestrator run without completing immediately', async () => {
@@ -241,6 +255,125 @@ describe('orchestrator runtime', () => {
     expect(reviewedArtifacts.map((artifact) => artifact.summary)).toEqual(['Current draft summary']);
   });
 
+  it('seeds stage tasks from review policy instead of hard-coding review and human gates', async () => {
+    const now = Date.now();
+    const plan: OrchestratorConfirmedPlan = {
+      id: 'plan_policy_seed',
+      title: 'Policy Seed Test',
+      goal: 'Respect stage review policy.',
+      overview: 'Use stored stage policies when seeding tasks.',
+      constraints: [],
+      successCriteria: [],
+      decompositionPrinciples: ['Policy drives legal transitions.'],
+      humanCheckpoints: ['Human approves stage 1 before work starts.'],
+      reviewCheckpoints: ['Only stage 2 requires review.'],
+      reviewPolicy: 'Stored review policy is the source of truth.',
+      confirmedAt: now,
+      revision: 1,
+      stages: [
+        {
+          id: 'stage_policy_1',
+          name: 'Stage 1',
+          goal: 'Wait for a human checkpoint first.',
+          deliverables: ['checkpointed result'],
+          targetFolder: 'orchestrator-output/stage-policy-1',
+          outputFiles: ['stage-1.md'],
+        },
+        {
+          id: 'stage_policy_2',
+          name: 'Stage 2',
+          goal: 'Require review after work.',
+          deliverables: ['reviewed result'],
+          targetFolder: 'orchestrator-output/stage-policy-2',
+          outputFiles: ['stage-2.md'],
+        },
+      ],
+    };
+
+    const run = createRunFromPlan(plan, 'workbench');
+    await saveRun(ctx, run);
+    await saveReviewPolicy(ctx, {
+      runId: run.id,
+      defaultRequiresReview: false,
+      allowHumanOverride: true,
+      stagePolicies: [
+        {
+          stageId: 'stage_policy_1',
+          stageName: 'Stage 1',
+          requiresReview: false,
+          humanCheckpointRequired: true,
+        },
+        {
+          stageId: 'stage_policy_2',
+          stageName: 'Stage 2',
+          requiresReview: true,
+          humanCheckpointRequired: false,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await startOrchestratorRun(ctx, run);
+
+    const tasks = await listTasksForRun(ctx, run.id);
+    const firstStage = tasks.find((task) => task.stageId === 'stage_policy_1');
+    const secondStage = tasks.find((task) => task.stageId === 'stage_policy_2');
+    expect(firstStage?.reviewRequired).toBe(false);
+    expect(firstStage?.requiresHumanApproval).toBe(true);
+    expect(firstStage?.status).toBe('waiting_human');
+    expect(secondStage?.reviewRequired).toBe(true);
+    expect(secondStage?.status).toBe('pending');
+  });
+
+  it('does not start a coordinator when the run immediately hits a human checkpoint', async () => {
+    const now = Date.now();
+    const plan: OrchestratorConfirmedPlan = {
+      id: 'plan_initial_human_gate',
+      title: 'Initial Human Gate',
+      goal: 'Wait for approval before orchestration starts.',
+      overview: 'Human gate should stop wake-up before coordinator launch.',
+      constraints: [],
+      successCriteria: [],
+      decompositionPrinciples: ['Human checkpoints are hard gates.'],
+      humanCheckpoints: ['Human approves Stage 1.'],
+      reviewCheckpoints: [],
+      reviewPolicy: 'Wait for human approval first.',
+      confirmedAt: now,
+      revision: 1,
+      stages: [
+        {
+          id: 'stage_gate',
+          name: 'Stage Gate',
+          goal: 'Wait here.',
+          deliverables: ['approved-result'],
+          targetFolder: 'orchestrator-output/stage-gate',
+          outputFiles: ['approved.md'],
+        },
+      ],
+    };
+    const run = createRunFromPlan(plan, 'workbench');
+    await saveRun(ctx, run);
+    await saveReviewPolicy(ctx, {
+      runId: run.id,
+      defaultRequiresReview: true,
+      allowHumanOverride: true,
+      stagePolicies: [{
+        stageId: 'stage_gate',
+        stageName: 'Stage Gate',
+        requiresReview: true,
+        humanCheckpointRequired: true,
+      }],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const started = await startOrchestratorRun(ctx, run);
+
+    expect(started.status).toBe('waiting_human');
+    expect((await listCoordinatorRunsForRun(ctx, run.id))).toHaveLength(0);
+  });
+
   it('migrates persisted runs that are missing newer plan fields', async () => {
     const now = Date.now();
     files.set('data/runs/run_legacy/run.json', JSON.stringify({
@@ -273,6 +406,212 @@ describe('orchestrator runtime', () => {
     expect(run?.confirmedPlan.humanCheckpoints).toEqual(['计划确认后再启动 run。']);
     expect(run?.confirmedPlan.reviewCheckpoints).toEqual(['每个主要阶段完成后进入审核。']);
     expect(run?.maxConcurrentTasks).toBe(2);
+    expect(run?.planRevision).toBe(1);
+    expect(run?.confirmedPlan.revision).toBe(1);
+  });
+
+  it('normalizes missing execution context fields without borrowing live composer state', async () => {
+    const now = Date.now();
+    files.set('data/runs/run_execution_legacy/run.json', JSON.stringify({
+      id: 'run_execution_legacy',
+      planId: 'plan_execution_legacy',
+      planTitle: 'Legacy Execution Context',
+      goal: 'Preserve explicit execution context.',
+      status: 'running',
+      source: 'workbench',
+      activeTaskCount: 0,
+      createdAt: now,
+      updatedAt: now,
+      executionContext: {
+        workspacePath: 'C:/legacy-workspace',
+        capturedAt: now - 1000,
+      },
+      confirmedPlan: {
+        id: 'plan_execution_legacy',
+        title: 'Legacy Execution Context',
+        goal: 'Preserve explicit execution context.',
+        overview: 'Legacy run shape.',
+        constraints: [],
+        successCriteria: [],
+        reviewPolicy: 'Review every stage.',
+        stages: [],
+        confirmedAt: now,
+      },
+    }));
+
+    mockSessionState.composerControls.providerId = 'anthropic';
+    mockSessionState.composerControls.modelName = 'other-model';
+    mockSessionState.composerControls.reasoning = 'high';
+
+    const run = await getRun(ctx, 'run_execution_legacy');
+    expect(run?.executionContext).toEqual({
+      providerId: 'openai',
+      model: 'gpt-5.4',
+      reasoning: 'medium',
+      workspacePath: 'C:/legacy-workspace',
+      toolPolicy: {
+        permissionMode: 'full_auto',
+      },
+      capturedAt: now - 1000,
+    });
+  });
+
+  it('verifies workspace files before promoting a work result into an artifact', async () => {
+    const now = Date.now();
+    const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), 'rhythm-orchestrator-'));
+    const outputDir = path.join(workspacePath, 'orchestrator-output', 'verified-stage');
+    await fs.mkdir(outputDir, { recursive: true });
+    await fs.writeFile(path.join(outputDir, 'result.md'), '# Verified Result\n\nfrom disk', 'utf8');
+
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_verified_artifact',
+        title: 'Verified Artifact Plan',
+        goal: 'Use filesystem state as artifact truth.',
+        overview: 'Artifact verification test.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Accepted artifacts must come from verified files.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: ['Review before continue.'],
+        reviewPolicy: 'Review after verified work.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [],
+      }, 'workbench'),
+      status: 'running' as const,
+      executionContext: {
+        workspacePath,
+        capturedAt: now,
+      },
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_verified_work',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      rootTaskId: 'task_verified_work',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      latestAgentRunId: 'agent_run_verified_work',
+      attemptCount: 1,
+      stageId: 'stage_1',
+      planStageId: 'stage_1',
+      stageName: 'Verified Stage',
+      agentId: 'stage_1:work',
+      agentName: 'Work Agent',
+      title: 'Verified work task',
+      status: 'running',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveAgentRun(ctx, {
+      id: 'agent_run_verified_work',
+      runId: run.id,
+      taskId: 'task_verified_work',
+      planId: run.planId,
+      kind: 'work',
+      stageId: 'stage_1',
+      stageName: 'Verified Stage',
+      agentId: 'stage_1:work',
+      agentName: 'Work Agent',
+      sessionId: 'session_verified_work',
+      title: 'Work Agent',
+      prompt: 'prompt',
+      input: {
+        assignmentBrief: {
+          assignmentId: 'assignment_verified_work',
+          runId: run.id,
+          taskId: 'task_verified_work',
+          kind: 'work',
+          title: 'Verified Assignment',
+          whyNow: 'Write the verified file.',
+          goal: 'Write the verified file.',
+          context: [],
+          inputArtifacts: [],
+          instructions: [],
+          acceptanceCriteria: [],
+          deliverables: ['result'],
+          targetFolder: 'orchestrator-output/verified-stage',
+          expectedFiles: ['result.md'],
+          reviewTargetPaths: ['orchestrator-output/verified-stage/result.md'],
+          reviewFocus: [],
+          risks: [],
+          createdAt: now,
+        },
+        runGoal: run.goal,
+        planTitle: run.planTitle,
+        stageId: 'stage_1',
+        stageName: 'Verified Stage',
+        constraints: [],
+        targetFolder: 'orchestrator-output/verified-stage',
+        expectedFiles: ['result.md'],
+        acceptedArtifactSummaries: [],
+        recentReviewSummaries: [],
+        projectStateSummary: [],
+      },
+      status: 'running',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await completeOrchestratorTask(ctx, { taskId: 'task_verified_work' });
+
+    const artifacts = await listArtifactsForRun(ctx, run.id);
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].filePaths).toEqual(['orchestrator-output/verified-stage/result.md']);
+    expect(artifacts[0].content).toContain('from disk');
+    expect(artifacts[0].summary).toContain('Verified Result');
+
+    await fs.rm(workspacePath, { recursive: true, force: true });
+  });
+
+  it('applies concurrent task updates atomically', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_atomic_update',
+        title: 'Atomic Update Plan',
+        goal: 'Avoid lost task updates.',
+        overview: 'Atomic task update test.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Task updates must serialize.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'No review needed.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [],
+      }, 'workbench'),
+      status: 'running' as const,
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_atomic',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      rootTaskId: 'task_atomic',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      title: 'Atomic Task',
+      status: 'ready',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await Promise.all([
+      updateTask(ctx, 'task_atomic', (current) => ({ ...current, attemptCount: current.attemptCount + 1 })),
+      updateTask(ctx, 'task_atomic', (current) => ({ ...current, attemptCount: current.attemptCount + 1 })),
+    ]);
+
+    const task = (await listTasksForRun(ctx, run.id)).find((entry) => entry.id === 'task_atomic');
+    expect(task?.attemptCount).toBe(2);
   });
 
   it('does not wake a run that is waiting for human action', async () => {
@@ -362,6 +701,49 @@ describe('orchestrator runtime', () => {
       title: 'Review Agent task',
       status: 'ready',
       summary: 'Review current output.',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await saveTask(ctx, {
+      id: 'task_work_for_override_changes',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      parentTaskId: 'task_parent',
+      rootTaskId: 'task_parent',
+      depth: 1,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 1,
+      stageId: 'stage_1',
+      planStageId: 'stage_1',
+      stageName: 'Stage 1',
+      agentId: 'stage_1:work',
+      agentName: 'Work Agent',
+      title: 'Work task',
+      status: 'completed',
+      reviewRequired: true,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await saveArtifact(ctx, {
+      id: 'artifact_override_changes',
+      runId: run.id,
+      agentRunId: 'agent_work_for_override_changes',
+      taskId: 'task_work_for_override_changes',
+      stageId: 'stage_1',
+      stageName: 'Stage 1',
+      agentId: 'stage_1:work',
+      agentName: 'Work Agent',
+      name: 'Draft Output',
+      logicalKey: 'stage_1.work.override_changes',
+      status: 'review_submitted',
+      version: 1,
+      kind: 'draft',
+      format: 'markdown',
+      filePaths: ['orchestrator-output/stage-1/output.md'],
+      summary: 'Draft output to revise',
+      content: 'draft content',
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -489,6 +871,173 @@ describe('orchestrator runtime', () => {
     expect(nextRun?.status).toBe('waiting_human');
   });
 
+  it('keeps the next root stage waiting_human when its stage policy requires approval', async () => {
+    const now = Date.now();
+    const plan: OrchestratorConfirmedPlan = {
+      id: 'plan_next_stage_gate',
+      title: 'Next Stage Gate',
+      goal: 'Do not auto-unlock gated stages.',
+      overview: 'Unlocking the next stage must respect stage policy.',
+      constraints: [],
+      successCriteria: [],
+      decompositionPrinciples: ['Stage unlocks still respect human checkpoints.'],
+      humanCheckpoints: ['Human approves Stage 2.'],
+      reviewCheckpoints: ['Stage 1 review required.'],
+      reviewPolicy: 'Stage 2 waits for approval.',
+      confirmedAt: now,
+      revision: 1,
+      stages: [
+        {
+          id: 'stage_one',
+          name: 'Stage 1',
+          goal: 'Finish stage one.',
+          deliverables: ['one'],
+          targetFolder: 'orchestrator-output/stage-one',
+          outputFiles: ['one.md'],
+        },
+        {
+          id: 'stage_two',
+          name: 'Stage 2',
+          goal: 'Wait for approval before stage two.',
+          deliverables: ['two'],
+          targetFolder: 'orchestrator-output/stage-two',
+          outputFiles: ['two.md'],
+        },
+      ],
+    };
+    const run = {
+      ...createRunFromPlan(plan, 'workbench'),
+      status: 'waiting_human' as const,
+    };
+    await saveRun(ctx, run);
+    await saveReviewPolicy(ctx, {
+      runId: run.id,
+      defaultRequiresReview: true,
+      allowHumanOverride: true,
+      stagePolicies: [
+        {
+          stageId: 'stage_one',
+          stageName: 'Stage 1',
+          requiresReview: true,
+          humanCheckpointRequired: false,
+        },
+        {
+          stageId: 'stage_two',
+          stageName: 'Stage 2',
+          requiresReview: true,
+          humanCheckpointRequired: true,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_stage_one',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_stage_one',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      stageId: 'stage_one',
+      planStageId: 'stage_one',
+      stageName: 'Stage 1',
+      title: 'Stage 1',
+      status: 'waiting_review',
+      reviewRequired: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_stage_two',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_stage_two',
+      depth: 0,
+      order: 1,
+      source: 'plan_seed',
+      attemptCount: 0,
+      stageId: 'stage_two',
+      planStageId: 'stage_two',
+      stageName: 'Stage 2',
+      title: 'Stage 2',
+      status: 'pending',
+      reviewRequired: true,
+      requiresHumanApproval: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_stage_one_work',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      parentTaskId: 'task_stage_one',
+      rootTaskId: 'task_stage_one',
+      depth: 1,
+      order: 1,
+      source: 'plan_seed',
+      attemptCount: 1,
+      stageId: 'stage_one',
+      planStageId: 'stage_one',
+      stageName: 'Stage 1',
+      title: 'Stage 1 Work',
+      status: 'completed',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_stage_one_review',
+      runId: run.id,
+      nodeType: 'review',
+      kind: 'review',
+      parentTaskId: 'task_stage_one',
+      rootTaskId: 'task_stage_one',
+      depth: 1,
+      order: 2,
+      source: 'orchestrator_split',
+      attemptCount: 1,
+      stageId: 'stage_one',
+      planStageId: 'stage_one',
+      stageName: 'Stage 1',
+      title: 'Stage 1 review',
+      status: 'waiting_human',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveArtifact(ctx, {
+      id: 'artifact_stage_one',
+      runId: run.id,
+      agentRunId: 'agent_stage_one',
+      taskId: 'task_stage_one_work',
+      stageId: 'stage_one',
+      stageName: 'Stage 1',
+      name: 'Stage One Draft',
+      logicalKey: 'stage_one.work',
+      status: 'review_submitted',
+      version: 1,
+      kind: 'draft',
+      format: 'markdown',
+      filePaths: ['orchestrator-output/stage-one/one.md'],
+      summary: 'Stage one draft',
+      content: 'draft',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await overrideReviewDecision(ctx, {
+      taskId: 'task_stage_one_review',
+      decision: 'approved',
+      feedback: 'Approved.',
+    });
+
+    const nextStage = (await listTasksForRun(ctx, run.id)).find((task) => task.id === 'task_stage_two');
+    const updatedRun = await getRun(ctx, run.id);
+    expect(nextStage?.status).toBe('waiting_human');
+    expect(updatedRun?.status).toBe('waiting_human');
+  });
+
   it('accepts reviewed artifacts into project state on approval', async () => {
     const now = Date.now();
     const run = {
@@ -607,6 +1156,187 @@ describe('orchestrator runtime', () => {
     expect(projectState?.entries.map((entry) => entry.artifactId)).toContain('artifact_draft_accept');
   });
 
+  it('requires structured JSON review output and persists review details', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_structured_review',
+        title: 'Structured Review Plan',
+        goal: 'Persist structured review output.',
+        overview: 'Review should be parsed from JSON.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Review gates are structured.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: ['Review before continue.'],
+        reviewPolicy: 'Require review.',
+        confirmedAt: now,
+        stages: [],
+      }, 'workbench'),
+      status: 'running' as const,
+      activeTaskCount: 1,
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_parent_structured_review',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_parent_structured_review',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      assignedAgentType: 'orchestrator',
+      retryPolicy: 'manual',
+      stageId: 'stage_1',
+      planStageId: 'stage_1',
+      stageName: 'Stage 1',
+      title: 'Stage 1',
+      status: 'waiting_review',
+      reviewRequired: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_work_structured_review',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      parentTaskId: 'task_parent_structured_review',
+      rootTaskId: 'task_parent_structured_review',
+      depth: 1,
+      order: 1,
+      source: 'plan_seed',
+      attemptCount: 1,
+      assignedAgentType: 'work',
+      retryPolicy: 'auto_transient',
+      stageId: 'stage_1',
+      planStageId: 'stage_1',
+      stageName: 'Stage 1',
+      title: 'Work task',
+      status: 'completed',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_review_structured_review',
+      runId: run.id,
+      nodeType: 'review',
+      kind: 'review',
+      parentTaskId: 'task_parent_structured_review',
+      rootTaskId: 'task_parent_structured_review',
+      depth: 1,
+      order: 2,
+      source: 'orchestrator_split',
+      attemptCount: 1,
+      assignedAgentType: 'review',
+      retryPolicy: 'auto_transient',
+      stageId: 'stage_1',
+      planStageId: 'stage_1',
+      stageName: 'Stage 1',
+      agentId: 'stage_1:review',
+      agentName: 'Review Agent',
+      title: 'Review task',
+      status: 'running',
+      sessionId: 'session_structured_review',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveAgentRun(ctx, {
+      id: 'agent_run_structured_review',
+      runId: run.id,
+      taskId: 'task_review_structured_review',
+      planId: run.planId,
+      kind: 'review',
+      stageId: 'stage_1',
+      stageName: 'Stage 1',
+      agentId: 'stage_1:review',
+      agentName: 'Review Agent',
+      sessionId: 'session_structured_review',
+      title: 'Review Agent',
+      prompt: 'prompt',
+      input: {
+        assignmentBrief: {
+          assignmentId: 'assignment_structured_review',
+          runId: run.id,
+          taskId: 'task_parent_structured_review',
+          kind: 'review',
+          title: 'Structured Review',
+          whyNow: 'Review the draft.',
+          goal: 'Review the draft.',
+          context: [],
+          inputArtifacts: [],
+          instructions: [],
+          acceptanceCriteria: [],
+          deliverables: ['draft'],
+          targetFolder: 'orchestrator-output/stage-1',
+          expectedFiles: ['output.md'],
+          reviewTargetPaths: ['orchestrator-output/stage-1/output.md'],
+          reviewFocus: [],
+          risks: [],
+          createdAt: now,
+        },
+        runGoal: run.goal,
+        planTitle: run.planTitle,
+        stageId: 'stage_1',
+        stageName: 'Stage 1',
+        constraints: [],
+        targetFolder: 'orchestrator-output/stage-1',
+        expectedFiles: ['output.md'],
+        reviewedTaskId: 'task_parent_structured_review',
+        reviewedArtifactIds: ['artifact_structured_review'],
+        reviewedArtifactSummaries: ['Draft output'],
+        reviewedArtifactPaths: ['orchestrator-output/stage-1/output.md'],
+        reviewedArtifactContents: ['draft content'],
+        projectStateSummary: [],
+      },
+      status: 'running',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveArtifact(ctx, {
+      id: 'artifact_structured_review',
+      runId: run.id,
+      agentRunId: 'agent_work_structured_review',
+      taskId: 'task_work_structured_review',
+      stageId: 'stage_1',
+      stageName: 'Stage 1',
+      name: 'Draft Output',
+      logicalKey: 'stage_1.work.structured_review',
+      status: 'review_submitted',
+      version: 1,
+      kind: 'draft',
+      format: 'markdown',
+      filePaths: ['orchestrator-output/stage-1/output.md'],
+      summary: 'Draft output',
+      content: 'draft content',
+      createdAt: now,
+      updatedAt: now,
+    });
+    mockSessionState.sessions.set('session_structured_review', {
+      id: 'session_structured_review',
+      title: 'Structured Review Session',
+      updatedAt: now,
+      messages: [{
+        id: 'assistant_review_message',
+        role: 'assistant',
+        createdAt: now,
+        segments: [{
+          type: 'text',
+          content: '{"decision":"approved","summary":"Looks good.","issues":[],"requiredRework":[],"confidence":0.93}',
+        }],
+      }],
+    });
+
+    await completeOrchestratorTask(ctx, { taskId: 'task_review_structured_review' });
+
+    const reviewLogs = JSON.parse(files.get(`data/runs/${run.id}/review-logs.json`) || '[]');
+    expect(reviewLogs[0].decision).toBe('approved');
+    expect(reviewLogs[0].confidence).toBe(0.93);
+    expect(reviewLogs[0].requiredRework).toEqual([]);
+    expect((await getRun(ctx, run.id))?.metrics?.reviewCount).toBe(1);
+  });
+
   it('marks reviewed artifacts rejected and records failure state when review requests changes', async () => {
     const now = Date.now();
     const run = {
@@ -722,6 +1452,82 @@ describe('orchestrator runtime', () => {
     expect(updatedRun.status).toBe('waiting_human');
     expect(updatedRun.failureState?.kind).toBe('human_required');
     expect(rejectedArtifact?.status).toBe('rejected');
+  });
+
+  it('rejects human review override when no reviewed artifacts are attached', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_override_without_artifacts',
+        title: 'Override Requires Artifacts',
+        goal: 'Human override must target reviewed artifacts.',
+        overview: 'Prevent empty approval overrides.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Review override requires concrete submitted artifacts.'],
+        humanCheckpoints: ['A human may override only an actual review submission.'],
+        reviewCheckpoints: ['Review before continue.'],
+        reviewPolicy: 'Require review.',
+        confirmedAt: now,
+        stages: [],
+      }, 'workbench'),
+      status: 'waiting_human' as const,
+      pendingHumanCheckpoint: 'Review this stage manually.',
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_parent_no_artifacts',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_parent_no_artifacts',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      stageId: 'stage_1',
+      planStageId: 'stage_1',
+      stageName: 'Stage 1',
+      title: 'Stage 1',
+      status: 'waiting_review',
+      reviewRequired: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_review_no_artifacts',
+      runId: run.id,
+      nodeType: 'review',
+      kind: 'review',
+      parentTaskId: 'task_parent_no_artifacts',
+      rootTaskId: 'task_parent_no_artifacts',
+      depth: 1,
+      order: 1,
+      source: 'orchestrator_split',
+      attemptCount: 1,
+      stageId: 'stage_1',
+      planStageId: 'stage_1',
+      stageName: 'Stage 1',
+      agentId: 'stage_1:review',
+      agentName: 'Review Agent',
+      title: 'Review task',
+      status: 'waiting_human',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(overrideReviewDecision(ctx, {
+      taskId: 'task_review_no_artifacts',
+      decision: 'approved',
+      feedback: 'Approve without artifacts.',
+    })).rejects.toThrow('Cannot override review without reviewed artifacts attached to the stage.');
+
+    const updatedRun = await getRun(ctx, run.id);
+    const tasks = await listTasksForRun(ctx, run.id);
+    const reviewLogs = JSON.parse(files.get(`data/runs/${run.id}/review-logs.json`) || '[]');
+    expect(updatedRun?.status).toBe('waiting_human');
+    expect(tasks.find((task) => task.id === 'task_review_no_artifacts')?.status).toBe('waiting_human');
+    expect(tasks.find((task) => task.id === 'task_parent_no_artifacts')?.status).toBe('waiting_review');
+    expect(reviewLogs).toHaveLength(0);
   });
 
   it('records structured failure state when a task hard-fails', async () => {
@@ -1322,11 +2128,33 @@ describe('orchestrator runtime', () => {
       createdAt: now,
       updatedAt: now,
     });
+    await saveTask(ctx, {
+      id: 'task_work_rejected',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      parentTaskId: 'task_parent_rejected',
+      rootTaskId: 'task_parent_rejected',
+      depth: 1,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 1,
+      stageId: 'stage_1',
+      planStageId: 'stage_1',
+      stageName: 'Stage 1',
+      agentId: 'stage_1:work',
+      agentName: 'Work Agent',
+      title: 'Work task',
+      status: 'completed',
+      reviewRequired: true,
+      createdAt: now,
+      updatedAt: now,
+    });
     await saveArtifact(ctx, {
       id: 'artifact_rejected',
       runId: run.id,
       agentRunId: 'agent_work_rejected',
-      taskId: 'task_parent_rejected',
+      taskId: 'task_work_rejected',
       stageId: 'stage_1',
       stageName: 'Stage 1',
       agentId: 'stage_1:work',
@@ -1545,6 +2373,94 @@ describe('orchestrator runtime', () => {
     expect((await listAgentRunsForRun(ctx, run.id))).toHaveLength(0);
   });
 
+  it('relaunches in-flight agent sessions during recovery when persisted tasks were still running', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_recover_running_task',
+        title: 'Recover Running Task',
+        goal: 'Resume running task after restart.',
+        overview: 'Recovery should relaunch detached task sessions.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Recovery must restore in-flight work.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'No review needed.',
+        confirmedAt: now,
+        stages: [],
+      }, 'workbench'),
+      status: 'running' as const,
+      activeTaskCount: 1,
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_recover_running',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      rootTaskId: 'task_recover_running',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 1,
+      assignedAgentType: 'work',
+      retryPolicy: 'auto_transient',
+      title: 'Recoverable task',
+      status: 'running',
+      sessionId: 'session_recover_running',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveAgentRun(ctx, {
+      id: 'agent_run_recover_running',
+      runId: run.id,
+      taskId: 'task_recover_running',
+      planId: run.planId,
+      kind: 'work',
+      sessionId: 'session_recover_running',
+      title: 'Recover Agent',
+      prompt: 'resume prompt',
+      input: {
+        assignmentBrief: {
+          assignmentId: 'assignment_recover_running',
+          runId: run.id,
+          taskId: 'task_recover_running',
+          kind: 'work',
+          title: 'Recover task',
+          whyNow: 'Resume after restart.',
+          goal: 'Continue the task.',
+          context: [],
+          inputArtifacts: [],
+          instructions: [],
+          acceptanceCriteria: [],
+          deliverables: ['result'],
+          targetFolder: 'orchestrator-output/recover',
+          expectedFiles: ['result.md'],
+          reviewTargetPaths: ['orchestrator-output/recover/result.md'],
+          reviewFocus: [],
+          risks: [],
+          createdAt: now,
+        },
+        runGoal: run.goal,
+        planTitle: run.planTitle,
+        constraints: [],
+        targetFolder: 'orchestrator-output/recover',
+        expectedFiles: ['result.md'],
+        acceptedArtifactSummaries: [],
+        recentReviewSummaries: [],
+        projectStateSummary: [],
+      },
+      status: 'running',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await recoverOrchestratorRun(ctx, run.id);
+
+    expect(vi.mocked(launchAgentSession)).toHaveBeenCalled();
+  });
+
   it('allows human retry for the task that owns a non-retryable failure', async () => {
     const now = Date.now();
     const run = {
@@ -1652,7 +2568,7 @@ describe('orchestrator runtime', () => {
     expect(result.run?.status).toBe('running');
     expect(result.run?.failureState).toBeUndefined();
     expect(result.run?.watchdogStatus).toBe('healthy');
-    expect(result.task?.status).toBe('ready');
+    expect((result as { task?: { status?: string } | null }).task?.status ?? null).toBe('ready');
   });
 
   it('blocks retry when another task owns the non-retryable failure', async () => {
@@ -1891,6 +2807,779 @@ describe('orchestrator runtime', () => {
     const finalTasks = await listTasksForRun(ctx, run.id);
     expect(finalTasks.filter((task) => task.kind === 'review')).toHaveLength(1);
     expect(finalTasks.find((task) => task.id === containerTask!.id)?.status).toBe('completed');
+  });
+
+  it('passes artifact snapshot content to review instead of relying on mutable workspace files', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_review_snapshot',
+        title: 'Review Snapshot Plan',
+        goal: 'Review frozen artifact snapshots.',
+        overview: 'Review input should include artifact content.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Review the artifact snapshot, not the moving workspace.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: ['Review after work.'],
+        reviewPolicy: 'Review the snapshot.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [{
+          id: 'stage_snapshot',
+          name: 'Snapshot Stage',
+          goal: 'Review a frozen artifact.',
+          deliverables: ['snapshot'],
+          targetFolder: 'orchestrator-output/snapshot-stage',
+          outputFiles: ['snapshot.md'],
+        }],
+      }, 'workbench'),
+      status: 'running' as const,
+      currentStageId: 'stage_snapshot',
+      currentStageName: 'Snapshot Stage',
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_snapshot_parent',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_snapshot_parent',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      stageId: 'stage_snapshot',
+      planStageId: 'stage_snapshot',
+      stageName: 'Snapshot Stage',
+      title: 'Snapshot Stage',
+      status: 'waiting_review',
+      reviewRequired: true,
+      targetFolder: 'orchestrator-output/snapshot-stage',
+      expectedFiles: ['snapshot.md'],
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_snapshot_work',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      parentTaskId: 'task_snapshot_parent',
+      rootTaskId: 'task_snapshot_parent',
+      depth: 1,
+      order: 1,
+      source: 'plan_seed',
+      attemptCount: 1,
+      stageId: 'stage_snapshot',
+      planStageId: 'stage_snapshot',
+      stageName: 'Snapshot Stage',
+      title: 'Snapshot Work',
+      status: 'completed',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveArtifact(ctx, {
+      id: 'artifact_snapshot',
+      runId: run.id,
+      agentRunId: 'agent_snapshot',
+      taskId: 'task_snapshot_work',
+      stageId: 'stage_snapshot',
+      stageName: 'Snapshot Stage',
+      name: 'Snapshot Artifact',
+      logicalKey: 'stage_snapshot.work',
+      status: 'draft',
+      version: 1,
+      kind: 'report',
+      format: 'markdown',
+      filePaths: ['orchestrator-output/snapshot-stage/snapshot.md'],
+      summary: 'Frozen snapshot',
+      content: '# Frozen Snapshot\n\nreview this exact content',
+      createdAt: now,
+      updatedAt: now,
+    });
+    files.set(`data/runs/${run.id}/orchestrator-agent-runs.json`, JSON.stringify([{
+      schemaVersion: 1,
+      id: 'coordinator_snapshot',
+      runId: run.id,
+      sessionId: 'session_snapshot',
+      title: 'Coordinator',
+      prompt: 'prompt',
+      input: {
+        runGoal: run.goal,
+        planTitle: run.planTitle,
+        planOverview: run.confirmedPlan.overview,
+        decompositionPrinciples: run.confirmedPlan.decompositionPrinciples,
+        humanCheckpoints: run.confirmedPlan.humanCheckpoints,
+        reviewCheckpoints: run.confirmedPlan.reviewCheckpoints,
+        reviewPolicy: run.confirmedPlan.reviewPolicy,
+        currentStageId: 'stage_snapshot',
+        currentStageName: 'Snapshot Stage',
+        currentStageTargetFolder: 'orchestrator-output/snapshot-stage',
+        currentStageOutputFiles: ['snapshot.md'],
+        currentStageReviewableOutputPaths: ['orchestrator-output/snapshot-stage/snapshot.md'],
+        currentStageDraftOutputSummaries: ['Snapshot Artifact: Frozen snapshot'],
+        currentStageAllowedDispatchKinds: ['review'],
+        activeTaskCount: 0,
+        availableSlots: 1,
+        readyTaskTitles: [],
+        blockedTaskTitles: [],
+        waitingReviewTaskTitles: ['Snapshot Stage'],
+        latestReviewSummaries: [],
+        projectStateSummary: [],
+        actionableTasks: ['task_snapshot_parent | waiting_review | Snapshot Stage | -'],
+        candidateDispatches: ['REVIEW · Snapshot Stage · Snapshot Stage Review Agent · targetFolder=orchestrator-output/snapshot-stage · expectedFiles=snapshot.md'],
+      },
+      status: 'running',
+      createdAt: now,
+      updatedAt: now,
+    }]));
+
+    await applyOrchestratorDecision(ctx, run.id, 'coordinator_snapshot', {
+      status: 'dispatch',
+      summary: 'Dispatch review.',
+      currentStageId: 'stage_snapshot',
+      currentStageName: 'Snapshot Stage',
+      currentAgentId: 'stage_snapshot:orchestrator',
+      currentAgentName: 'Coordinator',
+      taskOperations: [],
+      dispatches: [{
+        parentTaskId: 'task_snapshot_parent',
+        stageId: 'stage_snapshot',
+        stageName: 'Snapshot Stage',
+        kind: 'review',
+        agentId: 'stage_snapshot:review',
+        agentName: 'Snapshot Review Agent',
+        assignmentBrief: {
+          assignmentId: 'assignment_snapshot_review',
+          runId: run.id,
+          taskId: 'task_snapshot_parent',
+          kind: 'review',
+          title: 'Snapshot Review',
+          whyNow: 'Review the frozen snapshot.',
+          goal: 'Review the frozen snapshot.',
+          context: [],
+          inputArtifacts: [],
+          instructions: [],
+          acceptanceCriteria: [],
+          deliverables: ['snapshot'],
+          targetFolder: 'orchestrator-output/snapshot-stage',
+          expectedFiles: ['snapshot.md'],
+          reviewTargetPaths: ['orchestrator-output/snapshot-stage/snapshot.md'],
+          reviewFocus: [],
+          risks: [],
+          createdAt: now,
+        },
+      }],
+    });
+
+    const agentRuns = await listAgentRunsForRun(ctx, run.id);
+    const reviewRun = agentRuns.find((agentRun) => agentRun.kind === 'review');
+    expect(reviewRun).toBeTruthy();
+    const reviewInput = reviewRun!.input as { reviewedArtifactContents?: string[] };
+    expect(reviewInput.reviewedArtifactContents).toEqual(['# Frozen Snapshot\n\nreview this exact content']);
+  });
+
+  it('allows create_task to refine outputs within the same stage subtree', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_refine_outputs',
+        title: 'Refine Outputs Plan',
+        goal: 'Allow legal task decomposition.',
+        overview: 'create_task may refine stage outputs.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Coordinator may split work without changing stage semantics.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'No review needed.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [{
+          id: 'stage_refine',
+          name: 'Refine Stage',
+          goal: 'Produce docs.',
+          deliverables: ['docs'],
+          targetFolder: 'orchestrator-output/refine-stage',
+          outputFiles: ['docs/plan.md'],
+        }],
+      }, 'workbench'),
+      status: 'running' as const,
+      currentStageId: 'stage_refine',
+      currentStageName: 'Refine Stage',
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_refine_parent',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_refine_parent',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      stageId: 'stage_refine',
+      planStageId: 'stage_refine',
+      stageName: 'Refine Stage',
+      title: 'Refine Stage',
+      status: 'ready',
+      reviewRequired: false,
+      targetFolder: 'orchestrator-output/refine-stage',
+      expectedFiles: ['docs/plan.md'],
+      createdAt: now,
+      updatedAt: now,
+    });
+    files.set(`data/runs/${run.id}/orchestrator-agent-runs.json`, JSON.stringify([{
+      schemaVersion: 1,
+      id: 'coordinator_refine',
+      runId: run.id,
+      sessionId: 'session_refine',
+      title: 'Coordinator',
+      prompt: 'prompt',
+      input: {
+        runGoal: run.goal,
+        planTitle: run.planTitle,
+        planOverview: run.confirmedPlan.overview,
+        decompositionPrinciples: run.confirmedPlan.decompositionPrinciples,
+        humanCheckpoints: run.confirmedPlan.humanCheckpoints,
+        reviewCheckpoints: run.confirmedPlan.reviewCheckpoints,
+        reviewPolicy: run.confirmedPlan.reviewPolicy,
+        currentStageId: 'stage_refine',
+        currentStageName: 'Refine Stage',
+        currentStageTargetFolder: 'orchestrator-output/refine-stage',
+        currentStageOutputFiles: ['docs/plan.md'],
+        currentStageReviewableOutputPaths: [],
+        currentStageDraftOutputSummaries: [],
+        currentStageAllowedDispatchKinds: ['work'],
+        activeTaskCount: 0,
+        availableSlots: 1,
+        readyTaskTitles: ['Refine Stage'],
+        blockedTaskTitles: [],
+        waitingReviewTaskTitles: [],
+        latestReviewSummaries: [],
+        projectStateSummary: [],
+        actionableTasks: ['task_refine_parent | ready | Refine Stage | -'],
+        candidateDispatches: ['WORK · Refine Stage · Refine Stage Work Agent · targetFolder=orchestrator-output/refine-stage · expectedFiles=docs/plan.md'],
+      },
+      status: 'running',
+      createdAt: now,
+      updatedAt: now,
+    }]));
+
+    await applyOrchestratorDecision(ctx, run.id, 'coordinator_refine', {
+      status: 'wait',
+      summary: 'Split the docs output.',
+      currentStageId: 'stage_refine',
+      currentStageName: 'Refine Stage',
+      currentAgentId: 'stage_refine:orchestrator',
+      currentAgentName: 'Coordinator',
+      dispatches: [],
+      taskOperations: [{
+        type: 'create_task',
+        parentTaskId: 'task_refine_parent',
+        title: 'Draft docs section',
+        targetFolder: 'orchestrator-output/refine-stage/docs',
+        expectedFiles: ['plan/section-a.md'],
+        note: 'Split the doc into sections.',
+      }],
+    });
+
+    const tasks = await listTasksForRun(ctx, run.id);
+    expect(tasks.some((task) => task.title === 'Draft docs section')).toBe(true);
+  });
+
+  it('persists richer orchestration decision audit fields', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_decision_audit',
+        title: 'Decision Audit Plan',
+        goal: 'Persist richer audit details.',
+        overview: 'Decision audit should retain rules and risks.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Audit decisions structurally.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'No review needed.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [{
+          id: 'stage_audit',
+          name: 'Audit Stage',
+          goal: 'Stay in place.',
+          deliverables: ['doc'],
+          targetFolder: 'orchestrator-output/audit',
+          outputFiles: ['doc.md'],
+        }],
+      }, 'workbench'),
+      status: 'running' as const,
+      currentStageId: 'stage_audit',
+      currentStageName: 'Audit Stage',
+      orchestrationInput: {
+        runGoal: 'Persist richer audit details.',
+        planTitle: 'Decision Audit Plan',
+        planOverview: 'Decision audit should retain rules and risks.',
+        decompositionPrinciples: ['Audit decisions structurally.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'No review needed.',
+        currentStageId: 'stage_audit',
+        currentStageName: 'Audit Stage',
+        currentStageTargetFolder: 'orchestrator-output/audit',
+        currentStageOutputFiles: ['doc.md'],
+        currentStageReviewableOutputPaths: [],
+        currentStageDraftOutputSummaries: [],
+        currentStageAllowedDispatchKinds: ['work'],
+        activeTaskCount: 0,
+        availableSlots: 1,
+        readyTaskTitles: ['Audit Stage'],
+        blockedTaskTitles: [],
+        waitingReviewTaskTitles: [],
+        latestReviewSummaries: [],
+        projectStateSummary: [],
+        actionableTasks: ['task_audit_parent | ready | Audit Stage | -'],
+        candidateDispatches: ['WORK · Audit Stage · Audit Stage Work Agent · targetFolder=orchestrator-output/audit · expectedFiles=doc.md'],
+      },
+      currentOrchestratorAgentRunId: 'coordinator_audit',
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_audit_parent',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_audit_parent',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      assignedAgentType: 'orchestrator',
+      retryPolicy: 'manual',
+      stageId: 'stage_audit',
+      planStageId: 'stage_audit',
+      stageName: 'Audit Stage',
+      title: 'Audit Stage',
+      status: 'ready',
+      reviewRequired: false,
+      targetFolder: 'orchestrator-output/audit',
+      expectedFiles: ['doc.md'],
+      createdAt: now,
+      updatedAt: now,
+    });
+    files.set(`data/runs/${run.id}/orchestrator-agent-runs.json`, JSON.stringify([{
+      schemaVersion: 1,
+      id: 'coordinator_audit',
+      runId: run.id,
+      sessionId: 'session_audit',
+      title: 'Coordinator',
+      prompt: 'prompt',
+      input: run.orchestrationInput,
+      status: 'running',
+      createdAt: now,
+      updatedAt: now,
+    }]));
+
+    await applyOrchestratorDecision(ctx, run.id, 'coordinator_audit', {
+      status: 'wait',
+      summary: 'Nothing legal to dispatch yet.',
+      ruleHits: ['Current stage only', 'No draft outputs available'],
+      risks: ['Dispatching now would be premature'],
+      requiresHuman: false,
+      currentStageId: 'stage_audit',
+      currentStageName: 'Audit Stage',
+      currentAgentId: 'stage_audit:orchestrator',
+      currentAgentName: 'Coordinator',
+      dispatches: [],
+      taskOperations: [{
+        type: 'wait',
+        note: 'Wait for more inputs.',
+      }],
+    });
+
+    const updatedRun = await getRun(ctx, run.id);
+    expect(updatedRun?.orchestrationDecision?.ruleHits).toEqual(['Current stage only', 'No draft outputs available']);
+    expect(updatedRun?.orchestrationDecision?.risks).toEqual(['Dispatching now would be premature']);
+    expect(updatedRun?.orchestrationDecision?.candidateActionCount).toBe(1);
+    expect(updatedRun?.orchestrationDecision?.inputSummary.some((line) => line.includes('Current stage: Audit Stage'))).toBe(true);
+  });
+
+  it('keeps sibling artifact lineages distinct inside one stage', async () => {
+    const now = Date.now();
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'orchestrator-lineage-'));
+    await fs.mkdir(path.join(workspaceRoot, 'orchestrator-output', 'lineage-stage', 'docs'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'orchestrator-output', 'lineage-stage', 'docs', 'a.md'), 'alpha', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'orchestrator-output', 'lineage-stage', 'docs', 'b.md'), 'beta', 'utf8');
+
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_lineage',
+        title: 'Lineage Plan',
+        goal: 'Keep sibling deliverables distinct.',
+        overview: 'Artifact lineage should be deliverable-scoped.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Sibling outputs must not collapse into one lineage.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'Review only what was produced.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [],
+      }, 'workbench'),
+      status: 'running' as const,
+      executionContext: {
+        workspacePath: workspaceRoot,
+        capturedAt: now,
+      },
+    };
+    await saveRun(ctx, run);
+
+    for (const taskId of ['task_lineage_a', 'task_lineage_b']) {
+      const fileName = taskId.endsWith('_a') ? 'a.md' : 'b.md';
+      await saveTask(ctx, {
+        id: taskId,
+        runId: run.id,
+        nodeType: 'work',
+        kind: 'work',
+        parentTaskId: 'task_lineage_parent',
+        rootTaskId: 'task_lineage_parent',
+        depth: 1,
+        order: taskId.endsWith('_a') ? 1 : 2,
+        source: 'orchestrator_split',
+        attemptCount: 1,
+        stageId: 'stage_lineage',
+        planStageId: 'stage_lineage',
+        stageName: 'Lineage Stage',
+        agentId: `stage_lineage:${fileName}`,
+        agentName: `Lineage ${fileName}`,
+        title: `Write ${fileName}`,
+        status: 'running',
+        targetFolder: 'orchestrator-output/lineage-stage',
+        expectedFiles: [`docs/${fileName}`],
+        createdAt: now,
+        updatedAt: now,
+      });
+      await saveAgentRun(ctx, {
+        id: `agent_${taskId}`,
+        runId: run.id,
+        taskId,
+        planId: run.planId,
+        kind: 'work',
+        stageId: 'stage_lineage',
+        stageName: 'Lineage Stage',
+        agentId: `stage_lineage:${fileName}`,
+        agentName: `Lineage ${fileName}`,
+        sessionId: `session_${taskId}`,
+        title: `Lineage ${fileName}`,
+        prompt: 'prompt',
+        input: {
+          assignmentBrief: {
+            assignmentId: `assignment_${taskId}`,
+            runId: run.id,
+            taskId,
+            kind: 'work',
+            title: `Write ${fileName}`,
+            whyNow: 'Need a distinct deliverable.',
+            goal: `Write ${fileName}.`,
+            context: [],
+            inputArtifacts: [],
+            instructions: [],
+            acceptanceCriteria: [],
+            deliverables: [fileName],
+            targetFolder: 'orchestrator-output/lineage-stage',
+            expectedFiles: [`docs/${fileName}`],
+            reviewTargetPaths: [`orchestrator-output/lineage-stage/docs/${fileName}`],
+            reviewFocus: [],
+            risks: [],
+            createdAt: now,
+          },
+          runGoal: run.goal,
+          planTitle: run.planTitle,
+          stageId: 'stage_lineage',
+          stageName: 'Lineage Stage',
+          constraints: [],
+          targetFolder: 'orchestrator-output/lineage-stage',
+          expectedFiles: [`docs/${fileName}`],
+          acceptedArtifactSummaries: [],
+          recentReviewSummaries: [],
+          projectStateSummary: [],
+        },
+        status: 'running',
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await completeOrchestratorTask(ctx, { taskId: 'task_lineage_a' });
+    await completeOrchestratorTask(ctx, { taskId: 'task_lineage_b' });
+
+    const artifacts = await listArtifactsForRun(ctx, run.id);
+    const logicalKeys = artifacts.map((artifact) => artifact.logicalKey);
+    expect(new Set(logicalKeys).size).toBe(2);
+  });
+
+  it('approves only the artifacts that were actually reviewed', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_partial_review',
+        title: 'Partial Review Plan',
+        goal: 'Only reviewed artifacts become accepted.',
+        overview: 'Approval scope must be exact.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Review approval binds to the reviewed artifact set.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: ['Review specific outputs only.'],
+        reviewPolicy: 'Approve only what was attached.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [],
+      }, 'workbench'),
+      status: 'running' as const,
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_partial_parent',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_partial_parent',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      stageId: 'stage_partial',
+      planStageId: 'stage_partial',
+      stageName: 'Partial Stage',
+      title: 'Partial Stage',
+      status: 'waiting_review',
+      reviewRequired: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_partial_work_a',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      parentTaskId: 'task_partial_parent',
+      rootTaskId: 'task_partial_parent',
+      depth: 1,
+      order: 1,
+      source: 'orchestrator_split',
+      attemptCount: 1,
+      stageId: 'stage_partial',
+      planStageId: 'stage_partial',
+      stageName: 'Partial Stage',
+      title: 'Work A',
+      status: 'completed',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_partial_work_b',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      parentTaskId: 'task_partial_parent',
+      rootTaskId: 'task_partial_parent',
+      depth: 1,
+      order: 2,
+      source: 'orchestrator_split',
+      attemptCount: 1,
+      stageId: 'stage_partial',
+      planStageId: 'stage_partial',
+      stageName: 'Partial Stage',
+      title: 'Work B',
+      status: 'completed',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_partial_review',
+      runId: run.id,
+      nodeType: 'review',
+      kind: 'review',
+      parentTaskId: 'task_partial_parent',
+      rootTaskId: 'task_partial_parent',
+      depth: 1,
+      order: 3,
+      source: 'orchestrator_split',
+      attemptCount: 1,
+      stageId: 'stage_partial',
+      planStageId: 'stage_partial',
+      stageName: 'Partial Stage',
+      title: 'Partial Review',
+      status: 'ready',
+      latestArtifactIds: ['artifact_partial_a'],
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveArtifact(ctx, {
+      id: 'artifact_partial_a',
+      runId: run.id,
+      agentRunId: 'agent_partial_a',
+      taskId: 'task_partial_work_a',
+      stageId: 'stage_partial',
+      stageName: 'Partial Stage',
+      name: 'Artifact A',
+      logicalKey: 'stage_partial.work.orchestrator-output/partial|a.md',
+      status: 'review_submitted',
+      version: 1,
+      kind: 'draft',
+      format: 'markdown',
+      filePaths: ['orchestrator-output/partial/a.md'],
+      summary: 'A',
+      content: 'A',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveArtifact(ctx, {
+      id: 'artifact_partial_b',
+      runId: run.id,
+      agentRunId: 'agent_partial_b',
+      taskId: 'task_partial_work_b',
+      stageId: 'stage_partial',
+      stageName: 'Partial Stage',
+      name: 'Artifact B',
+      logicalKey: 'stage_partial.work.orchestrator-output/partial|b.md',
+      status: 'review_submitted',
+      version: 1,
+      kind: 'draft',
+      format: 'markdown',
+      filePaths: ['orchestrator-output/partial/b.md'],
+      summary: 'B',
+      content: 'B',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await overrideReviewDecision(ctx, {
+      taskId: 'task_partial_review',
+      decision: 'approved',
+      feedback: 'Approve only artifact A.',
+    });
+
+    const artifacts = await listArtifactsForRun(ctx, run.id);
+    const projectState = await getProjectState(ctx, run.id);
+    expect(artifacts.find((artifact) => artifact.id === 'artifact_partial_a')?.status).toBe('accepted');
+    expect(artifacts.find((artifact) => artifact.id === 'artifact_partial_b')?.status).toBe('review_submitted');
+    expect(projectState?.entries.map((entry) => entry.artifactId)).toEqual(['artifact_partial_a']);
+  });
+
+  it('derives run completion directly from the task graph without waking a coordinator', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_graph_complete',
+        title: 'Graph Completion Plan',
+        goal: 'Finish from the task graph alone.',
+        overview: 'No coordinator should be needed after graph completion.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Task graph is the source of truth.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'No extra review.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [{
+          id: 'stage_done',
+          name: 'Done Stage',
+          goal: 'Already done.',
+          deliverables: ['done'],
+          targetFolder: 'orchestrator-output/done-stage',
+          outputFiles: ['done.md'],
+        }],
+      }, 'workbench'),
+      status: 'running' as const,
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_done_stage',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_done_stage',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      stageId: 'stage_done',
+      planStageId: 'stage_done',
+      stageName: 'Done Stage',
+      title: 'Done Stage',
+      status: 'completed',
+      reviewRequired: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const nextRun = await wakeRunById(ctx, { runId: run.id });
+    const coordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+    expect(nextRun?.status).toBe('completed');
+    expect(coordinatorRuns).toHaveLength(0);
+  });
+
+  it('rejects stale coordinator decisions once a newer coordinator run is active', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_stale_coord',
+        title: 'Stale Coordinator Plan',
+        goal: 'Ignore stale orchestration decisions.',
+        overview: 'Coordinator decisions should be compare-and-swap like.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Only the active coordinator may mutate the graph.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'No extra review.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [{
+          id: 'stage_stale',
+          name: 'Stale Stage',
+          goal: 'Do work.',
+          deliverables: ['doc'],
+          targetFolder: 'orchestrator-output/stale',
+          outputFiles: ['doc.md'],
+        }],
+      }, 'workbench'),
+      status: 'running' as const,
+      currentStageId: 'stage_stale',
+      currentStageName: 'Stale Stage',
+      currentOrchestratorAgentRunId: 'coordinator_new',
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_stale_parent',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_stale_parent',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      stageId: 'stage_stale',
+      planStageId: 'stage_stale',
+      stageName: 'Stale Stage',
+      title: 'Stale Stage',
+      status: 'ready',
+      reviewRequired: false,
+      targetFolder: 'orchestrator-output/stale',
+      expectedFiles: ['doc.md'],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(applyOrchestratorDecision(ctx, run.id, 'coordinator_old', {
+      status: 'wait',
+      summary: 'Old coordinator should not apply.',
+      currentStageId: 'stage_stale',
+      currentStageName: 'Stale Stage',
+      dispatches: [],
+      taskOperations: [],
+    })).rejects.toThrow('stale');
   });
 });
 

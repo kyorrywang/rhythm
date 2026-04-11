@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { PluginContext } from '../../../src/plugin/sdk';
 import type { StreamRuntime } from '../../../src/shared/types/schema';
 import { useSessionStore } from '../../../src/shared/state/useSessionStore';
@@ -27,6 +29,7 @@ import {
   updateArtifact,
   updateCoordinatorRun,
   updateTask,
+  withRunLock,
 } from './storage';
 import type {
   AssignmentBrief,
@@ -35,7 +38,6 @@ import type {
   OrchestratorArtifact,
   OrchestratorCancelRunInput,
   OrchestratorCompleteTaskInput,
-  OrchestratorConfirmedPlan,
   OrchestratorOverrideReviewInput,
   OrchestratorPauseRunInput,
   OrchestratorPlanStage,
@@ -45,6 +47,7 @@ import type {
   OrchestratorRetryTaskInput,
   OrchestratorReviewLog,
   OrchestratorRun,
+  OrchestratorStagePolicy,
   OrchestratorSkipTaskInput,
   OrchestratorUpdateTaskInput,
   OrchestratorWakeRunInput,
@@ -101,6 +104,135 @@ type Dispatch = {
   goal: string;
   assignmentBrief?: AssignmentBrief;
 };
+
+type ResolvedStagePolicy = OrchestratorStagePolicy & {
+  stage: OrchestratorPlanStage;
+};
+
+function normalizeRelativePath(value: string) {
+  return value.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+/g, '/');
+}
+
+function isSafeRelativePath(value: string) {
+  const normalized = normalizeRelativePath(value);
+  if (!normalized || normalized === '.' || normalized === '..') return false;
+  return !normalized.split('/').some((segment) => segment === '..' || segment.length === 0);
+}
+
+function isSubPath(parentPath: string, childPath: string) {
+  const relative = path.relative(path.resolve(parentPath), path.resolve(childPath));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function resolveStagePolicy(
+  run: OrchestratorRun,
+  stageId: string | undefined,
+  reviewPolicy?: Awaited<ReturnType<typeof getReviewPolicy>> | null,
+): ResolvedStagePolicy | null {
+  if (!stageId) return null;
+  const stage = run.confirmedPlan.stages.find((candidate) => candidate.id === stageId);
+  if (!stage) return null;
+  const stored = reviewPolicy?.stagePolicies.find((candidate) => candidate.stageId === stageId);
+  return {
+    stageId,
+    stageName: stored?.stageName || stage.name,
+    requiresReview: stored?.requiresReview ?? reviewPolicy?.defaultRequiresReview ?? true,
+    humanCheckpointRequired: stored?.humanCheckpointRequired ?? false,
+    stage,
+  };
+}
+
+function summarizeStagePolicy(policy: ResolvedStagePolicy | null) {
+  if (!policy) return null;
+  return `Stage policy: review=${String(policy.requiresReview)}, humanCheckpoint=${String(policy.humanCheckpointRequired)}`;
+}
+
+function normalizeStringList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+}
+
+async function refreshRunDerivedState(ctx: PluginContext, runId: string) {
+  const run = await getRun(ctx, runId);
+  if (!run) return null;
+  const [tasks, artifacts, reviewLogs] = await Promise.all([
+    listTasksForRun(ctx, runId),
+    listArtifactsForRun(ctx, runId),
+    listReviewLogsForRun(ctx, runId),
+  ]);
+  const waitingHumanTask = tasks.find((task) => task.status === 'waiting_human');
+  const nextRun: OrchestratorRun = {
+    ...run,
+    metrics: {
+      totalTasks: tasks.length,
+      completedTasks: tasks.filter((task) => task.status === 'completed').length,
+      acceptedArtifacts: artifacts.filter((artifact) => artifact.status === 'accepted').length,
+      reviewCount: reviewLogs.length,
+      lastComputedAt: Date.now(),
+    },
+    pendingHumanAction: run.status === 'waiting_human' || waitingHumanTask || run.pendingHumanAction
+      ? {
+        kind: waitingHumanTask?.kind === 'review'
+          ? 'review_override'
+          : waitingHumanTask?.source === 'rework'
+            ? 'rework_approval'
+            : run.failureState?.requiresHuman
+              ? 'failure_recovery'
+              : 'checkpoint',
+        summary: run.pendingHumanCheckpoint
+          || waitingHumanTask?.blockedReason
+          || run.failureState?.summary
+          || run.pendingHumanAction?.summary
+          || 'Human action required before the run can continue.',
+        taskId: waitingHumanTask?.id || run.pendingHumanAction?.taskId || run.failureState?.taskId,
+        reviewLogId: waitingHumanTask?.latestReviewLogId || run.pendingHumanAction?.reviewLogId,
+        requestedAt: run.lastHumanInterventionAt || run.updatedAt || Date.now(),
+      }
+      : undefined,
+  };
+  await saveRun(ctx, nextRun);
+  return nextRun;
+}
+
+function canDeriveChildExpectedFile(allowedFile: string, requestedFile: string) {
+  const allowed = normalizeRelativePath(allowedFile);
+  const requested = normalizeRelativePath(requestedFile);
+  if (allowed === requested) return true;
+  const allowedDir = path.posix.dirname(allowed);
+  const requestedDir = path.posix.dirname(requested);
+  if (allowedDir === '.') {
+    return requestedDir !== '.' && requestedDir.startsWith(`${path.posix.basename(allowed, path.posix.extname(allowed))}/`);
+  }
+  return requestedDir === allowedDir || requestedDir.startsWith(`${allowedDir}/`);
+}
+
+function getDispatchParentTaskId(dispatch: Partial<Dispatch> & { parentTaskId?: string; stageId?: string }) {
+  return dispatch.parentTaskId || dispatch.parentTask?.id || null;
+}
+
+function getDispatchStageId(dispatch: Partial<Dispatch> & { parentTaskId?: string; stageId?: string }) {
+  return dispatch.stageId || dispatch.stage?.id || null;
+}
+
+function canRefineExpectedOutputs(
+  allowedTargetFolder: string,
+  allowedFiles: string[],
+  requestedTargetFolder: string,
+  requestedFiles: string[],
+) {
+  const normalizedAllowedTargetFolder = normalizeRelativePath(allowedTargetFolder);
+  const normalizedRequestedTargetFolder = normalizeRelativePath(requestedTargetFolder);
+  const targetFolderRefinement = normalizedRequestedTargetFolder === normalizedAllowedTargetFolder
+    ? ''
+    : normalizedRequestedTargetFolder.slice(normalizedAllowedTargetFolder.length + 1);
+
+  return requestedFiles.every((requestedFile) => {
+    const requestedWithinStage = targetFolderRefinement
+      ? normalizeRelativePath(path.posix.join(targetFolderRefinement, requestedFile))
+      : normalizeRelativePath(requestedFile);
+    return allowedFiles.some((allowedFile) => canDeriveChildExpectedFile(allowedFile, requestedWithinStage));
+  });
+}
 
 function canTransitionRunStatus(from: OrchestratorRun['status'], to: OrchestratorRun['status']) {
   return from === to || RUN_STATUS_TRANSITIONS[from]?.includes(to);
@@ -305,6 +437,7 @@ async function syncRunRuntimeFromAgent(
       engineHealthSummary: runtime.message || `${options?.label || 'Agent'} is retrying automatically.`,
       updatedAt: now,
     });
+    await refreshRunDerivedState(ctx, runId);
     ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId });
     return;
   }
@@ -313,11 +446,13 @@ async function syncRunRuntimeFromAgent(
     await saveRun(ctx, {
       ...run,
       failureState: undefined,
+      pendingHumanAction: undefined,
       engineHealthSummary: runtime.message || run.engineHealthSummary,
       pausedAt: run.status === 'paused' ? undefined : run.pausedAt,
       status: run.status === 'paused' ? 'running' : run.status,
       updatedAt: now,
     });
+    await refreshRunDerivedState(ctx, runId);
     ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId });
   }
 }
@@ -337,6 +472,7 @@ export async function startOrchestratorRun(
   };
 
   await saveRun(ctx, nextRun);
+  await refreshRunDerivedState(ctx, nextRun.id);
   await appendRunEvent(ctx, {
     id: createId('evt'),
     runId: nextRun.id,
@@ -355,86 +491,126 @@ export async function wakeOrchestratorRun(
   run: OrchestratorRun,
   input: OrchestratorWakeRunInput,
 ) {
-  const wakeAt = Date.now();
-  if (run.status === 'pause_requested' || run.status === 'paused' || run.status === 'waiting_human' || run.status === 'cancelled') {
-    return run;
-  }
+  return withRunLock(run.id, async () => {
+    const wakeAt = Date.now();
+    const currentRun = await getRun(ctx, run.id) || run;
+    if (currentRun.status === 'pause_requested' || currentRun.status === 'paused' || currentRun.status === 'waiting_human' || currentRun.status === 'cancelled') {
+      return currentRun;
+    }
 
-  let tasks = await listTasksForRun(ctx, run.id);
-  if (tasks.length === 0) {
-    await seedPlanTasks(ctx, run, wakeAt);
-    tasks = await listTasksForRun(ctx, run.id);
-  }
-  const reviewLogs = await listReviewLogsForRun(ctx, run.id);
-  const projectState = await getProjectState(ctx, run.id);
-  const artifacts = await listArtifactsForRun(ctx, run.id);
-  const reviewPolicy = await getReviewPolicy(ctx, run.id);
-  const activeTaskCount = tasks.filter((task) => isLiveTask(task)).length;
-  const availableSlots = Math.max(0, (run.maxConcurrentTasks || 2) - activeTaskCount);
-  const dispatchPlan = buildDispatchCandidates(run.confirmedPlan, tasks);
-  const orchestrationContext: OrchestrationContext = {
-    run,
-    wakeReason: input.reason,
-    tasks,
-    reviewLogs,
-    projectState,
-    artifacts,
-    activeTaskCount,
-    availableSlots,
-  };
-  const orchestrationInput = buildOrchestrationInput(orchestrationContext, dispatchPlan.candidates, reviewPolicy);
-  const orchestrationPrompt = buildOrchestrationPrompt(orchestrationInput);
-  const coordinatorRun: OrchestratorCoordinatorRun = {
-    id: createId('orchestrator_run'),
-    runId: run.id,
-    sessionId: `orchestrator-main-${run.id}-${wakeAt}`,
-    title: `${run.planTitle} Orchestrator Agent`,
-    prompt: orchestrationPrompt,
-    wakeReason: input.reason,
-    input: orchestrationInput,
-    status: 'pending',
-    createdAt: wakeAt,
-    updatedAt: wakeAt,
-  };
-  const wokeRun: OrchestratorRun = {
-    ...run,
-    status: run.status === 'pending' ? 'running' : run.status,
-    failureState: undefined,
-    watchdogStatus: 'healthy',
-    watchdogWarning: undefined,
-    watchdogCheckedAt: wakeAt,
-    lastWakeAt: wakeAt,
-    lastWakeReason: input.reason || 'system',
-    currentOrchestratorAgentRunId: coordinatorRun.id,
-    lastOrchestratorAgentRunId: coordinatorRun.id,
-    orchestrationInput,
-    orchestrationPrompt,
-    orchestrationDecision: undefined,
-    updatedAt: wakeAt,
-  };
+    let tasks = await listTasksForRun(ctx, run.id);
+    const reviewPolicy = await getReviewPolicy(ctx, run.id);
+    if (tasks.length === 0) {
+      await seedPlanTasks(ctx, currentRun, reviewPolicy, wakeAt);
+      tasks = await listTasksForRun(ctx, run.id);
+    }
+    const derivedRun = await deriveRunStatusFromTasks(ctx, {
+      ...currentRun,
+      activeTaskCount: tasks.filter((task) => isLiveTask(task)).length,
+      updatedAt: wakeAt,
+    });
+    if (derivedRun.status === 'waiting_human' || derivedRun.status === 'completed') {
+      const settledRun: OrchestratorRun = {
+        ...derivedRun,
+        watchdogStatus: derivedRun.status === 'completed' ? 'healthy' : 'paused',
+        watchdogWarning: undefined,
+        watchdogCheckedAt: wakeAt,
+        lastWakeAt: wakeAt,
+        lastWakeReason: input.reason || 'system',
+        updatedAt: wakeAt,
+      };
+      await saveRun(ctx, settledRun);
+      ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: settledRun.id });
+      return settledRun;
+    }
 
-  await Promise.all([
-    saveRun(ctx, wokeRun),
-    saveCoordinatorRun(ctx, coordinatorRun),
-  ]);
-  await appendRunEvent(ctx, {
-    id: createId('evt'),
-    runId: run.id,
-    type: 'agent.wake',
-    title: 'Orchestrator agent woke up',
-    detail: `Reason: ${input.reason || 'system'}`,
-    createdAt: wakeAt,
+    const reviewLogs = await listReviewLogsForRun(ctx, run.id);
+    const projectState = await getProjectState(ctx, run.id);
+    const artifacts = await listArtifactsForRun(ctx, run.id);
+    const effectiveRun = derivedRun.status === 'running' ? derivedRun : { ...derivedRun, status: 'running' as const };
+    const activeTaskCount = tasks.filter((task) => isLiveTask(task)).length;
+    const availableSlots = Math.max(0, (effectiveRun.maxConcurrentTasks || 2) - activeTaskCount);
+    const dispatchPlan = buildDispatchCandidates(effectiveRun, tasks, reviewPolicy);
+    if (dispatchPlan.completed) {
+      const completedRun: OrchestratorRun = {
+        ...effectiveRun,
+        status: 'completed',
+        activeTaskCount: 0,
+        engineHealthSummary: 'All task graph nodes have completed.',
+        watchdogStatus: 'healthy',
+        watchdogWarning: undefined,
+        watchdogCheckedAt: wakeAt,
+        lastWakeAt: wakeAt,
+        lastWakeReason: input.reason || 'system',
+        updatedAt: wakeAt,
+      };
+      await saveRun(ctx, completedRun);
+      ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: completedRun.id });
+      return completedRun;
+    }
+    const orchestrationContext: OrchestrationContext = {
+      run: effectiveRun,
+      wakeReason: input.reason,
+      tasks,
+      reviewLogs,
+      projectState,
+      artifacts,
+      activeTaskCount,
+      availableSlots,
+    };
+    const orchestrationInput = buildOrchestrationInput(orchestrationContext, dispatchPlan.candidates, reviewPolicy);
+    const orchestrationPrompt = buildOrchestrationPrompt(orchestrationInput);
+    const coordinatorRun: OrchestratorCoordinatorRun = {
+      id: createId('orchestrator_run'),
+      runId: run.id,
+      sessionId: `orchestrator-main-${run.id}-${wakeAt}`,
+      title: `${effectiveRun.planTitle} Orchestrator Agent`,
+      prompt: orchestrationPrompt,
+      wakeReason: input.reason,
+      input: orchestrationInput,
+      status: 'pending',
+      createdAt: wakeAt,
+      updatedAt: wakeAt,
+    };
+    const wokeRun: OrchestratorRun = {
+      ...effectiveRun,
+      failureState: undefined,
+      watchdogStatus: 'healthy',
+      watchdogWarning: undefined,
+      watchdogCheckedAt: wakeAt,
+      lastWakeAt: wakeAt,
+      lastWakeReason: input.reason || 'system',
+      currentOrchestratorAgentRunId: coordinatorRun.id,
+      lastOrchestratorAgentRunId: coordinatorRun.id,
+      orchestrationInput,
+      orchestrationPrompt,
+      orchestrationDecision: undefined,
+      updatedAt: wakeAt,
+    };
+
+    await Promise.all([
+      saveRun(ctx, wokeRun),
+      saveCoordinatorRun(ctx, coordinatorRun),
+    ]);
+    await appendRunEvent(ctx, {
+      id: createId('evt'),
+      runId: run.id,
+      type: 'agent.wake',
+      title: 'Orchestrator agent woke up',
+      detail: `Reason: ${input.reason || 'system'}`,
+      createdAt: wakeAt,
+    });
+    const runningWithCoordinator: OrchestratorRun = {
+      ...wokeRun,
+      activeTaskCount: activeTaskCount + 1,
+      engineHealthSummary: 'Orchestrator agent is evaluating the next step.',
+      updatedAt: wakeAt,
+    };
+    await saveRun(ctx, runningWithCoordinator);
+    void startCoordinatorRunSession(ctx, runningWithCoordinator, coordinatorRun, dispatchPlan.candidates);
+    ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: runningWithCoordinator.id });
+    return runningWithCoordinator;
   });
-  const runningWithCoordinator: OrchestratorRun = {
-    ...wokeRun,
-    activeTaskCount: activeTaskCount + 1,
-    engineHealthSummary: 'Orchestrator agent is evaluating the next step.',
-    updatedAt: wakeAt,
-  };
-  await saveRun(ctx, runningWithCoordinator);
-  void startCoordinatorRunSession(ctx, runningWithCoordinator, coordinatorRun, dispatchPlan.candidates);
-  ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: runningWithCoordinator.id });
-  return runningWithCoordinator;
 }
 
 export async function wakeRunById(ctx: PluginContext, input: OrchestratorWakeRunInput) {
@@ -465,6 +641,7 @@ export async function pauseOrchestratorRun(ctx: PluginContext, input: Orchestrat
   };
 
   await saveRun(ctx, nextRun);
+  await refreshRunDerivedState(ctx, nextRun.id);
   await appendControlIntent(ctx, { runId: run.id, action: 'pause', createdAt: now });
   await appendRunEvent(ctx, {
     id: createId('evt'),
@@ -511,6 +688,8 @@ export async function resumeOrchestratorRun(ctx: PluginContext, input: Orchestra
     ...run,
     status: 'running',
     failureState: undefined,
+    pendingHumanCheckpoint: undefined,
+    pendingHumanAction: undefined,
     engineHealthSummary: 'Run resumed and waiting for the orchestrator agent to continue.',
     lastHumanInterventionAt: resumedAt,
     lastHumanInterventionSummary: 'Resumed the run.',
@@ -520,6 +699,7 @@ export async function resumeOrchestratorRun(ctx: PluginContext, input: Orchestra
   };
 
   await saveRun(ctx, resumedRun);
+  await refreshRunDerivedState(ctx, resumedRun.id);
   await appendControlIntent(ctx, { runId: run.id, action: 'resume', createdAt: resumedAt });
   await appendRunEvent(ctx, {
     id: createId('evt'),
@@ -534,202 +714,263 @@ export async function resumeOrchestratorRun(ctx: PluginContext, input: Orchestra
 }
 
 export async function completeOrchestratorTask(ctx: PluginContext, input: OrchestratorCompleteTaskInput) {
-  const task = await getTask(ctx, input.taskId);
-  if (!task) throw new Error(`Task not found: ${input.taskId}`);
-  if (task.status === 'completed') {
-    const run = await getRun(ctx, task.runId);
-    return { run, task };
+  const initialTask = await getTask(ctx, input.taskId);
+  if (!initialTask) throw new Error(`Task not found: ${input.taskId}`);
+  if (initialTask.status === 'completed') {
+    const run = await getRun(ctx, initialTask.runId);
+    return { run, task: initialTask };
   }
 
-  const now = Date.now();
-  const agentRun = await getAgentRunByTaskId(ctx, task.id);
-  const artifactContent = agentRun ? getAgentRunArtifactContent(agentRun.sessionId) : '';
-  if (agentRun && containsToolCallMarkup(artifactContent)) {
-    return failOrchestratorTask(ctx, task.id, new Error('Agent output still contains raw tool-call markup and no valid final result.'));
-  }
-  const nextTask = await updateTask(ctx, task.id, (current) => ({
-    ...(assertTaskStatusTransition(current.status, 'completed'), current),
-    status: 'completed',
-    updatedAt: now,
-  }));
-  if (agentRun) {
-    await updateAgentRun(ctx, agentRun.id, (current) => ({
-      ...current,
-      status: 'completed',
-      completedAt: current.completedAt || now,
-      lastEventAt: now,
-      updatedAt: now,
-    }));
-    const existingArtifacts = await listArtifactsForRun(ctx, task.runId);
-    const existingOutputArtifacts = existingArtifacts.filter((artifact) => artifact.agentRunId === agentRun.id);
-    const expectedFilePaths = buildExpectedFilePaths(agentRun.input.assignmentBrief);
-    if ((artifactContent || expectedFilePaths.length > 0) && existingOutputArtifacts.length === 0) {
-      await saveArtifact(ctx, {
-        id: createId('artifact'),
-        runId: task.runId,
-        agentRunId: agentRun.id,
-        taskId: task.id,
-        stageId: task.stageId,
-        stageName: task.stageName,
-        agentId: task.agentId,
-        agentName: task.agentName,
-        name: `${task.agentName || task.title} Output`,
-        logicalKey: buildArtifactLogicalKey(task),
-        status: 'draft',
-        version: task.attemptCount || 1,
-        kind: guessArtifactKind(task),
-        format: 'markdown',
-        filePaths: expectedFilePaths,
-        summary: buildArtifactSummary(task, artifactContent, expectedFilePaths),
-        content: artifactContent,
-        createdAt: now,
-        updatedAt: now,
-      });
+  const result: { run: OrchestratorRun | null; task: OrchestratorAgentTask | null; shouldWake: boolean } = await withRunLock(initialTask.runId, async () => {
+    const task = await getTask(ctx, input.taskId);
+    if (!task) throw new Error(`Task not found: ${input.taskId}`);
+    if (task.status === 'completed') {
+      const run = await getRun(ctx, task.runId);
+      return { run, task, shouldWake: false };
     }
-    const runArtifacts = await listArtifactsForRun(ctx, task.runId);
-    const outputArtifacts = runArtifacts.filter((artifact) => artifact.agentRunId === agentRun.id);
-    await updateTask(ctx, task.id, (current) => ({
-      ...current,
-      latestArtifactIds: outputArtifacts.map((artifact) => artifact.id),
-      updatedAt: now,
-    }));
-    await updateAgentRun(ctx, agentRun.id, (current) => ({
-      ...current,
-      output: {
-        summary: outputArtifacts[0]?.summary || buildArtifactSummary(task, artifactContent || ''),
-        artifactIds: outputArtifacts.map((artifact) => artifact.id),
-        artifactSummaries: outputArtifacts.map((artifact) => artifact.summary),
-        completedAt: now,
-      },
-      updatedAt: now,
-    }));
-  }
-  const run = await getRun(ctx, task.runId);
-  if (!run || !nextTask) return { run, task: nextTask };
 
-  let nextStatus = run.status;
-  const nextActiveTaskCount = Math.max(0, run.activeTaskCount - 1);
-  if (run.status === 'pause_requested' && nextActiveTaskCount === 0) {
-    nextStatus = 'paused';
-  }
-
-  let nextRun: OrchestratorRun = {
-    ...run,
-    activeTaskCount: nextActiveTaskCount,
-    status: nextStatus,
-    failureState: nextStatus === 'paused' ? run.failureState : undefined,
-    engineHealthSummary: nextStatus === 'paused'
-      ? 'Run is paused and waiting for human action.'
-      : nextActiveTaskCount > 0
-        ? `Run is waiting on ${nextActiveTaskCount} active task(s).`
-        : 'Run is ready for the orchestrator agent to continue.',
-    pausedAt: nextStatus === 'paused' ? now : run.pausedAt,
-    updatedAt: now,
-  };
-
-  await saveRun(ctx, nextRun);
-  await appendRunEvent(ctx, {
-    id: createId('evt'),
-    runId: run.id,
-    type: 'task.updated',
-    title: 'Task completed',
-    detail: `${task.agentName || task.title} completed.`,
-    createdAt: now,
-  });
-
-  if (task.parentTaskId) {
-    if (task.kind === 'review') {
-      const reviewContent = agentRun ? getAgentRunArtifactContent(agentRun.sessionId) : '';
-      const reviewedArtifacts = await listReviewedArtifacts(ctx, task.runId, task.parentTaskId);
-      const reviewResult = parseReviewDecision(reviewContent, reviewedArtifacts.length);
-      const reviewLog: OrchestratorReviewLog = {
-        id: createId('review'),
-        runId: task.runId,
-        stageId: task.stageId,
-        stageName: task.stageName,
-        taskId: task.id,
-        parentTaskId: task.parentTaskId,
-        agentRunId: agentRun?.id,
-        reviewerName: task.agentName,
-        decision: reviewResult.decision,
-        summary: reviewResult.summary,
-        feedback: reviewContent || reviewResult.summary,
-        source: 'agent',
-        reviewedArtifactIds: reviewedArtifacts.map((artifact) => artifact.id),
-        createdAt: now,
-        updatedAt: now,
-      };
-      await saveReviewLog(ctx, reviewLog);
-      await updateTask(ctx, task.parentTaskId, (current) => ({
+    const now = Date.now();
+    const run = await getRun(ctx, task.runId);
+    const agentRun = await getAgentRunByTaskId(ctx, task.id);
+    const artifactContent = agentRun ? getAgentRunArtifactContent(agentRun.sessionId) : '';
+    if (agentRun && containsToolCallMarkup(artifactContent)) {
+      const failed = await failOrchestratorTask(ctx, task.id, new Error('Agent output still contains raw tool-call markup and no valid final result.')) as { run: OrchestratorRun | null; task: OrchestratorAgentTask | null };
+      return { run: failed.run, task: failed.task, shouldWake: false };
+    }
+    const expectedFilePaths = agentRun && task.kind === 'work' ? buildExpectedFilePaths(agentRun.input.assignmentBrief) : [];
+    const verifiedArtifact = run && expectedFilePaths.length > 0
+      ? await readVerifiedArtifactPayload(run, expectedFilePaths)
+      : null;
+    if (agentRun) {
+      await updateAgentRun(ctx, agentRun.id, (current) => ({
         ...current,
-        latestReviewLogId: reviewLog.id,
+        status: 'completed',
+        completedAt: current.completedAt || now,
+        lastEventAt: now,
         updatedAt: now,
       }));
+      const existingArtifacts = await listArtifactsForRun(ctx, task.runId);
+      const existingOutputArtifacts = existingArtifacts.filter((artifact) => artifact.agentRunId === agentRun.id);
+      if ((artifactContent || expectedFilePaths.length > 0) && existingOutputArtifacts.length === 0) {
+        await saveArtifact(ctx, {
+          id: createId('artifact'),
+          runId: task.runId,
+          agentRunId: agentRun.id,
+          taskId: task.id,
+          stageId: task.stageId,
+          stageName: task.stageName,
+          agentId: task.agentId,
+          agentName: task.agentName,
+          name: `${task.agentName || task.title} Output`,
+          logicalKey: buildArtifactLogicalKey(task),
+          status: 'draft',
+          version: task.attemptCount || 1,
+          kind: guessArtifactKind(task),
+          format: 'markdown',
+          filePaths: verifiedArtifact?.filePaths || expectedFilePaths,
+          summary: buildArtifactSummary(task, verifiedArtifact?.content || artifactContent, verifiedArtifact?.filePaths || expectedFilePaths),
+          content: verifiedArtifact?.content || artifactContent,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      const runArtifacts = await listArtifactsForRun(ctx, task.runId);
+      const outputArtifacts = runArtifacts.filter((artifact) => artifact.agentRunId === agentRun.id);
       await updateTask(ctx, task.id, (current) => ({
         ...current,
-        latestReviewLogId: reviewLog.id,
-        latestArtifactIds: reviewedArtifacts.map((artifact) => artifact.id),
+        latestArtifactIds: outputArtifacts.map((artifact) => artifact.id),
         updatedAt: now,
       }));
-      if (agentRun) {
-        await updateAgentRun(ctx, agentRun.id, (current) => ({
+      await updateAgentRun(ctx, agentRun.id, (current) => ({
+        ...current,
+        output: {
+          summary: outputArtifacts[0]?.summary || buildArtifactSummary(task, verifiedArtifact?.content || artifactContent || ''),
+          artifactIds: outputArtifacts.map((artifact) => artifact.id),
+          artifactSummaries: outputArtifacts.map((artifact) => artifact.summary),
+          completedAt: now,
+        },
+        updatedAt: now,
+      }));
+    }
+    const nextTask = await updateTask(ctx, task.id, (current) => ({
+      ...(assertTaskStatusTransition(current.status, 'completed'), current),
+      status: 'completed',
+      updatedAt: now,
+    }));
+    if (!run || !nextTask) return { run, task: nextTask, shouldWake: false };
+
+    let nextStatus = run.status;
+    const nextActiveTaskCount = Math.max(0, run.activeTaskCount - 1);
+    if (run.status === 'pause_requested' && nextActiveTaskCount === 0) {
+      nextStatus = 'paused';
+    }
+
+    let nextRun: OrchestratorRun = {
+      ...run,
+      activeTaskCount: nextActiveTaskCount,
+      status: nextStatus,
+      failureState: nextStatus === 'paused' ? run.failureState : undefined,
+      engineHealthSummary: nextStatus === 'paused'
+        ? 'Run is paused and waiting for human action.'
+        : nextActiveTaskCount > 0
+          ? `Run is waiting on ${nextActiveTaskCount} active task(s).`
+          : 'Run is ready for the orchestrator agent to continue.',
+      pausedAt: nextStatus === 'paused' ? now : run.pausedAt,
+      updatedAt: now,
+    };
+
+    await saveRun(ctx, nextRun);
+    await appendRunEvent(ctx, {
+      id: createId('evt'),
+      runId: run.id,
+      type: 'task.updated',
+      title: 'Task completed',
+      detail: `${task.agentName || task.title} completed.`,
+      createdAt: now,
+    });
+
+    if (task.parentTaskId) {
+      if (task.kind === 'review') {
+        const reviewContent = agentRun ? getAgentRunArtifactContent(agentRun.sessionId) : '';
+        const reviewedArtifacts = await resolveReviewedArtifactsForTask(ctx, task, agentRun);
+        const reviewResult = parseReviewDecision(reviewContent, reviewedArtifacts.length);
+        const reviewLog: OrchestratorReviewLog = {
+          id: createId('review'),
+          runId: task.runId,
+          stageId: task.stageId,
+          stageName: task.stageName,
+          taskId: task.id,
+          parentTaskId: task.parentTaskId,
+          agentRunId: agentRun?.id,
+          reviewerName: task.agentName,
+          decision: reviewResult.decision,
+          summary: reviewResult.summary,
+          feedback: reviewContent || reviewResult.summary,
+          issues: reviewResult.issues,
+          requiredRework: reviewResult.requiredRework,
+          confidence: reviewResult.confidence,
+          source: 'agent',
+          reviewedArtifactIds: reviewedArtifacts.map((artifact) => artifact.id),
+          createdAt: now,
+          updatedAt: now,
+        };
+        await saveReviewLog(ctx, reviewLog);
+        await updateTask(ctx, task.parentTaskId, (current) => ({
           ...current,
-          output: {
-            decision: reviewResult.decision,
-            summary: reviewResult.summary,
-            feedback: reviewContent || reviewResult.summary,
-            reviewedArtifactIds: reviewedArtifacts.map((artifact) => artifact.id),
-            completedAt: now,
-            source: 'agent',
-          } satisfies ReviewAgentOutputSnapshot,
+          latestReviewLogId: reviewLog.id,
           updatedAt: now,
         }));
-      }
-      const parentTask = await getTask(ctx, task.parentTaskId);
-      if (reviewResult.decision === 'approved') {
-        await acceptStageArtifacts(ctx, task.runId, task.parentTaskId, reviewLog.id, now);
-        const completedParent = await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now);
-        if (completedParent) {
-          await unlockNextPendingStageContainer(ctx, task.runId, completedParent, now);
+        await updateTask(ctx, task.id, (current) => ({
+          ...current,
+          latestReviewLogId: reviewLog.id,
+          latestArtifactIds: reviewedArtifacts.map((artifact) => artifact.id),
+          updatedAt: now,
+        }));
+        if (agentRun) {
+          await updateAgentRun(ctx, agentRun.id, (current) => ({
+            ...current,
+            output: {
+              decision: reviewResult.decision,
+              summary: reviewResult.summary,
+              feedback: reviewContent || reviewResult.summary,
+              issues: reviewResult.issues,
+              requiredRework: reviewResult.requiredRework,
+              confidence: reviewResult.confidence,
+              reviewedArtifactIds: reviewedArtifacts.map((artifact) => artifact.id),
+              completedAt: now,
+              source: 'agent',
+            } satisfies ReviewAgentOutputSnapshot,
+            updatedAt: now,
+          }));
         }
-      } else if (reviewResult.decision === 'needs_changes') {
-        await rejectReviewedArtifacts(ctx, reviewedArtifacts.map((artifact) => artifact.id), now);
-        const reworkCount = await countReworkTasksForParent(ctx, task.runId, task.parentTaskId);
-        if (reworkCount >= MAX_REWORK_ATTEMPTS) {
+        const parentTask = await getTask(ctx, task.parentTaskId);
+        if (reviewResult.decision === 'approved') {
+          await acceptStageArtifacts(ctx, task.runId, reviewLog.reviewedArtifactIds, reviewLog.id, now);
+          const completedParent = await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now);
+          if (completedParent) {
+            await unlockNextPendingStageContainer(ctx, task.runId, completedParent, now);
+          }
+        } else if (reviewResult.decision === 'needs_changes') {
+          await rejectReviewedArtifacts(ctx, reviewedArtifacts.map((artifact) => artifact.id), now);
+          const reworkCount = await countReworkTasksForParent(ctx, task.runId, task.parentTaskId);
+          if (reworkCount >= MAX_REWORK_ATTEMPTS) {
+            await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now, reviewResult.summary, true);
+            nextStatus = 'failed';
+            nextRun = {
+              ...nextRun,
+              status: 'failed',
+              pendingHumanCheckpoint: reviewResult.summary,
+              pendingHumanAction: {
+                kind: 'failure_recovery',
+                summary: reviewResult.summary,
+                taskId: task.parentTaskId,
+                reviewLogId: reviewLog.id,
+                requestedAt: now,
+              },
+              pausedAt: now,
+              failureState: buildRunFailureState(nextRun, {
+                kind: 'non_converging_rework',
+                summary: reviewResult.summary,
+                retryable: false,
+                requiresHuman: true,
+                recommendedAction: 'Rework has failed to converge. Inspect the stage manually before resuming.',
+                taskId: task.parentTaskId,
+                agentRunId: agentRun?.id,
+              }, now),
+              updatedAt: now,
+            };
+            await saveRun(ctx, nextRun);
+          } else if (parentTask) {
+            await createReworkTaskFromReview(ctx, nextRun, parentTask, reviewedArtifacts, reviewResult.summary, now);
+            await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now, reviewResult.summary, true);
+            nextStatus = 'waiting_human';
+            nextRun = {
+              ...nextRun,
+              status: 'waiting_human',
+              pendingHumanCheckpoint: reviewResult.summary,
+              pendingHumanAction: {
+                kind: 'rework_approval',
+                summary: reviewResult.summary,
+                taskId: task.parentTaskId,
+                reviewLogId: reviewLog.id,
+                requestedAt: now,
+              },
+              pausedAt: now,
+              failureState: buildRunFailureState(nextRun, {
+                kind: 'human_required',
+                summary: reviewResult.summary,
+                retryable: true,
+                requiresHuman: true,
+                recommendedAction: 'Review the feedback, approve the rework task, then resume the run.',
+                taskId: task.parentTaskId,
+                agentRunId: agentRun?.id,
+              }, now),
+              updatedAt: now,
+            };
+            await saveRun(ctx, nextRun);
+          }
+        } else {
+          await rejectReviewedArtifacts(ctx, reviewedArtifacts.map((artifact) => artifact.id), now);
           await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now, reviewResult.summary, true);
           nextStatus = 'failed';
           nextRun = {
             ...nextRun,
             status: 'failed',
             pendingHumanCheckpoint: reviewResult.summary,
+            pendingHumanAction: {
+              kind: 'failure_recovery',
+              summary: reviewResult.summary,
+              taskId: task.parentTaskId,
+              reviewLogId: reviewLog.id,
+              requestedAt: now,
+            },
             pausedAt: now,
             failureState: buildRunFailureState(nextRun, {
-              kind: 'non_converging_rework',
+              kind: 'review_deadlock',
               summary: reviewResult.summary,
               retryable: false,
               requiresHuman: true,
-              recommendedAction: 'Rework has failed to converge. Inspect the stage manually before resuming.',
-              taskId: task.parentTaskId,
-              agentRunId: agentRun?.id,
-            }, now),
-            updatedAt: now,
-          };
-          await saveRun(ctx, nextRun);
-        } else if (parentTask) {
-          await createReworkTaskFromReview(ctx, nextRun, parentTask, reviewedArtifacts, reviewResult.summary, now);
-          await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now, reviewResult.summary, true);
-          nextStatus = 'waiting_human';
-          nextRun = {
-            ...nextRun,
-            status: 'waiting_human',
-            pendingHumanCheckpoint: reviewResult.summary,
-            pausedAt: now,
-            failureState: buildRunFailureState(nextRun, {
-              kind: 'human_required',
-              summary: reviewResult.summary,
-              retryable: true,
-              requiresHuman: true,
-              recommendedAction: 'Review the feedback, approve the rework task, then resume the run.',
+              recommendedAction: 'Inspect the rejected stage manually before deciding whether to resume or replace this stage.',
               taskId: task.parentTaskId,
               agentRunId: agentRun?.id,
             }, now),
@@ -737,66 +978,52 @@ export async function completeOrchestratorTask(ctx: PluginContext, input: Orches
           };
           await saveRun(ctx, nextRun);
         }
-      } else {
-        await rejectReviewedArtifacts(ctx, reviewedArtifacts.map((artifact) => artifact.id), now);
-        await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now, reviewResult.summary, true);
-        nextStatus = 'failed';
-        nextRun = {
-          ...nextRun,
-          status: 'failed',
-          pendingHumanCheckpoint: reviewResult.summary,
-          pausedAt: now,
-          failureState: buildRunFailureState(nextRun, {
-            kind: 'review_deadlock',
-            summary: reviewResult.summary,
-            retryable: false,
-            requiresHuman: true,
-            recommendedAction: 'Inspect the rejected stage manually before deciding whether to resume or replace this stage.',
-            taskId: task.parentTaskId,
-            agentRunId: agentRun?.id,
-          }, now),
-          updatedAt: now,
-        };
-        await saveRun(ctx, nextRun);
+      } else if (task.kind === 'work') {
+        await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now);
       }
-    } else if (task.kind === 'work') {
-      await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now);
     }
-  }
 
-  if (run.status === 'pause_requested' && nextActiveTaskCount === 0) {
-    await appendRunEvent(ctx, {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'run.paused',
-      title: 'Run paused',
-      detail: 'All active tasks finished. Pause is now effective.',
-      createdAt: now,
-    });
-  }
+    if (run.status === 'pause_requested' && nextActiveTaskCount === 0) {
+      await appendRunEvent(ctx, {
+        id: createId('evt'),
+        runId: run.id,
+        type: 'run.paused',
+        title: 'Run paused',
+        detail: 'All active tasks finished. Pause is now effective.',
+        createdAt: now,
+      });
+    }
 
-  if (task.kind === 'review' && nextStatus === 'waiting_human') {
-    await appendRunEvent(ctx, {
-      id: createId('evt'),
-      runId: run.id,
-      type: 'run.updated',
-      title: 'Review requires human follow-up',
-      detail: `${task.agentName || task.title} did not approve this stage. The run is waiting for human action before rework continues.`,
-      createdAt: now,
-    });
-  }
+    if (task.kind === 'review' && nextStatus === 'waiting_human') {
+      await appendRunEvent(ctx, {
+        id: createId('evt'),
+        runId: run.id,
+        type: 'run.updated',
+        title: 'Review requires human follow-up',
+        detail: `${task.agentName || task.title} did not approve this stage. The run is waiting for human action before rework continues.`,
+        createdAt: now,
+      });
+    }
 
-  ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: nextRun.id });
-  const derivedNextRun = await deriveRunStatusFromTasks(ctx, nextRun);
-  if (derivedNextRun.status !== nextRun.status || derivedNextRun.pendingHumanCheckpoint !== nextRun.pendingHumanCheckpoint) {
-    nextRun = derivedNextRun;
-    await saveRun(ctx, nextRun);
+    ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: nextRun.id });
+    const derivedNextRun = await deriveRunStatusFromTasks(ctx, nextRun);
+    if (derivedNextRun.status !== nextRun.status || derivedNextRun.pendingHumanCheckpoint !== nextRun.pendingHumanCheckpoint) {
+      nextRun = derivedNextRun;
+      await saveRun(ctx, nextRun);
+    }
+    await refreshRunDerivedState(ctx, nextRun.id);
+    return {
+      run: nextRun,
+      task: nextTask,
+      shouldWake: (nextRun.status === 'running' || nextRun.status === 'waiting_review') && nextRun.activeTaskCount === 0,
+    };
+  });
+
+  if (result.shouldWake && result.run) {
+    const awakened = await wakeOrchestratorRun(ctx, result.run, { runId: result.run.id, reason: 'task_completed' });
+    return { run: awakened, task: result.task };
   }
-  if ((nextRun.status === 'running' || nextRun.status === 'waiting_review') && nextRun.activeTaskCount === 0) {
-    const awakened = await wakeOrchestratorRun(ctx, nextRun, { runId: nextRun.id, reason: 'task_completed' });
-    return { run: awakened, task: nextTask };
-  }
-  return { run: nextRun, task: nextTask };
+  return { run: result.run, task: result.task };
 }
 
 export async function updateOrchestratorTask(ctx: PluginContext, input: OrchestratorUpdateTaskInput) {
@@ -847,150 +1074,182 @@ export async function updateOrchestratorTask(ctx: PluginContext, input: Orchestr
 }
 
 export async function overrideReviewDecision(ctx: PluginContext, input: OrchestratorOverrideReviewInput) {
-  const task = await getTask(ctx, input.taskId);
-  if (!task) throw new Error(`Task not found: ${input.taskId}`);
-  if (task.kind !== 'review' || !task.parentTaskId) {
-    throw new Error(`Task is not a review task: ${input.taskId}`);
-  }
-  const run = await getRun(ctx, task.runId);
-  if (!run) throw new Error(`Run not found: ${task.runId}`);
-  const reviewAgentRun = await getAgentRunByTaskId(ctx, task.id);
-  const now = Date.now();
-  const reviewedArtifacts = await listReviewedArtifacts(ctx, task.runId, task.parentTaskId);
-  const feedback = input.feedback?.trim() || buildHumanOverrideFeedback(input.decision, task);
+  const initialTask = await getTask(ctx, input.taskId);
+  if (!initialTask) throw new Error(`Task not found: ${input.taskId}`);
 
-  const reviewLog: OrchestratorReviewLog = {
-    id: createId('review'),
-    runId: task.runId,
-    stageId: task.stageId,
-    stageName: task.stageName,
-    taskId: task.id,
-    parentTaskId: task.parentTaskId,
-    agentRunId: reviewAgentRun?.id,
-    reviewerName: 'Human Reviewer',
-    decision: input.decision,
-    summary: summarizeReviewDecision(input.decision, true),
-    feedback,
-    source: 'human_override',
-    overrideReason: feedback,
-    overriddenAgentRunId: reviewAgentRun?.id,
-    reviewedArtifactIds: reviewedArtifacts.map((artifact) => artifact.id),
-    createdAt: now,
-    updatedAt: now,
-  };
-  await saveReviewLog(ctx, reviewLog);
-  await updateTask(ctx, task.parentTaskId, (current) => ({
-    ...current,
-    latestReviewLogId: reviewLog.id,
-    updatedAt: now,
-  }));
-  await updateTask(ctx, task.id, (current) => ({
-    ...current,
-    latestReviewLogId: reviewLog.id,
-    latestArtifactIds: reviewedArtifacts.map((artifact) => artifact.id),
-    updatedAt: now,
-  }));
+  const result = await withRunLock(initialTask.runId, async () => {
+    const task = await getTask(ctx, input.taskId);
+    if (!task) throw new Error(`Task not found: ${input.taskId}`);
+    if (task.kind !== 'review' || !task.parentTaskId) {
+      throw new Error(`Task is not a review task: ${input.taskId}`);
+    }
+    const run = await getRun(ctx, task.runId);
+    if (!run) throw new Error(`Run not found: ${task.runId}`);
+    const reviewPolicy = await getReviewPolicy(ctx, task.runId);
+    if (reviewPolicy && reviewPolicy.allowHumanOverride === false) {
+      throw new Error('This run does not allow human review override.');
+    }
+    const reviewAgentRun = await getAgentRunByTaskId(ctx, task.id);
+    const now = Date.now();
+    const reviewedArtifacts = await resolveReviewedArtifactsForTask(ctx, task, reviewAgentRun);
+    if (reviewedArtifacts.length === 0) {
+      throw new Error('Cannot override review without reviewed artifacts attached to the stage.');
+    }
+    const feedback = input.feedback?.trim() || buildHumanOverrideFeedback(input.decision, task);
+    const requiredRework = input.decision === 'approved' ? [] : [feedback];
 
-  if (reviewAgentRun) {
-    await updateAgentRun(ctx, reviewAgentRun.id, (current) => ({
+    const reviewLog: OrchestratorReviewLog = {
+      id: createId('review'),
+      runId: task.runId,
+      stageId: task.stageId,
+      stageName: task.stageName,
+      taskId: task.id,
+      parentTaskId: task.parentTaskId,
+      agentRunId: reviewAgentRun?.id,
+      reviewerName: 'Human Reviewer',
+      decision: input.decision,
+      summary: summarizeReviewDecision(input.decision, true),
+      feedback,
+      issues: input.decision === 'approved' ? [] : [feedback],
+      requiredRework,
+      confidence: 1,
+      source: 'human_override',
+      overrideReason: feedback,
+      overriddenAgentRunId: reviewAgentRun?.id,
+      reviewedArtifactIds: reviewedArtifacts.map((artifact) => artifact.id),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await saveReviewLog(ctx, reviewLog);
+    await updateTask(ctx, task.parentTaskId, (current) => ({
       ...current,
-      output: {
-        decision: input.decision,
-        summary: reviewLog.summary,
-        feedback,
-        reviewedArtifactIds: reviewLog.reviewedArtifactIds,
-        completedAt: now,
-        source: 'human_override',
-      },
+      latestReviewLogId: reviewLog.id,
       updatedAt: now,
     }));
-  }
+    await updateTask(ctx, task.id, (current) => ({
+      ...current,
+      latestReviewLogId: reviewLog.id,
+      latestArtifactIds: reviewedArtifacts.map((artifact) => artifact.id),
+      updatedAt: now,
+    }));
 
-  await updateTask(ctx, task.id, (current) => ({
-    ...current,
-    status: 'completed',
-    summary: reviewLog.summary,
-    updatedAt: now,
-  }));
-
-  const parentTask = await getTask(ctx, task.parentTaskId);
-  if (input.decision === 'approved') {
-    await acceptStageArtifacts(ctx, task.runId, task.parentTaskId, reviewLog.id, now);
-    const completedParent = await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now);
-    if (completedParent) {
-      await unlockNextPendingStageContainer(ctx, task.runId, completedParent, now);
+    if (reviewAgentRun) {
+      await updateAgentRun(ctx, reviewAgentRun.id, (current) => ({
+        ...current,
+        output: {
+          decision: input.decision,
+          summary: reviewLog.summary,
+          feedback,
+          issues: reviewLog.issues,
+          requiredRework: reviewLog.requiredRework,
+          confidence: reviewLog.confidence,
+          reviewedArtifactIds: reviewLog.reviewedArtifactIds,
+          completedAt: now,
+          source: 'human_override',
+        },
+        updatedAt: now,
+      }));
     }
-  } else if (input.decision === 'needs_changes') {
-    await rejectReviewedArtifacts(ctx, reviewedArtifacts.map((artifact) => artifact.id), now);
-    const reworkCount = await countReworkTasksForParent(ctx, task.runId, task.parentTaskId);
-    if (reworkCount >= MAX_REWORK_ATTEMPTS) {
-      await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now, feedback, true);
-    } else if (parentTask) {
-      await createReworkTaskFromReview(ctx, run, parentTask, reviewedArtifacts, feedback, now);
+
+    await updateTask(ctx, task.id, (current) => ({
+      ...current,
+      status: 'completed',
+      summary: reviewLog.summary,
+      updatedAt: now,
+    }));
+
+    const parentTask = await getTask(ctx, task.parentTaskId);
+    if (input.decision === 'approved') {
+      await acceptStageArtifacts(ctx, task.runId, reviewLog.reviewedArtifactIds, reviewLog.id, now);
+      const completedParent = await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now);
+      if (completedParent) {
+        await unlockNextPendingStageContainer(ctx, task.runId, completedParent, now);
+      }
+    } else if (input.decision === 'needs_changes') {
+      await rejectReviewedArtifacts(ctx, reviewedArtifacts.map((artifact) => artifact.id), now);
+      const reworkCount = await countReworkTasksForParent(ctx, task.runId, task.parentTaskId);
+      if (reworkCount >= MAX_REWORK_ATTEMPTS) {
+        await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now, feedback, true);
+      } else if (parentTask) {
+        await createReworkTaskFromReview(ctx, run, parentTask, reviewedArtifacts, feedback, now);
+        await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now, feedback, true);
+      }
+    } else {
+      await rejectReviewedArtifacts(ctx, reviewedArtifacts.map((artifact) => artifact.id), now);
       await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now, feedback, true);
     }
-  } else {
-    await rejectReviewedArtifacts(ctx, reviewedArtifacts.map((artifact) => artifact.id), now);
-    await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now, feedback, true);
-  }
 
-  let nextRun: OrchestratorRun = {
-    ...run,
-    status: input.decision === 'approved'
-      ? 'running'
-      : input.decision === 'needs_changes' && (await countReworkTasksForParent(ctx, task.runId, task.parentTaskId)) < MAX_REWORK_ATTEMPTS
-        ? 'waiting_human'
-        : 'failed',
-    engineHealthSummary: input.decision === 'approved'
-      ? 'Human review approved the stage and orchestration can continue.'
-      : input.decision === 'needs_changes'
-        ? 'Human review requested changes before orchestration can continue.'
-        : 'Human review rejected the stage and stopped automatic orchestration.',
-    lastHumanInterventionAt: now,
-    lastHumanInterventionSummary: `Human review marked ${task.stageName || task.title} as ${input.decision}.`,
-    pendingHumanCheckpoint: input.decision === 'approved' ? undefined : feedback,
-    failureState: input.decision === 'approved'
-      ? undefined
-      : buildRunFailureState(run, {
-        kind: input.decision === 'needs_changes'
-          ? (await countReworkTasksForParent(ctx, task.runId, task.parentTaskId)) < MAX_REWORK_ATTEMPTS ? 'human_required' : 'non_converging_rework'
-          : 'review_deadlock',
-        summary: feedback,
-        retryable: input.decision === 'needs_changes' && (await countReworkTasksForParent(ctx, task.runId, task.parentTaskId)) < MAX_REWORK_ATTEMPTS,
-        requiresHuman: true,
-        recommendedAction: input.decision === 'needs_changes'
-          ? (await countReworkTasksForParent(ctx, task.runId, task.parentTaskId)) < MAX_REWORK_ATTEMPTS
-            ? 'Review the feedback, approve the rework task, then resume the run.'
-            : 'Rework has failed to converge. Inspect the stage manually before resuming.'
-          : 'Inspect the rejected stage manually before deciding whether to resume or replace this stage.',
-        taskId: task.parentTaskId,
-        agentRunId: reviewAgentRun?.id,
-      }, now),
-    pausedAt: input.decision === 'approved' ? undefined : now,
-    lastDecisionAt: now,
-    lastDecisionSummary: reviewLog.summary,
-    updatedAt: now,
-  };
-  nextRun = await deriveRunStatusFromTasks(ctx, nextRun);
-  await saveRun(ctx, nextRun);
-  await appendRunEvent(ctx, {
-    id: createId('evt'),
-    runId: run.id,
-    type: 'run.updated',
-    title: input.decision === 'approved' ? 'Human reviewer approved this stage' : 'Human reviewer requested changes',
-    detail: feedback,
-    createdAt: now,
+    let nextRun: OrchestratorRun = {
+      ...run,
+      status: input.decision === 'approved'
+        ? 'running'
+        : input.decision === 'needs_changes' && (await countReworkTasksForParent(ctx, task.runId, task.parentTaskId)) < MAX_REWORK_ATTEMPTS
+          ? 'waiting_human'
+          : 'failed',
+      engineHealthSummary: input.decision === 'approved'
+        ? 'Human review approved the stage and orchestration can continue.'
+        : input.decision === 'needs_changes'
+          ? 'Human review requested changes before orchestration can continue.'
+          : 'Human review rejected the stage and stopped automatic orchestration.',
+      lastHumanInterventionAt: now,
+      lastHumanInterventionSummary: `Human review marked ${task.stageName || task.title} as ${input.decision}.`,
+      pendingHumanCheckpoint: input.decision === 'approved' ? undefined : feedback,
+      pendingHumanAction: input.decision === 'approved'
+        ? undefined
+        : {
+          kind: input.decision === 'needs_changes' ? 'rework_approval' : 'failure_recovery',
+          summary: feedback,
+          taskId: task.parentTaskId,
+          reviewLogId: reviewLog.id,
+          requestedAt: now,
+        },
+      failureState: input.decision === 'approved'
+        ? undefined
+        : buildRunFailureState(run, {
+          kind: input.decision === 'needs_changes'
+            ? (await countReworkTasksForParent(ctx, task.runId, task.parentTaskId)) < MAX_REWORK_ATTEMPTS ? 'human_required' : 'non_converging_rework'
+            : 'review_deadlock',
+          summary: feedback,
+          retryable: input.decision === 'needs_changes' && (await countReworkTasksForParent(ctx, task.runId, task.parentTaskId)) < MAX_REWORK_ATTEMPTS,
+          requiresHuman: true,
+          recommendedAction: input.decision === 'needs_changes'
+            ? (await countReworkTasksForParent(ctx, task.runId, task.parentTaskId)) < MAX_REWORK_ATTEMPTS
+              ? 'Review the feedback, approve the rework task, then resume the run.'
+              : 'Rework has failed to converge. Inspect the stage manually before resuming.'
+            : 'Inspect the rejected stage manually before deciding whether to resume or replace this stage.',
+          taskId: task.parentTaskId,
+          agentRunId: reviewAgentRun?.id,
+        }, now),
+      pausedAt: input.decision === 'approved' ? undefined : now,
+      lastDecisionAt: now,
+      lastDecisionSummary: reviewLog.summary,
+      updatedAt: now,
+    };
+    nextRun = await deriveRunStatusFromTasks(ctx, nextRun);
+    await saveRun(ctx, nextRun);
+    await refreshRunDerivedState(ctx, nextRun.id);
+    await appendRunEvent(ctx, {
+      id: createId('evt'),
+      runId: run.id,
+      type: 'run.updated',
+      title: input.decision === 'approved' ? 'Human reviewer approved this stage' : 'Human reviewer requested changes',
+      detail: feedback,
+      createdAt: now,
+    });
+    ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
+
+    return {
+      run: nextRun,
+      reviewLog,
+      shouldWake: input.decision === 'approved' && nextRun.activeTaskCount === 0,
+    };
   });
-  ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
 
-  if (input.decision === 'approved' && nextRun.activeTaskCount === 0) {
-    return wakeOrchestratorRun(ctx, nextRun, { runId: nextRun.id, reason: 'user_request' });
+  if (result.shouldWake) {
+    const awakened = await wakeOrchestratorRun(ctx, result.run, { runId: result.run.id, reason: 'user_request' });
+    return { run: awakened, reviewLog: result.reviewLog };
   }
-
-  return {
-    run: nextRun,
-    reviewLog,
-  };
+  return { run: result.run, reviewLog: result.reviewLog };
 }
 
 export async function retryOrchestratorTask(ctx: PluginContext, input: OrchestratorRetryTaskInput) {
@@ -1042,6 +1301,7 @@ export async function retryOrchestratorTask(ctx: PluginContext, input: Orchestra
     status: 'running',
     failureState: run.failureState?.taskId === task.id ? undefined : run.failureState,
     pendingHumanCheckpoint: run.failureState?.taskId === task.id ? undefined : run.pendingHumanCheckpoint,
+    pendingHumanAction: run.failureState?.taskId === task.id ? undefined : run.pendingHumanAction,
     pausedAt: undefined,
     pauseRequestedAt: undefined,
     watchdogStatus: 'healthy',
@@ -1404,8 +1664,12 @@ function isActiveTask(task: OrchestratorAgentTask) {
   return task.status === 'ready' || task.status === 'pending' || task.status === 'running';
 }
 
-function buildDispatchCandidates(plan: OrchestratorConfirmedPlan, tasks: OrchestratorAgentTask[]) {
-  const stageById = new Map(plan.stages.map((stage) => [stage.id, stage]));
+function buildDispatchCandidates(
+  run: OrchestratorRun,
+  tasks: OrchestratorAgentTask[],
+  reviewPolicy?: Awaited<ReturnType<typeof getReviewPolicy>> | null,
+) {
+  const stageById = new Map(run.confirmedPlan.stages.map((stage) => [stage.id, stage]));
   const runnableContainers = tasks
     .filter((task) => task.nodeType === 'container' && task.stageId && task.status !== 'completed' && task.status !== 'pending')
     .sort((a, b) => {
@@ -1417,12 +1681,13 @@ function buildDispatchCandidates(plan: OrchestratorConfirmedPlan, tasks: Orchest
   for (const containerTask of runnableContainers) {
     const stage = containerTask.stageId ? stageById.get(containerTask.stageId) : null;
     if (!stage) continue;
-    const containerPlan = evaluateContainerCandidates(containerTask, stage, tasks);
+    const stagePolicy = resolveStagePolicy(run, stage.id, reviewPolicy);
+    const containerPlan = evaluateContainerCandidates(containerTask, stage, tasks, stagePolicy);
     if (!containerPlan.completed) return containerPlan;
   }
 
-  for (const stage of plan.stages) {
-    const stagePlan = evaluateStageCandidates(stage, tasks);
+  for (const stage of run.confirmedPlan.stages) {
+    const stagePlan = evaluateStageCandidates(stage, tasks, resolveStagePolicy(run, stage.id, reviewPolicy));
     if (!stagePlan.completed) return stagePlan;
   }
   return {
@@ -1558,7 +1823,7 @@ function buildOrchestrationPrompt(input: OrchestrationInputSnapshot) {
     'Keep the existing output location unless the plan requires a change.',
     'Return one JSON object only.',
     'status must be one of: dispatch, wait, throttle, complete.',
-    'Return keys: status, summary, currentStageId, currentStageName, currentAgentId, currentAgentName, taskOperations, dispatches.',
+    'Return keys: status, summary, ruleHits, risks, requiresHuman, currentStageId, currentStageName, currentAgentId, currentAgentName, taskOperations, dispatches.',
     'currentStageId must exactly equal the current stage id shown above. Do not invent or rename stage ids.',
     'taskOperations must be an array. Use an empty array if there are none.',
     'taskOperations may use only: wait, complete_run, activate_task, block_task, reprioritize_task, create_task, create_checkpoint.',
@@ -1571,6 +1836,7 @@ function buildOrchestrationPrompt(input: OrchestrationInputSnapshot) {
     'kind must be either "work" or "review".',
     'parentTaskId must exactly match one candidate parent task in the current stage.',
     'assignmentBrief must contain: title, whyNow, goal, context, inputArtifacts, instructions, acceptanceCriteria, deliverables, targetFolder, expectedFiles, reviewTargetPaths, reviewFocus, risks.',
+    'ruleHits and risks must be arrays of short strings. requiresHuman must be true when your decision asks for a human checkpoint or escalation.',
     'Valid taskOperations example: [{"type":"activate_task","taskId":"task_123"}]',
     'If there are no task operations, return "taskOperations": [].',
   ].filter(Boolean).join('\n\n');
@@ -1584,11 +1850,22 @@ function buildOrchestrationDecisionRecord(
   return {
     status: decision.status,
     summary: decision.summary,
+    inputSummary: [
+      orchestrationInput?.runGoal ? `Goal: ${orchestrationInput.runGoal}` : null,
+      orchestrationInput?.currentStageName ? `Current stage: ${orchestrationInput.currentStageName}` : null,
+      orchestrationInput?.wakeReason ? `Wake reason: ${orchestrationInput.wakeReason}` : null,
+      orchestrationInput?.projectStateSummary?.length ? `Accepted state count: ${orchestrationInput.projectStateSummary.length}` : null,
+      orchestrationInput?.waitingReviewTaskTitles?.length ? `Waiting review: ${orchestrationInput.waitingReviewTaskTitles.join(', ')}` : null,
+    ].filter((value): value is string => Boolean(value)),
     dispatchCount: decision.dispatches.length,
+    candidateActionCount: orchestrationInput?.candidateDispatches.length || 0,
     currentStageId: decision.currentStageId,
     currentStageName: decision.currentStageName,
     currentAgentId: decision.currentAgentId,
     currentAgentName: decision.currentAgentName,
+    requiresHuman: Boolean(decision.requiresHuman),
+    ruleHits: [...(decision.ruleHits || [])],
+    risks: [...(decision.risks || [])],
     allowedDispatchKinds: [...(orchestrationInput?.currentStageAllowedDispatchKinds || [])],
     candidateDispatches: [...(orchestrationInput?.candidateDispatches || [])],
     selectedParentTaskIds: Array.from(new Set(decision.dispatches.map((dispatch) => dispatch.parentTaskId))),
@@ -1656,6 +1933,9 @@ function parseOrchestrationDecisionJson(
   return validateOrchestrationDecision({
     status,
     summary: parsed.summary || `Orchestrator agent returned ${status}.`,
+    ruleHits: normalizeStringList(parsed.ruleHits),
+    risks: normalizeStringList(parsed.risks),
+    requiresHuman: Boolean(parsed.requiresHuman),
     taskOperations,
     currentStageId: parsed.currentStageId,
     currentStageName: parsed.currentStageName,
@@ -1666,18 +1946,20 @@ function parseOrchestrationDecisionJson(
 }
 
 function inferDispatchCandidate(
-  dispatch: Partial<Dispatch>,
+  dispatch: Partial<Dispatch> & { parentTaskId?: string; stageId?: string },
   candidates: Dispatch[],
   context: OrchestrationContext,
 ) {
-  if (!dispatch.kind || !dispatch.parentTask?.id) return null;
+  const parentTaskId = getDispatchParentTaskId(dispatch);
+  const stageId = getDispatchStageId(dispatch);
+  if (!dispatch.kind || !parentTaskId) return null;
   const stageScoped = context.run.currentStageId
     ? candidates.filter((candidate) => candidate.stage.id === context.run.currentStageId)
     : candidates;
   const matched = stageScoped.filter((candidate) =>
     candidate.kind === dispatch.kind
-    && candidate.parentTask.id === dispatch.parentTask?.id
-    && (!dispatch.stage?.id || candidate.stage.id === dispatch.stage.id)
+    && candidate.parentTask.id === parentTaskId
+    && (!stageId || candidate.stage.id === stageId)
   );
   return matched.length === 1 ? matched[0] : null;
 }
@@ -1694,6 +1976,12 @@ function validateOrchestrationDecision(
   );
   if (!decision.summary?.trim()) {
     throw new Error('Orchestrator agent must return a non-empty summary.');
+  }
+  if (decision.ruleHits && !Array.isArray(decision.ruleHits)) {
+    throw new Error('Orchestrator agent must return ruleHits as an array when provided.');
+  }
+  if (decision.risks && !Array.isArray(decision.risks)) {
+    throw new Error('Orchestrator agent must return risks as an array when provided.');
   }
   if (decision.status !== 'dispatch' && decision.dispatches.length > 0) {
     throw new Error(`Decision status ${decision.status} cannot include dispatches.`);
@@ -1768,6 +2056,29 @@ function validateOrchestrationDecision(
       if (context.run.currentStageId && parentTask.stageId && parentTask.stageId !== context.run.currentStageId) {
         throw new Error('create_task must stay inside the current stage.');
       }
+      const stage = context.run.confirmedPlan.stages.find((candidate) => candidate.id === parentTask.stageId);
+      const allowedTargetFolder = parentTask.targetFolder || stage?.targetFolder;
+      const allowedFiles = (parentTask.expectedFiles?.length ? parentTask.expectedFiles : stage?.outputFiles || []).map(normalizeRelativePath);
+      if (!allowedTargetFolder) {
+        throw new Error('create_task requires a known stage targetFolder.');
+      }
+      const normalizedTargetFolder = normalizeRelativePath(operation.targetFolder);
+      const normalizedAllowedTargetFolder = normalizeRelativePath(allowedTargetFolder);
+      if (
+        normalizedTargetFolder !== normalizedAllowedTargetFolder
+        && !normalizedTargetFolder.startsWith(`${normalizedAllowedTargetFolder}/`)
+      ) {
+        throw new Error('create_task must stay within the current stage targetFolder subtree.');
+      }
+      if (operation.expectedFiles.some((file) => !isSafeRelativePath(file))) {
+        throw new Error('create_task expectedFiles must stay relative to the stage targetFolder.');
+      }
+      if (
+        allowedFiles.length > 0
+        && !canRefineExpectedOutputs(allowedTargetFolder, allowedFiles, operation.targetFolder, operation.expectedFiles)
+      ) {
+        throw new Error('create_task expectedFiles must refine the current stage outputs instead of changing them semantically.');
+      }
     }
     if (operation.type === 'create_checkpoint') {
       if (!operation.parentTaskId || !operation.note?.trim()) {
@@ -1805,6 +2116,8 @@ async function createHumanCheckpointTask(
     order: nextOrder,
     source: 'orchestrator_split',
     attemptCount: 0,
+    assignedAgentType: 'checkpoint',
+    retryPolicy: 'manual',
     stageId: parentTask.stageId,
     planStageId: parentTask.planStageId || parentTask.stageId,
     stageName: parentTask.stageName,
@@ -1844,6 +2157,8 @@ async function createReworkTaskFromReview(
     order: nextOrder,
     source: 'rework',
     attemptCount: 0,
+    assignedAgentType: 'work',
+    retryPolicy: 'manual',
     stageId: parentTask.stageId,
     planStageId: parentTask.planStageId || parentTask.stageId,
     stageName: parentTask.stageName,
@@ -1963,310 +2278,363 @@ export async function applyOrchestratorDecision(
   coordinatorRunId: string,
   decision: OrchestrationDecision,
 ) {
-  const now = Date.now();
-  const run = await getRun(ctx, runId);
-  if (!run) {
-    throw new Error(`Run not found: ${runId}`);
-  }
-  const tasks = await listTasksForRun(ctx, runId);
-  const reviewLogs = await listReviewLogsForRun(ctx, runId);
-  const projectState = await getProjectState(ctx, runId);
-  const artifacts = await listArtifactsForRun(ctx, runId);
-  const dispatchPlan = buildDispatchCandidates(run.confirmedPlan, tasks);
-  const orchestrationContext: OrchestrationContext = {
-    run,
-    wakeReason: run.lastWakeReason,
-    tasks,
-    reviewLogs,
-    projectState,
-    artifacts,
-    activeTaskCount: tasks.filter((task) => isLiveTask(task)).length,
-    availableSlots: Math.max(0, (run.maxConcurrentTasks || 2) - tasks.filter((task) => isLiveTask(task)).length),
-  };
-  const validatedDecision = validateOrchestrationDecision(decision, orchestrationContext, dispatchPlan.candidates);
-  const firstDispatch = validatedDecision.dispatches[0];
-  let nextRun: OrchestratorRun = {
-    ...run,
-    lastDecisionAt: now,
-    lastDecisionSummary: validatedDecision.summary,
-    orchestrationDecision: buildOrchestrationDecisionRecord(validatedDecision, run.orchestrationInput, now),
-    currentStageId: firstDispatch?.stageId || run.currentStageId || validatedDecision.currentStageId,
-    currentStageName: firstDispatch?.stageName || run.currentStageName || validatedDecision.currentStageName,
-    currentAgentId: firstDispatch?.agentId || validatedDecision.currentAgentId,
-    currentAgentName: firstDispatch?.agentName || validatedDecision.currentAgentName,
-    updatedAt: now,
-  };
+  return withRunLock(runId, async () => {
+    const now = Date.now();
+    const run = await getRun(ctx, runId);
+    if (!run) {
+      throw new Error(`Run not found: ${runId}`);
+    }
+    if (run.currentOrchestratorAgentRunId && run.currentOrchestratorAgentRunId !== coordinatorRunId) {
+      throw new Error(`Coordinator decision is stale for run ${runId}. Active coordinator: ${run.currentOrchestratorAgentRunId}.`);
+    }
+    let tasks = await listTasksForRun(ctx, runId);
+    const reviewLogs = await listReviewLogsForRun(ctx, runId);
+    const projectState = await getProjectState(ctx, runId);
+    const artifacts = await listArtifactsForRun(ctx, runId);
+    const reviewPolicy = await getReviewPolicy(ctx, runId);
+    const dispatchPlan = buildDispatchCandidates(run, tasks, reviewPolicy);
+    const orchestrationContext: OrchestrationContext = {
+      run,
+      wakeReason: run.lastWakeReason,
+      tasks,
+      reviewLogs,
+      projectState,
+      artifacts,
+      activeTaskCount: tasks.filter((task) => isLiveTask(task)).length,
+      availableSlots: Math.max(0, (run.maxConcurrentTasks || 2) - tasks.filter((task) => isLiveTask(task)).length),
+    };
+    const validatedDecision = validateOrchestrationDecision(decision, orchestrationContext, dispatchPlan.candidates);
+    const firstDispatch = validatedDecision.dispatches[0];
+    let nextRun: OrchestratorRun = {
+      ...run,
+      lastDecisionAt: now,
+      lastDecisionSummary: validatedDecision.summary,
+      orchestrationDecision: buildOrchestrationDecisionRecord(validatedDecision, run.orchestrationInput, now),
+      currentStageId: firstDispatch?.stageId || run.currentStageId || validatedDecision.currentStageId,
+      currentStageName: firstDispatch?.stageName || run.currentStageName || validatedDecision.currentStageName,
+      currentAgentId: firstDispatch?.agentId || validatedDecision.currentAgentId,
+      currentAgentName: firstDispatch?.agentName || validatedDecision.currentAgentName,
+      updatedAt: now,
+    };
 
-  for (const operation of validatedDecision.taskOperations) {
-    if (operation.type === 'complete_run') {
-      nextRun = {
-        ...nextRun,
-        status: 'completed',
-        activeTaskCount: 0,
-        engineHealthSummary: operation.note || validatedDecision.summary || 'Run completed by the orchestrator agent.',
-      };
-      continue;
-    }
-    if (operation.type === 'activate_task' && operation.taskId) {
-      await updateTask(ctx, operation.taskId, (current) => ({
-        ...current,
-        status: current.status === 'completed' ? current.status : 'ready',
-        blockedReason: undefined,
-        updatedAt: now,
-      }));
-      continue;
-    }
-    if (operation.type === 'block_task' && operation.taskId) {
-      await updateTask(ctx, operation.taskId, (current) => ({
-        ...(current.status === 'completed' ? current : (assertTaskStatusTransition(current.status, 'blocked'), current)),
-        status: current.status === 'completed' ? current.status : 'blocked',
-        blockedReason: operation.note || current.blockedReason || 'Blocked by orchestrator decision.',
-        updatedAt: now,
-      }));
-      nextRun = {
-        ...nextRun,
-        status: 'waiting_human',
-        pendingHumanCheckpoint: operation.note || 'Human action required before this task can continue.',
-        pausedAt: now,
-        engineHealthSummary: operation.note || 'Run is waiting for human action because a task requires attention.',
-      };
-      continue;
-    }
-    if (operation.type === 'reprioritize_task' && operation.taskId && typeof operation.priority === 'number') {
-      await updateTask(ctx, operation.taskId, (current) => ({
-        ...current,
-        priority: operation.priority,
-        updatedAt: now,
-      }));
-      continue;
-    }
-    if (operation.type === 'create_task' && operation.parentTaskId && operation.title && operation.targetFolder && operation.expectedFiles?.length) {
-      const parentTask = tasks.find((task) => task.id === operation.parentTaskId);
-      if (!parentTask) {
-        throw new Error(`Parent task not found for create_task: ${operation.parentTaskId}`);
+    for (const operation of validatedDecision.taskOperations) {
+      if (operation.type === 'complete_run') {
+        nextRun = {
+          ...nextRun,
+          status: 'completed',
+          activeTaskCount: 0,
+          engineHealthSummary: operation.note || validatedDecision.summary || 'Run completed by the orchestrator agent.',
+        };
+        continue;
       }
-      const siblingTasks = tasks.filter((task) => task.parentTaskId === parentTask.id);
-      const nextOrder = siblingTasks.length > 0 ? Math.max(...siblingTasks.map((task) => task.order)) + 1 : parentTask.order + 1;
-      const createdTaskStatus = operation.requiresHumanApproval ? 'waiting_human' : 'ready';
-      await saveTask(ctx, {
-        id: createId('task'),
-        runId,
-        nodeType: 'container',
-        parentTaskId: parentTask.id,
-        rootTaskId: parentTask.rootTaskId,
-        depth: parentTask.depth + 1,
-        order: nextOrder,
-        source: 'orchestrator_split',
-        latestAgentRunId: undefined,
-        attemptCount: 0,
-        stageId: parentTask.stageId,
-        planStageId: parentTask.planStageId || parentTask.stageId,
-        stageName: operation.title,
-        title: operation.title,
-        status: createdTaskStatus,
-        objective: operation.summary || operation.note || operation.title,
-        inputs: [],
-        expectedOutputs: operation.expectedFiles,
-        priority: typeof operation.priority === 'number' ? operation.priority : nextOrder,
-        reviewRequired: true,
-        blockedReason: operation.requiresHumanApproval ? 'Human approval required before dispatch.' : undefined,
-        targetFolder: operation.targetFolder,
-        expectedFiles: operation.expectedFiles,
-        dependencyTaskIds: operation.dependencyTaskIds || [],
-        requiresHumanApproval: Boolean(operation.requiresHumanApproval),
-        summary: operation.summary || operation.note || operation.title,
-        failurePolicy: 'pause',
-        createdAt: now,
-        updatedAt: now,
-      });
+      if (operation.type === 'activate_task' && operation.taskId) {
+        await updateTask(ctx, operation.taskId, (current) => ({
+          ...current,
+          status: current.status === 'completed' ? current.status : 'ready',
+          blockedReason: undefined,
+          updatedAt: now,
+        }));
+        continue;
+      }
+      if (operation.type === 'block_task' && operation.taskId) {
+        await updateTask(ctx, operation.taskId, (current) => ({
+          ...(current.status === 'completed' ? current : (assertTaskStatusTransition(current.status, 'blocked'), current)),
+          status: current.status === 'completed' ? current.status : 'blocked',
+          blockedReason: operation.note || current.blockedReason || 'Blocked by orchestrator decision.',
+          updatedAt: now,
+        }));
+        nextRun = {
+          ...nextRun,
+          status: 'waiting_human',
+          pendingHumanCheckpoint: operation.note || 'Human action required before this task can continue.',
+          pendingHumanAction: {
+            kind: 'checkpoint',
+            summary: operation.note || 'Human action required before this task can continue.',
+            taskId: operation.taskId,
+            requestedAt: now,
+          },
+          pausedAt: now,
+          engineHealthSummary: operation.note || 'Run is waiting for human action because a task requires attention.',
+        };
+        continue;
+      }
+      if (operation.type === 'reprioritize_task' && operation.taskId && typeof operation.priority === 'number') {
+        await updateTask(ctx, operation.taskId, (current) => ({
+          ...current,
+          priority: operation.priority,
+          updatedAt: now,
+        }));
+        continue;
+      }
+      if (operation.type === 'create_task' && operation.parentTaskId && operation.title && operation.targetFolder && operation.expectedFiles?.length) {
+        const parentTask = tasks.find((task) => task.id === operation.parentTaskId);
+        if (!parentTask) {
+          throw new Error(`Parent task not found for create_task: ${operation.parentTaskId}`);
+        }
+        const siblingTasks = tasks.filter((task) => task.parentTaskId === parentTask.id);
+        const nextOrder = siblingTasks.length > 0 ? Math.max(...siblingTasks.map((task) => task.order)) + 1 : parentTask.order + 1;
+        const createdTaskStatus = operation.requiresHumanApproval ? 'waiting_human' : 'ready';
+        await saveTask(ctx, {
+          id: createId('task'),
+          runId,
+          nodeType: 'container',
+          parentTaskId: parentTask.id,
+          rootTaskId: parentTask.rootTaskId,
+          depth: parentTask.depth + 1,
+          order: nextOrder,
+          source: 'orchestrator_split',
+          latestAgentRunId: undefined,
+          attemptCount: 0,
+          assignedAgentType: 'orchestrator',
+          retryPolicy: 'manual',
+          stageId: parentTask.stageId,
+          planStageId: parentTask.planStageId || parentTask.stageId,
+          stageName: parentTask.stageName,
+          title: operation.title,
+          status: createdTaskStatus,
+          objective: operation.summary || operation.note || operation.title,
+          inputs: [],
+          expectedOutputs: operation.expectedFiles,
+          priority: typeof operation.priority === 'number' ? operation.priority : nextOrder,
+          reviewRequired: parentTask.reviewRequired ?? true,
+          blockedReason: operation.requiresHumanApproval ? 'Human approval required before dispatch.' : undefined,
+          targetFolder: operation.targetFolder,
+          expectedFiles: operation.expectedFiles,
+          dependencyTaskIds: operation.dependencyTaskIds || [],
+          requiresHumanApproval: Boolean(operation.requiresHumanApproval),
+          summary: operation.summary || operation.note || operation.title,
+          failurePolicy: 'pause',
+          createdAt: now,
+          updatedAt: now,
+        });
       await updateTask(ctx, parentTask.id, (current) => ({
         ...(current.status === 'completed' ? current : (assertTaskStatusTransition(current.status, createdTaskStatus === 'waiting_human' ? 'waiting_human' : 'running'), current)),
         status: current.status === 'completed' ? current.status : createdTaskStatus === 'waiting_human' ? 'waiting_human' : 'running',
         updatedAt: now,
       }));
+      tasks = await listTasksForRun(ctx, runId);
       if (createdTaskStatus === 'waiting_human') {
         nextRun = {
           ...nextRun,
+            status: 'waiting_human',
+            pendingHumanCheckpoint: operation.note || `Human approval required for ${operation.title}.`,
+            pendingHumanAction: {
+              kind: 'checkpoint',
+              summary: operation.note || `Human approval required for ${operation.title}.`,
+              taskId: parentTask.id,
+              requestedAt: now,
+            },
+            pausedAt: now,
+            engineHealthSummary: operation.note || `Run is waiting for human approval for ${operation.title}.`,
+          };
+        }
+        continue;
+      }
+      if (operation.type === 'create_checkpoint' && operation.parentTaskId && operation.note?.trim()) {
+        const parentTask = tasks.find((task) => task.id === operation.parentTaskId);
+        if (!parentTask) {
+          throw new Error(`Parent task not found for create_checkpoint: ${operation.parentTaskId}`);
+        }
+        await createHumanCheckpointTask(ctx, runId, parentTask, operation.note.trim(), now);
+        await updateTask(ctx, parentTask.id, (current) => ({
+          ...(current.status === 'completed' ? current : (assertTaskStatusTransition(current.status, 'waiting_human'), current)),
+          status: current.status === 'completed' ? current.status : 'waiting_human',
+          blockedReason: operation.note?.trim(),
+          updatedAt: now,
+        }));
+        tasks = await listTasksForRun(ctx, runId);
+        nextRun = {
+          ...nextRun,
           status: 'waiting_human',
-          pendingHumanCheckpoint: operation.note || `Human approval required for ${operation.title}.`,
+          pendingHumanCheckpoint: operation.note.trim(),
+          pendingHumanAction: {
+            kind: 'checkpoint',
+            summary: operation.note.trim(),
+            taskId: parentTask.id,
+            requestedAt: now,
+          },
           pausedAt: now,
-          engineHealthSummary: operation.note || `Run is waiting for human approval for ${operation.title}.`,
+          engineHealthSummary: operation.note.trim(),
+          failureState: buildRunFailureState(nextRun, {
+            kind: 'human_required',
+            summary: operation.note.trim(),
+            retryable: true,
+            requiresHuman: true,
+            recommendedAction: 'Resolve the human checkpoint, then resume the run.',
+            taskId: parentTask.id,
+          }, now),
         };
       }
-      continue;
     }
-    if (operation.type === 'create_checkpoint' && operation.parentTaskId && operation.note?.trim()) {
-      const parentTask = tasks.find((task) => task.id === operation.parentTaskId);
-      if (!parentTask) {
-        throw new Error(`Parent task not found for create_checkpoint: ${operation.parentTaskId}`);
-      }
-      await createHumanCheckpointTask(ctx, runId, parentTask, operation.note.trim(), now);
-      await updateTask(ctx, parentTask.id, (current) => ({
-        ...(current.status === 'completed' ? current : (assertTaskStatusTransition(current.status, 'waiting_human'), current)),
-        status: current.status === 'completed' ? current.status : 'waiting_human',
-        blockedReason: operation.note?.trim(),
-        updatedAt: now,
-      }));
+
+    tasks = await listTasksForRun(ctx, runId);
+    const latestReviewLogs = await listReviewLogsForRun(ctx, runId);
+    const latestProjectState = await getProjectState(ctx, runId);
+    const latestArtifacts = await listArtifactsForRun(ctx, runId);
+    const latestRun = await getRun(ctx, runId) || nextRun;
+    const latestDispatchPlan = buildDispatchCandidates(latestRun, tasks, reviewPolicy);
+    const latestContext: OrchestrationContext = {
+      run: latestRun,
+      wakeReason: latestRun.lastWakeReason,
+      tasks,
+      reviewLogs: latestReviewLogs,
+      projectState: latestProjectState,
+      artifacts: latestArtifacts,
+      activeTaskCount: tasks.filter((task) => isLiveTask(task)).length,
+      availableSlots: Math.max(0, (latestRun.maxConcurrentTasks || 2) - tasks.filter((task) => isLiveTask(task)).length),
+    };
+    const revalidatedDecision = validateOrchestrationDecision(validatedDecision, latestContext, latestDispatchPlan.candidates);
+
+    if (revalidatedDecision.status === 'dispatch' && nextRun.status !== 'paused' && nextRun.status !== 'waiting_human') {
+      const dispatches = resolveDispatches(tasks, revalidatedDecision);
       nextRun = {
         ...nextRun,
-        status: 'waiting_human',
-        pendingHumanCheckpoint: operation.note.trim(),
-        pausedAt: now,
-        engineHealthSummary: operation.note.trim(),
-        failureState: buildRunFailureState(nextRun, {
-          kind: 'human_required',
-          summary: operation.note.trim(),
-          retryable: true,
-          requiresHuman: true,
-          recommendedAction: 'Resolve the human checkpoint, then resume the run.',
-          taskId: parentTask.id,
-        }, now),
+        status: 'running',
+        activeTaskCount: tasks.filter((task) => isLiveTask(task)).length + dispatches.length,
+        engineHealthSummary: `Dispatching ${dispatches.length} task(s) from ${revalidatedDecision.currentStageName || 'the current stage'}.`,
       };
-    }
-  }
-
-  if (validatedDecision.status === 'dispatch' && nextRun.status !== 'paused' && nextRun.status !== 'waiting_human') {
-    const dispatches = resolveDispatches(tasks, validatedDecision);
-    nextRun = {
-      ...nextRun,
-      status: 'running',
-      activeTaskCount: tasks.filter((task) => isLiveTask(task)).length + dispatches.length,
-      engineHealthSummary: `Dispatching ${dispatches.length} task(s) from ${validatedDecision.currentStageName || 'the current stage'}.`,
-    };
-    await saveRun(ctx, nextRun);
-    for (const dispatch of dispatches) {
-      const assignmentBrief = dispatch.assignmentBrief!;
-      const task: OrchestratorAgentTask = {
-        id: createId('task'),
-        runId,
-        nodeType: dispatch.kind,
-        kind: dispatch.kind,
-        parentTaskId: dispatch.parentTask.id,
-        rootTaskId: dispatch.parentTask.rootTaskId,
-        depth: dispatch.parentTask.depth + 1,
-        order: dispatch.parentTask.order + (dispatch.kind === 'work' ? 1 : 2),
-        source: dispatch.kind === 'review' ? 'orchestrator_split' : dispatch.parentTask.source,
-        latestAgentRunId: undefined,
-        attemptCount: 0,
-        stageId: dispatch.stage.id,
-        planStageId: dispatch.stage.id,
-        stageName: dispatch.stage.name,
-        agentId: dispatch.agentId,
-        agentName: dispatch.agentName,
-        title: `${dispatch.agentName} task`,
-        reviewRequired: dispatch.kind === 'work',
-        status: 'ready',
-        objective: assignmentBrief.goal,
-        inputs: [...assignmentBrief.inputArtifacts],
-        expectedOutputs: [...assignmentBrief.expectedFiles],
-        summary: dispatch.assignmentBrief!.goal,
-        failurePolicy: 'pause',
-        createdAt: now,
-        updatedAt: now,
-      };
-      const sessionId = `orchestrator-${runId}-${dispatch.agentId}-${task.id}`;
-      const agentInput = dispatch.kind === 'review'
-        ? await buildReviewAgentInput(ctx, nextRun, task, dispatch.stage, assignmentBrief)
-        : buildWorkAgentInput(nextRun, dispatch.stage, projectState, reviewLogs, artifacts, assignmentBrief);
-      if (dispatch.kind === 'review' && 'reviewedArtifactIds' in agentInput) {
-        await markArtifactsUnderReview(ctx, agentInput.reviewedArtifactIds, now);
-        task.latestArtifactIds = [...agentInput.reviewedArtifactIds];
+      await saveRun(ctx, nextRun);
+      for (const dispatch of dispatches) {
+        const assignmentBrief = dispatch.assignmentBrief!;
+        const task: OrchestratorAgentTask = {
+          id: createId('task'),
+          runId,
+          nodeType: dispatch.kind,
+          kind: dispatch.kind,
+          parentTaskId: dispatch.parentTask.id,
+          rootTaskId: dispatch.parentTask.rootTaskId,
+          depth: dispatch.parentTask.depth + 1,
+          order: dispatch.parentTask.order + (dispatch.kind === 'work' ? 1 : 2),
+          source: dispatch.kind === 'review' ? 'orchestrator_split' : dispatch.parentTask.source,
+          latestAgentRunId: undefined,
+          attemptCount: 0,
+          assignedAgentType: dispatch.kind,
+          retryPolicy: 'auto_transient',
+          stageId: dispatch.stage.id,
+          planStageId: dispatch.stage.id,
+          stageName: dispatch.stage.name,
+          agentId: dispatch.agentId,
+          agentName: dispatch.agentName,
+          title: `${dispatch.agentName} task`,
+          reviewRequired: dispatch.kind === 'work',
+          status: 'ready',
+          objective: assignmentBrief.goal,
+          inputs: [...assignmentBrief.inputArtifacts],
+          expectedOutputs: [...assignmentBrief.expectedFiles],
+          summary: dispatch.assignmentBrief!.goal,
+          failurePolicy: 'pause',
+          targetFolder: assignmentBrief.targetFolder,
+          expectedFiles: [...assignmentBrief.expectedFiles],
+          createdAt: now,
+          updatedAt: now,
+        };
+        const sessionId = `orchestrator-${runId}-${dispatch.agentId}-${task.id}`;
+        const agentInput = dispatch.kind === 'review'
+          ? await buildReviewAgentInput(ctx, nextRun, task, dispatch.stage, assignmentBrief)
+          : buildWorkAgentInput(nextRun, dispatch.stage, latestProjectState, latestReviewLogs, latestArtifacts, assignmentBrief);
+        if (dispatch.kind === 'review' && 'reviewedArtifactIds' in agentInput) {
+          await markArtifactsUnderReview(ctx, agentInput.reviewedArtifactIds, now);
+          task.latestArtifactIds = [...agentInput.reviewedArtifactIds];
+        }
+        const agentPrompt = dispatch.kind === 'review' ? buildReviewAgentPrompt(agentInput) : buildWorkAgentPrompt(agentInput);
+        const agentRun: OrchestratorAgentRun = {
+          id: createId('agent_run'),
+          runId,
+          taskId: task.id,
+          planId: nextRun.planId,
+          kind: dispatch.kind,
+          stageId: dispatch.stage.id,
+          stageName: dispatch.stage.name,
+          agentId: dispatch.agentId,
+          agentName: dispatch.agentName,
+          sessionId,
+          title: dispatch.agentName,
+          prompt: agentPrompt,
+          input: agentInput,
+          status: 'pending',
+          createdAt: now,
+          updatedAt: now,
+        };
+        task.latestAgentRunId = agentRun.id;
+        task.attemptCount = 1;
+        task.sessionId = sessionId;
+        await saveTask(ctx, task);
+        await updateTask(ctx, dispatch.parentTask.id, (current) => ({
+          ...current,
+          status: dispatch.kind === 'review' ? 'waiting_review' : 'running',
+          objective: current.objective || assignmentBrief.goal,
+          inputs: current.inputs || [...assignmentBrief.inputArtifacts],
+          expectedOutputs: current.expectedOutputs || [...assignmentBrief.expectedFiles],
+          updatedAt: now,
+        }));
+        await saveAgentRun(ctx, agentRun);
+        await appendRunEvent(ctx, {
+          id: createId('evt'),
+          runId,
+          type: 'task.created',
+          title: 'Agent task created',
+          detail: `${task.agentName} is ready to execute.`,
+          createdAt: now,
+        });
+        void launchDetachedAgentRunSession(ctx, nextRun, task, agentRun, {
+          title: `${dispatch.agentName} · ${dispatch.stage.name}`,
+          prompt: agentRun.prompt,
+          startedDetail: `${dispatch.agentName} started executing in its own session.`,
+        });
       }
-      const agentPrompt = dispatch.kind === 'review' ? buildReviewAgentPrompt(agentInput) : buildWorkAgentPrompt(agentInput);
-      const agentRun: OrchestratorAgentRun = {
-        id: createId('agent_run'),
-        runId,
-        taskId: task.id,
-        planId: nextRun.planId,
-        kind: dispatch.kind,
-        stageId: dispatch.stage.id,
-        stageName: dispatch.stage.name,
-        agentId: dispatch.agentId,
-        agentName: dispatch.agentName,
-        sessionId,
-        title: dispatch.agentName,
-        prompt: agentPrompt,
-        input: agentInput,
-        status: 'pending',
-        createdAt: now,
-        updatedAt: now,
+    } else if (revalidatedDecision.status === 'wait' || nextRun.status === 'paused' || nextRun.status === 'waiting_human') {
+      nextRun = {
+        ...nextRun,
+        status: nextRun.status === 'paused' || nextRun.status === 'waiting_human' ? nextRun.status : 'running',
+        failureState: nextRun.status === 'paused' || nextRun.status === 'waiting_human' ? nextRun.failureState : undefined,
+        activeTaskCount: tasks.filter((task) => isLiveTask(task)).length,
+        engineHealthSummary: nextRun.status === 'paused' || nextRun.status === 'waiting_human'
+          ? nextRun.engineHealthSummary
+          : revalidatedDecision.taskOperations.find((operation) => operation.type === 'wait')?.note || revalidatedDecision.summary,
       };
-      task.latestAgentRunId = agentRun.id;
-      task.attemptCount = 1;
-      task.sessionId = sessionId;
-      await saveTask(ctx, task);
-      await updateTask(ctx, dispatch.parentTask.id, (current) => ({
-        ...current,
-        status: dispatch.kind === 'review' ? 'waiting_review' : 'running',
-        objective: current.objective || assignmentBrief.goal,
-        inputs: current.inputs || [...assignmentBrief.inputArtifacts],
-        expectedOutputs: current.expectedOutputs || [...assignmentBrief.expectedFiles],
-        updatedAt: now,
-      }));
-      await saveAgentRun(ctx, agentRun);
-      await appendRunEvent(ctx, {
-        id: createId('evt'),
-        runId,
-        type: 'task.created',
-        title: 'Agent task created',
-        detail: `${task.agentName} is ready to execute.`,
-        createdAt: now,
-      });
-      void launchDetachedAgentRunSession(ctx, nextRun, task, agentRun, {
-        title: `${dispatch.agentName} · ${dispatch.stage.name}`,
-        prompt: agentRun.prompt,
-        startedDetail: `${dispatch.agentName} started executing in its own session.`,
-      });
+      nextRun = await deriveRunStatusFromTasks(ctx, nextRun);
+      await saveRun(ctx, nextRun);
+    } else if (revalidatedDecision.status === 'throttle') {
+      nextRun = {
+        ...nextRun,
+        status: 'running',
+        failureState: undefined,
+        activeTaskCount: tasks.filter((task) => isLiveTask(task)).length,
+        engineHealthSummary: revalidatedDecision.summary,
+      };
+      nextRun = await deriveRunStatusFromTasks(ctx, nextRun);
+      await saveRun(ctx, nextRun);
+    } else {
+      nextRun = {
+        ...nextRun,
+        status: 'completed',
+        failureState: undefined,
+        activeTaskCount: 0,
+        engineHealthSummary: revalidatedDecision.taskOperations.find((operation) => operation.type === 'complete_run')?.note || 'Run completed with no remaining executable stages.',
+      };
+      await saveRun(ctx, nextRun);
     }
-  } else if (validatedDecision.status === 'wait' || nextRun.status === 'paused' || nextRun.status === 'waiting_human') {
-    nextRun = {
-      ...nextRun,
-      status: nextRun.status === 'paused' || nextRun.status === 'waiting_human' ? nextRun.status : 'running',
-      failureState: nextRun.status === 'paused' || nextRun.status === 'waiting_human' ? nextRun.failureState : undefined,
-      activeTaskCount: tasks.filter((task) => isLiveTask(task)).length,
-      engineHealthSummary: nextRun.status === 'paused' || nextRun.status === 'waiting_human'
-        ? nextRun.engineHealthSummary
-        : validatedDecision.taskOperations.find((operation) => operation.type === 'wait')?.note || validatedDecision.summary,
-    };
-    await saveRun(ctx, nextRun);
-  } else if (validatedDecision.status === 'throttle') {
-    nextRun = {
-      ...nextRun,
-      status: 'running',
-      failureState: undefined,
-      activeTaskCount: tasks.filter((task) => isLiveTask(task)).length,
-      engineHealthSummary: validatedDecision.summary,
-    };
-    await saveRun(ctx, nextRun);
-  } else {
-    nextRun = {
-      ...nextRun,
-      status: 'completed',
-      failureState: undefined,
-      activeTaskCount: 0,
-      engineHealthSummary: validatedDecision.taskOperations.find((operation) => operation.type === 'complete_run')?.note || 'Run completed with no remaining executable stages.',
-    };
-    await saveRun(ctx, nextRun);
-  }
 
-  await updateCoordinatorRun(ctx, coordinatorRunId, (current) => ({
-    ...current,
-    status: 'completed',
-    completedAt: current.completedAt || now,
-    lastEventAt: now,
-    decision: nextRun.orchestrationDecision,
-    updatedAt: now,
-  }));
-  await appendRunEvent(ctx, {
-    id: createId('evt'),
-    runId,
-    type: 'agent.decision',
-    title: 'Orchestrator agent made a decision',
-    detail: validatedDecision.summary,
-    createdAt: now,
+    await updateCoordinatorRun(ctx, coordinatorRunId, (current) => ({
+      ...current,
+      status: 'completed',
+      completedAt: current.completedAt || now,
+      lastEventAt: now,
+      decision: buildOrchestrationDecisionRecord(revalidatedDecision, latestRun.orchestrationInput, now),
+      updatedAt: now,
+    }));
+    await appendRunEvent(ctx, {
+      id: createId('evt'),
+      runId,
+      type: 'agent.decision',
+      title: 'Orchestrator agent made a decision',
+      detail: revalidatedDecision.summary,
+      createdAt: now,
+    });
+    await refreshRunDerivedState(ctx, runId);
+    ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId });
+    return nextRun;
   });
-  ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId });
-  return nextRun;
 }
 
 function resolveDispatches(tasks: OrchestratorAgentTask[], decision: OrchestrationDecision): Dispatch[] {
@@ -2297,7 +2665,11 @@ function resolveDispatches(tasks: OrchestratorAgentTask[], decision: Orchestrati
   });
 }
 
-function evaluateStageCandidates(stage: OrchestratorPlanStage, tasks: OrchestratorAgentTask[]) {
+function evaluateStageCandidates(
+  stage: OrchestratorPlanStage,
+  tasks: OrchestratorAgentTask[],
+  stagePolicy: ResolvedStagePolicy | null,
+) {
   const containerTask = findContainerTask(tasks, stage.id);
   if (!containerTask) {
     return {
@@ -2310,13 +2682,14 @@ function evaluateStageCandidates(stage: OrchestratorPlanStage, tasks: Orchestrat
     };
   }
 
-  return evaluateContainerCandidates(containerTask, stage, tasks);
+  return evaluateContainerCandidates(containerTask, stage, tasks, stagePolicy);
 }
 
 function evaluateContainerCandidates(
   containerTask: OrchestratorAgentTask,
   stage: OrchestratorPlanStage,
   tasks: OrchestratorAgentTask[],
+  stagePolicy: ResolvedStagePolicy | null,
 ) {
   if (containerTask.status === 'completed') {
     return {
@@ -2375,7 +2748,9 @@ function evaluateContainerCandidates(
     return {
       completed: false,
       activeCount: 0,
-      candidates: completedWorkTasks.length > 0 ? [createDispatch(containerTask, stage, 'review')] : [createDispatch(containerTask, stage, 'work')],
+      candidates: completedWorkTasks.length > 0
+        ? [createDispatch(containerTask, stage, 'review', stagePolicy)]
+        : [createDispatch(containerTask, stage, 'work', stagePolicy)],
       stageNames: [containerTask.stageName || stage.name],
       currentStageId: stage.id,
       currentStageName: containerTask.stageName || stage.name,
@@ -2386,7 +2761,7 @@ function evaluateContainerCandidates(
     return {
       completed: false,
       activeCount: 0,
-      candidates: [createDispatch(containerTask, stage, 'review')],
+      candidates: [createDispatch(containerTask, stage, 'review', stagePolicy)],
       stageNames: [containerTask.stageName || stage.name],
       currentStageId: stage.id,
       currentStageName: containerTask.stageName || stage.name,
@@ -2396,7 +2771,7 @@ function evaluateContainerCandidates(
   return {
     completed: false,
     activeCount: 0,
-    candidates: [createDispatch(containerTask, stage, 'work')],
+    candidates: [createDispatch(containerTask, stage, 'work', stagePolicy)],
     stageNames: [containerTask.stageName || stage.name],
     currentStageId: stage.id,
     currentStageName: containerTask.stageName || stage.name,
@@ -2414,6 +2789,8 @@ async function unlockNextPendingStageContainer(
   now: number,
 ) {
   const tasks = await listTasksForRun(ctx, runId);
+  const run = await getRun(ctx, runId);
+  const reviewPolicy = await getReviewPolicy(ctx, runId);
   const rootContainers = tasks
     .filter((task) => task.nodeType === 'container' && !task.parentTaskId)
     .sort((a, b) => (a.priority || a.order) - (b.priority || b.order) || a.createdAt - b.createdAt);
@@ -2421,10 +2798,14 @@ async function unlockNextPendingStageContainer(
   if (completedIndex < 0) return null;
   const nextPending = rootContainers.slice(completedIndex + 1).find((task) => task.status === 'pending');
   if (!nextPending) return null;
+  const stagePolicy = run ? resolveStagePolicy(run, nextPending.stageId, reviewPolicy) : null;
   return updateTask(ctx, nextPending.id, (current) => ({
     ...current,
-    status: 'ready',
-    blockedReason: undefined,
+    status: current.requiresHumanApproval || stagePolicy?.humanCheckpointRequired ? 'waiting_human' : 'ready',
+    requiresHumanApproval: current.requiresHumanApproval || Boolean(stagePolicy?.humanCheckpointRequired),
+    blockedReason: current.requiresHumanApproval || stagePolicy?.humanCheckpointRequired
+      ? current.blockedReason || `Human checkpoint required before ${current.stageName || current.title} can start.`
+      : undefined,
     updatedAt: now,
   }));
 }
@@ -2505,7 +2886,12 @@ async function recomputeContainerTaskState(
   }));
 }
 
-function createDispatch(parentTask: OrchestratorAgentTask, stage: OrchestratorPlanStage, kind: 'work' | 'review'): Dispatch {
+function createDispatch(
+  parentTask: OrchestratorAgentTask,
+  stage: OrchestratorPlanStage,
+  kind: 'work' | 'review',
+  stagePolicy: ResolvedStagePolicy | null,
+): Dispatch {
   const taskLabel = parentTask.title || stage.name;
   const targetFolder = parentTask.targetFolder || stage.targetFolder;
   const expectedFiles = parentTask.expectedFiles?.length ? parentTask.expectedFiles : stage.outputFiles;
@@ -2532,7 +2918,7 @@ function createDispatch(parentTask: OrchestratorAgentTask, stage: OrchestratorPl
       goal: kind === 'review'
         ? `Review the outputs of ${taskLabel}.`
         : parentTask.summary || stage.goal,
-      context: [],
+      context: summarizeStagePolicy(stagePolicy) ? [summarizeStagePolicy(stagePolicy)!] : [],
       inputArtifacts: [],
       instructions: [],
       acceptanceCriteria: [],
@@ -2547,8 +2933,15 @@ function createDispatch(parentTask: OrchestratorAgentTask, stage: OrchestratorPl
   };
 }
 
-async function seedPlanTasks(ctx: PluginContext, run: OrchestratorRun, now: number) {
+async function seedPlanTasks(
+  ctx: PluginContext,
+  run: OrchestratorRun,
+  reviewPolicy: Awaited<ReturnType<typeof getReviewPolicy>> | null,
+  now: number,
+) {
   for (const [index, stage] of run.confirmedPlan.stages.entries()) {
+    const stagePolicy = resolveStagePolicy(run, stage.id, reviewPolicy);
+    const requiresHumanCheckpoint = Boolean(stagePolicy?.humanCheckpointRequired);
     const task: OrchestratorAgentTask = {
       id: createId('task'),
       runId: run.id,
@@ -2558,13 +2951,22 @@ async function seedPlanTasks(ctx: PluginContext, run: OrchestratorRun, now: numb
       order: index,
       source: 'plan_seed',
       attemptCount: 0,
+      assignedAgentType: 'orchestrator',
+      retryPolicy: 'manual',
       stageId: stage.id,
       planStageId: stage.id,
       stageName: stage.name,
       title: stage.name,
       priority: index,
-      reviewRequired: true,
-      status: index === 0 ? 'ready' : 'pending',
+      reviewRequired: stagePolicy?.requiresReview ?? true,
+      requiresHumanApproval: requiresHumanCheckpoint,
+      status: index === 0
+        ? (requiresHumanCheckpoint ? 'waiting_human' : 'ready')
+        : 'pending',
+      blockedReason: requiresHumanCheckpoint ? `Human checkpoint required before ${stage.name} can start.` : undefined,
+      targetFolder: stage.targetFolder,
+      expectedFiles: [...stage.outputFiles],
+      expectedOutputs: [...stage.outputFiles],
       summary: stage.goal,
       createdAt: now,
       updatedAt: now,
@@ -2671,6 +3073,7 @@ async function buildReviewAgentInput(
     reviewedArtifactPaths: Array.from(new Set(
       reviewedArtifacts.flatMap((artifact) => artifact.filePaths).filter(Boolean),
     )),
+    reviewedArtifactContents: reviewedArtifacts.map((artifact) => artifact.content),
     projectStateSummary: summarizeProjectState(projectState),
   };
 }
@@ -2690,17 +3093,20 @@ function buildReviewAgentPrompt(input: OrchestratorAgentRun['input']) {
     input.reviewedArtifactSummaries.length
       ? `Artifacts under review:\n- ${input.reviewedArtifactSummaries.join('\n- ')}`
       : 'Artifacts under review: none were attached.',
+    input.reviewedArtifactContents.length
+      ? `Artifact snapshots under review:\n${input.reviewedArtifactContents.map((content, index) => `--- Artifact ${index + 1} ---\n${content}`).join('\n\n')}`
+      : 'Artifact snapshots under review: none were attached.',
     `Target folder: ${input.targetFolder}`,
     input.reviewedArtifactPaths.length
-      ? `Read and review only these files:\n- ${input.reviewedArtifactPaths.join('\n- ')}`
-      : `Read and review only these expected files:\n- ${input.expectedFiles.map((file) => `${input.targetFolder}/${file}`).join('\n- ')}`,
+      ? `Reviewed artifact paths (for traceability only):\n- ${input.reviewedArtifactPaths.join('\n- ')}`
+      : `Reviewed artifact paths (for traceability only):\n- ${input.expectedFiles.map((file) => `${input.targetFolder}/${file}`).join('\n- ')}`,
+    'Review the attached artifact snapshots as the source of truth.',
     'Do not search the workspace, list directories, or inspect unrelated files.',
-    'Use only the built-in file tool named "read" when needed.',
     'Never print raw <minimax:tool_call> or <invoke ...> markup in your final answer.',
     completedContext,
     input.constraints.length ? `Constraints:\n- ${input.constraints.join('\n- ')}` : null,
-    'Your final answer must include one explicit final decision line in plain text: "Decision: approved", "Decision: needs_changes", or "Decision: rejected".',
-    'If not approved, state the exact fixes required before the run can continue.',
+    'Return strict JSON only with this shape: {"decision":"approved|needs_changes|rejected","summary":"...","issues":["..."],"requiredRework":["..."],"confidence":0.0}.',
+    'If not approved, requiredRework must list the exact fixes required before the run can continue.',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -2754,23 +3160,67 @@ function guessArtifactKind(task: OrchestratorAgentTask): OrchestratorArtifact['k
 function buildArtifactLogicalKey(task: OrchestratorAgentTask) {
   const stageKey = task.stageId || 'stage';
   const kindKey = task.kind || task.nodeType;
-  return `${stageKey}.${kindKey}`;
+  const targetFolder = normalizeRelativePath(task.targetFolder || '');
+  const expectedFiles = [...(task.expectedFiles || task.expectedOutputs || [])]
+    .map(normalizeRelativePath)
+    .sort();
+  const deliverableKey = [targetFolder, ...expectedFiles].filter(Boolean).join('|') || task.parentTaskId || task.rootTaskId;
+  return `${stageKey}.${kindKey}.${deliverableKey}`;
 }
 
 function buildExpectedFilePaths(brief: AssignmentBrief) {
   return brief.expectedFiles.map((file) => `${brief.targetFolder}/${file}`);
 }
 
+async function readVerifiedArtifactPayload(run: OrchestratorRun, filePaths: string[]) {
+  if (!run.executionContext?.workspacePath) {
+    throw new Error('Run execution context is missing workspacePath, so artifacts cannot be verified against the workspace.');
+  }
+  const workspaceRoot = path.resolve(run.executionContext.workspacePath);
+  const normalizedPaths = filePaths.map(normalizeRelativePath);
+  const payloads = await Promise.all(normalizedPaths.map(async (relativePath) => {
+    const absolutePath = path.resolve(workspaceRoot, relativePath);
+    if (!isSubPath(workspaceRoot, absolutePath)) {
+      throw new Error(`Artifact path escapes the workspace: ${relativePath}`);
+    }
+    const stats = await fs.stat(absolutePath).catch(() => null);
+    if (!stats?.isFile()) {
+      throw new Error(`Expected artifact file was not found in the workspace: ${relativePath}`);
+    }
+    const content = await fs.readFile(absolutePath, 'utf8');
+    return {
+      relativePath,
+      content,
+    };
+  }));
+  return {
+    filePaths: payloads.map((item) => item.relativePath),
+    content: payloads.map((item) => `# ${item.relativePath}\n\n${item.content}`.trim()).join('\n\n'),
+  };
+}
+
 function buildArtifactSummary(task: OrchestratorAgentTask, content: string, filePaths: string[] = []) {
   if (containsToolCallMarkup(content)) {
     return filePaths[0] || task.summary || `${task.agentName || task.title} output`;
   }
-  const firstLine = content.split('\n').map((line) => line.trim()).find(Boolean);
+  const normalizedFilePaths = new Set(filePaths.map(normalizeRelativePath));
+  const firstLine = content
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => {
+      if (!line) return false;
+      if (line.startsWith('# ')) {
+        const heading = normalizeRelativePath(line.slice(2).trim());
+        if (normalizedFilePaths.has(heading)) {
+          return false;
+        }
+      }
+      return true;
+    });
   return firstLine || filePaths[0] || task.summary || `${task.agentName || task.title} output`;
 }
 
 function parseReviewDecision(content: string, reviewedArtifactCount = 0) {
-  const normalized = content.toLowerCase();
   if (
     containsAgentError(content)
     || containsToolCallMarkup(content)
@@ -2781,52 +3231,45 @@ function parseReviewDecision(content: string, reviewedArtifactCount = 0) {
       summary: containsAgentError(content)
         ? 'Review could not complete successfully because the agent output contained an execution error.'
         : containsToolCallMarkup(content)
-          ? 'Review did not return a final decision after attempting a tool call.'
-        : 'Review requested changes because no reviewed artifacts were attached to this stage.',
+          ? 'Review did not return a final structured decision after attempting a tool call.'
+          : 'Review requested changes because no reviewed artifacts were attached to this stage.',
+      issues: [],
+      requiredRework: reviewedArtifactCount === 0 ? ['Attach reviewed artifacts before review can proceed.'] : [],
+      confidence: 0,
     };
   }
-  if (
-    normalized.includes('needs changes')
-    || normalized.includes('need changes')
-    || normalized.includes('requires changes')
-    || normalized.includes('需要修改')
-    || normalized.includes('需修改')
-    || normalized.includes('打回')
-  ) {
+  try {
+    const parsed = JSON.parse(normalizeAssistantJson(content)) as {
+      decision?: unknown;
+      summary?: unknown;
+      issues?: unknown;
+      requiredRework?: unknown;
+      confidence?: unknown;
+    };
+    if (parsed.decision !== 'approved' && parsed.decision !== 'needs_changes' && parsed.decision !== 'rejected') {
+      throw new Error('Missing structured review decision.');
+    }
+    const decision = parsed.decision as 'approved' | 'needs_changes' | 'rejected';
+    return {
+      decision,
+      summary: typeof parsed.summary === 'string' && parsed.summary.trim().length > 0
+        ? parsed.summary.trim()
+        : summarizeReviewDecision(decision),
+      issues: normalizeStringList(parsed.issues),
+      requiredRework: normalizeStringList(parsed.requiredRework),
+      confidence: typeof parsed.confidence === 'number'
+        ? Math.max(0, Math.min(1, parsed.confidence))
+        : undefined,
+    };
+  } catch {
     return {
       decision: 'needs_changes' as const,
-      summary: 'Review requested changes before the stage can continue.',
+      summary: 'Review did not return a valid structured review result.',
+      issues: ['Review output was not valid JSON.'],
+      requiredRework: ['Return a structured review JSON result with decision, summary, issues, requiredRework, and confidence.'],
+      confidence: 0,
     };
   }
-  if (
-    normalized.includes('"decision":"approved"')
-    || normalized.includes('"decision": "approved"')
-    || normalized.includes('\ndecision: approved')
-    || normalized.includes('decision: approved')
-    || normalized.includes('final decision: approved')
-    || normalized.includes('审核通过')
-    || normalized.includes('通过审核')
-  ) {
-    return {
-      decision: 'approved' as const,
-      summary: 'Review approved this stage output.',
-    };
-  }
-  if (
-    normalized.includes('reject')
-    || normalized.includes('rejected')
-    || normalized.includes('不通过')
-    || normalized.includes('未通过')
-  ) {
-    return {
-      decision: 'rejected' as const,
-      summary: 'Review rejected this stage output.',
-    };
-  }
-  return {
-    decision: 'needs_changes' as const,
-    summary: 'Review did not return an explicit final decision.',
-  };
 }
 
 function containsAgentError(content: string) {
@@ -2866,23 +3309,41 @@ async function deriveRunStatusFromTasks(ctx: PluginContext, run: OrchestratorRun
     return run;
   }
   const tasks = await listTasksForRun(ctx, run.id);
-  const hasWaitingHuman = tasks.some((task) => task.status === 'waiting_human' || task.requiresHumanApproval);
+  const activeTaskCount = tasks.filter((task) => isLiveTask(task)).length;
+  const currentContainer = tasks
+    .filter((task) => task.nodeType === 'container' && !['completed', 'cancelled', 'failed', 'interrupted'].includes(task.status))
+    .sort((a, b) => (a.priority || a.order) - (b.priority || b.order) || a.createdAt - b.createdAt)[0];
+  const hasWaitingHuman = tasks.some((task) => task.status === 'waiting_human');
   const hasWaitingReview = tasks.some((task) => task.status === 'waiting_review');
   if (hasWaitingHuman) {
     return {
       ...run,
       status: 'waiting_human' as const,
+      activeTaskCount,
+      currentStageId: currentContainer?.stageId || run.currentStageId,
+      currentStageName: currentContainer?.stageName || currentContainer?.title || run.currentStageName,
       pendingHumanCheckpoint: run.pendingHumanCheckpoint || tasks.find((task) => task.status === 'waiting_human')?.blockedReason || 'Human action required before the run can continue.',
+      pendingHumanAction: run.pendingHumanAction || {
+        kind: 'checkpoint',
+        summary: run.pendingHumanCheckpoint || tasks.find((task) => task.status === 'waiting_human')?.blockedReason || 'Human action required before the run can continue.',
+        taskId: tasks.find((task) => task.status === 'waiting_human')?.id,
+        reviewLogId: tasks.find((task) => task.status === 'waiting_human')?.latestReviewLogId,
+        requestedAt: run.updatedAt || Date.now(),
+      },
       pausedAt: run.pausedAt || Date.now(),
       engineHealthSummary: run.engineHealthSummary || 'Run is waiting for human action.',
       updatedAt: Date.now(),
     };
   }
-  if (hasWaitingReview && run.activeTaskCount === 0) {
+  if (hasWaitingReview && activeTaskCount === 0) {
     return {
       ...run,
       status: 'waiting_review' as const,
+      activeTaskCount,
+      currentStageId: currentContainer?.stageId || run.currentStageId,
+      currentStageName: currentContainer?.stageName || currentContainer?.title || run.currentStageName,
       pendingHumanCheckpoint: undefined,
+      pendingHumanAction: undefined,
       engineHealthSummary: 'Run is waiting for review before it can continue.',
       updatedAt: Date.now(),
     };
@@ -2891,12 +3352,38 @@ async function deriveRunStatusFromTasks(ctx: PluginContext, run: OrchestratorRun
     return {
       ...run,
       status: 'running' as const,
+      activeTaskCount,
+      currentStageId: currentContainer?.stageId || run.currentStageId,
+      currentStageName: currentContainer?.stageName || currentContainer?.title || run.currentStageName,
       pendingHumanCheckpoint: undefined,
+      pendingHumanAction: undefined,
       pausedAt: undefined,
       updatedAt: Date.now(),
     };
   }
-  return run;
+  const rootContainers = tasks.filter((task) => task.nodeType === 'container' && !task.parentTaskId);
+  const allRootContainersCompleted = rootContainers.length > 0 && rootContainers.every((task) => task.status === 'completed');
+  const noOpenTasks = tasks.every((task) => ['completed', 'cancelled', 'failed', 'interrupted'].includes(task.status));
+  if (allRootContainersCompleted && activeTaskCount === 0 && noOpenTasks) {
+    return {
+      ...run,
+      status: 'completed' as const,
+      activeTaskCount: 0,
+      currentStageId: undefined,
+      currentStageName: undefined,
+      pendingHumanCheckpoint: undefined,
+      pendingHumanAction: undefined,
+      pausedAt: undefined,
+      engineHealthSummary: 'All task graph nodes have completed.',
+      updatedAt: Date.now(),
+    };
+  }
+  return {
+    ...run,
+    activeTaskCount,
+    currentStageId: currentContainer?.stageId || run.currentStageId,
+    currentStageName: currentContainer?.stageName || currentContainer?.title || run.currentStageName,
+  };
 }
 
 function summarizeReviewDecision(
@@ -2929,6 +3416,28 @@ function summarizeProjectState(projectState: OrchestratorProjectState | null) {
     ...(projectState.structureSummary || []),
     ...(projectState.dependencySummary || []),
   ];
+}
+
+async function resolveReviewedArtifactsForTask(
+  ctx: PluginContext,
+  task: OrchestratorAgentTask,
+  agentRun?: OrchestratorAgentRun | null,
+) {
+  const scopedArtifactIds = task.latestArtifactIds?.length
+    ? task.latestArtifactIds
+    : agentRun && 'reviewedArtifactIds' in agentRun.input
+      ? agentRun.input.reviewedArtifactIds
+      : [];
+  if (scopedArtifactIds.length > 0) {
+    const artifacts = await listArtifactsForRun(ctx, task.runId);
+    return artifacts.filter((artifact) => scopedArtifactIds.includes(artifact.id));
+  }
+  return listReviewedArtifacts(
+    ctx,
+    task.runId,
+    task.parentTaskId || '',
+    agentRun && 'assignmentBrief' in agentRun.input ? agentRun.input.assignmentBrief.reviewTargetPaths : undefined,
+  );
 }
 
 export async function listReviewedArtifacts(
@@ -2972,14 +3481,12 @@ export async function listReviewedArtifacts(
 async function acceptStageArtifacts(
   ctx: PluginContext,
   runId: string,
-  parentTaskId: string,
+  artifactIds: string[],
   reviewLogId: string,
   now: number,
 ) {
-  const tasks = await listTasksForRun(ctx, runId);
-  const stageTasks = tasks.filter((task) => task.parentTaskId === parentTaskId && task.kind === 'work');
   const artifacts = await listArtifactsForRun(ctx, runId);
-  const targetArtifacts = artifacts.filter((artifact) => stageTasks.some((task) => task.id === artifact.taskId));
+  const targetArtifacts = artifacts.filter((artifact) => artifactIds.includes(artifact.id));
 
   for (const artifact of targetArtifacts) {
     for (const existing of artifacts.filter((item) => item.id !== artifact.id && item.logicalKey === artifact.logicalKey && item.status === 'accepted')) {
@@ -3081,7 +3588,7 @@ function startCoordinatorRunSession(
   ctx: PluginContext,
   run: OrchestratorRun,
   coordinatorRun: OrchestratorCoordinatorRun,
-  candidates: Dispatch[],
+  _candidates: Dispatch[],
 ) {
   return launchAgentSession({
     sessionId: coordinatorRun.sessionId,
@@ -3146,6 +3653,7 @@ function startCoordinatorRunSession(
         const currentReviewLogs = await listReviewLogsForRun(ctx, run.id);
         const currentProjectState = await getProjectState(ctx, run.id);
         const currentArtifacts = await listArtifactsForRun(ctx, run.id);
+        const reviewPolicy = await getReviewPolicy(ctx, run.id);
         const currentContext: OrchestrationContext = {
           run: currentRun,
           wakeReason: coordinatorRun.wakeReason,
@@ -3156,7 +3664,18 @@ function startCoordinatorRunSession(
           activeTaskCount: currentTasks.filter((task) => isLiveTask(task)).length,
           availableSlots: Math.max(0, (currentRun.maxConcurrentTasks || 2) - currentTasks.filter((task) => isLiveTask(task)).length),
         };
-        const decision = parseOrchestrationDecisionJson(raw, currentContext, candidates);
+        const freshCandidates = buildDispatchCandidates(currentRun, currentTasks, reviewPolicy).candidates;
+        const decision = parseOrchestrationDecisionJson(raw, currentContext, freshCandidates);
+        if (currentRun.currentOrchestratorAgentRunId !== coordinatorRun.id) {
+          await updateCoordinatorRun(ctx, coordinatorRun.id, (current) => ({
+            ...current,
+            status: 'failed',
+            error: 'Stale coordinator decision ignored because a newer coordinator run is active.',
+            completedAt: Date.now(),
+            updatedAt: Date.now(),
+          }));
+          return;
+        }
         await saveRun(ctx, {
           ...currentRun,
           activeTaskCount: Math.max(0, currentRun.activeTaskCount - 1),
@@ -3321,7 +3840,8 @@ export async function recoverOrchestratorRun(ctx: PluginContext, runId: string) 
       && run.status === 'running'
       && !isAgentSessionActive(coordinatorRun.sessionId)
     ) {
-      const dispatchCandidates = buildDispatchCandidates(run.confirmedPlan, tasks).candidates;
+      const reviewPolicy = await getReviewPolicy(ctx, run.id);
+      const dispatchCandidates = buildDispatchCandidates(run, tasks, reviewPolicy).candidates;
       void startCoordinatorRunSession(ctx, run, coordinatorRun, dispatchCandidates);
       return run;
     }
@@ -3331,9 +3851,9 @@ export async function recoverOrchestratorRun(ctx: PluginContext, runId: string) 
     const task = tasks.find((item) => item.id === agentRun.taskId);
     if (!task) continue;
     if (!isLiveTask(task)) continue;
-  if (!['running', 'waiting_review'].includes(run.status)) continue;
+    if (!['running', 'waiting_review'].includes(run.status)) continue;
     if (isAgentSessionActive(agentRun.sessionId)) continue;
-    if (task.status === 'running' || agentRun.status === 'running') {
+    if (['completed', 'failed', 'cancelled'].includes(agentRun.status)) {
       continue;
     }
     void launchDetachedAgentRunSession(ctx, run, task, agentRun, {
