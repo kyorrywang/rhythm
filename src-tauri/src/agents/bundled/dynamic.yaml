@@ -1,0 +1,22 @@
+kind: subagent
+schema_version: 2
+agent:
+  id: dynamic
+  label: Dynamic
+  description: Prompt-driven general-purpose subagent. The caller should provide the dynamic system prompt and task prompt at spawn time.
+  promptRefs:
+    - subagent.dynamic
+  model:
+    providerId: null
+    modelId: null
+    reasoning: null
+  permissions:
+    locked: false
+    defaultMode: full_auto
+    allowedTools: []
+    disallowedTools: []
+  maxTurns: null
+prompt_fragments:
+  subagent.dynamic: |-
+    You are a dynamic subagent.
+    Follow the injected additional instructions and complete the assigned task.

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use super::types::{BackendType, SpawnResult, TeammateMessage, TeammateSpawnConfig};
-use crate::coordinator::{
+use crate::agents::{
     format_task_notification, TaskNotification, TaskNotificationStatus,
 };
 use crate::engine::{QueryContext, QueryEngine};

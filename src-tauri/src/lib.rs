@@ -7,16 +7,15 @@ pub mod shared;
 // ── New top-level modules (refactored architecture) ──────────────────────────
 pub mod engine;
 pub mod hooks;
+pub mod agents;
 pub mod mcp;
 pub mod memory;
-pub mod modes;
 pub mod permissions;
 pub mod prompts;
 pub mod skills;
 pub mod tools;
 
 // ── Advanced modules (Phase 9-12) ────────────────────────────────────────────
-pub mod coordinator;
 pub mod cron;
 pub mod plugins;
 pub mod swarm;

@@ -1,0 +1,104 @@
+kind: primary
+schema_version: 2
+profile:
+  id: spec
+  label: Spec
+  mode: Spec
+  description: Chat-driven spec drafting. Turns user ideas into proposal.md and tasks.md, then starts execution after explicit confirmation.
+  promptRefs:
+    - base.spec_chat
+    - policy.spec_chat_rules
+  model:
+    providerId: null
+    modelId: null
+    reasoning: high
+  permissions:
+    locked: true
+    defaultMode: default
+    allowedTools:
+      - list_dir
+      - read
+      - skill
+      - create_spec
+      - start_spec
+    disallowedTools:
+      - write
+      - edit
+      - shell
+      - delete
+      - spawn_subagent
+      - ask_user
+      - plan
+  execution:
+    agentTurnLimit: null
+    delegationPolicyRef: spec_no_delegate
+    reviewPolicyRef: spec_optional
+    completionPolicyRef: direct_answer
+    observabilityPolicyRef: standard
+    limitPolicyRef: default
+    availableSubagents: []
+prompt_fragments:
+  base.spec_chat: |-
+    You are the Spec assistant.
+
+    Your job is to help the user define a change as a structured Spec, then start its execution when they confirm.
+
+    A Spec consists of two files created on disk:
+    - proposal.md — scope, goal, constraints, success criteria
+    - tasks.md — executable checklist for the Spec Agent
+
+    You never write code or edit files yourself. You only create specs and start them.
+  policy.spec_chat_rules: |-
+    Workflow:
+    1. Understand what the user wants to change or build.
+    2. If you need project context, use list_dir or read (read-only).
+    3. Load the skill named 'spec-workflow' before any spec lifecycle action.
+    4. When you have enough information, call create_spec with title, goal, and overview.
+       - The frontend will scaffold the documents and open the Spec workbench.
+       - Tell the user: "The spec is ready. Review proposal.md and tasks.md, then tell me to start when ready."
+    5. When the user confirms ("start", "run", "ok 启动", "开始执行", etc.), call start_spec with the slug.
+       - The frontend will launch the spec-agent to execute the tasks.
+
+    Hard rules:
+    - Allowed tools: list_dir, read, skill, create_spec, start_spec. Nothing else.
+    - Never write or edit files directly in this session.
+    - Never call start_spec without explicit user confirmation.
+    - Do not fill in tasks.md yourself — the spec-agent does that.
+    - Do not produce final deliverable content inline (code, full docs). Create a spec instead.
+policies:
+  permission:
+    - id: spec_chat_locked
+      mode: default
+      allowed_tools:
+        - list_dir
+        - read
+        - skill
+        - create_spec
+        - start_spec
+      denied_tools:
+        - write
+        - edit
+        - shell
+        - delete
+        - spawn_subagent
+        - ask_user
+        - plan
+      locked: true
+  delegation:
+    - id: spec_no_delegate
+      enabled: false
+      root_may_execute: false
+      max_subagents_per_turn: 0
+  review:
+    - id: spec_optional
+      required: false
+      human_checkpoint_required: false
+  completion:
+    - id: direct_answer
+      strategy: direct_answer
+  observability:
+    - id: standard
+      capture_resolved_spec: true
+      capture_provenance: true
+  limits:
+    - id: default

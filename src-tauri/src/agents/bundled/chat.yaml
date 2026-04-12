@@ -1,0 +1,55 @@
+kind: primary
+schema_version: 2
+profile:
+  id: chat
+  label: Chat
+  mode: Chat
+  description: 单 agent 普通对话
+  promptRefs:
+    - base.assistant
+  model:
+    providerId: null
+    modelId: null
+    reasoning: null
+  permissions:
+    locked: false
+    defaultMode: null
+    allowedTools: []
+    disallowedTools: []
+  execution:
+    agentTurnLimit: null
+    delegationPolicyRef: chat_flexible
+    reviewPolicyRef: chat_optional
+    completionPolicyRef: direct_answer
+    observabilityPolicyRef: standard
+    limitPolicyRef: default
+    availableSubagents:
+      - explorer
+      - dynamic
+prompt_fragments:
+  base.assistant: |-
+    You are operating in the Chat profile.
+
+    Default behaviour:
+    1. Answer the user directly when you can.
+    2. Use tools when they are available and genuinely helpful.
+    3. Delegate only when the user explicitly wants coordination or when it materially improves the result.
+policies:
+  permission: []
+  delegation:
+    - id: chat_flexible
+      enabled: true
+      root_may_execute: true
+  review:
+    - id: chat_optional
+      required: false
+      human_checkpoint_required: false
+  completion:
+    - id: direct_answer
+      strategy: direct_answer
+  observability:
+    - id: standard
+      capture_resolved_spec: true
+      capture_provenance: true
+  limits:
+    - id: default

@@ -13,19 +13,9 @@ pub fn get_settings_path() -> PathBuf {
     get_rhythm_dir().join("settings.json")
 }
 
-/// Returns the unified agent definitions directory: ~/.rhythm/agents/
+/// Returns the user custom agent definitions directory: ~/.rhythm/agents/
 pub fn get_agents_dir() -> PathBuf {
     get_rhythm_dir().join("agents")
-}
-
-/// Returns a single agent definition file: ~/.rhythm/agents/<agent_id>.yaml
-pub fn get_agent_definition_path(agent_id: &str) -> PathBuf {
-    get_agents_dir().join(format!("{}.yaml", sanitize_path_segment(agent_id)))
-}
-
-/// Returns the legacy mode definitions directory: ~/.rhythm/modes/
-pub fn get_legacy_modes_dir() -> PathBuf {
-    get_rhythm_dir().join("modes")
 }
 
 /// Returns the pre-refactor config file path: ~/.rhythm/config/config.json

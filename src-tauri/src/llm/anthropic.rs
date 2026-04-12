@@ -1,5 +1,6 @@
 use super::{
-    ChatMessage, ChatMessageBlock, LlmClient, LlmResponse, LlmResponseStream, LlmToolDefinition,
+    apply_history_replay_policy, ChatMessage, ChatMessageBlock, LlmClient, LlmResponse,
+    LlmResponseStream, LlmToolDefinition,
 };
 use crate::infrastructure::config::LlmConfig;
 use async_trait::async_trait;
@@ -105,14 +106,6 @@ enum AnthropicContent {
         id: String,
         name: String,
         input: Value,
-    },
-    #[serde(rename = "tool_result")]
-    ToolResult {
-        #[serde(rename = "tool_use_id")]
-        tool_use_id: String,
-        content: String,
-        #[serde(skip_serializing_if = "std::ops::Not::not")]
-        is_error: bool,
     },
 }
 
@@ -348,16 +341,8 @@ fn map_messages(messages: Vec<ChatMessage>) -> Vec<AnthropicMessage> {
                     });
                 }
                 ChatMessageBlock::ToolResult {
-                    tool_call_id,
-                    content: block_content,
-                    is_error,
-                } => {
-                    content.push(AnthropicContent::ToolResult {
-                        tool_use_id: tool_call_id,
-                        content: block_content,
-                        is_error,
-                    });
-                }
+                    ..
+                } => {}
             }
         }
 
@@ -410,6 +395,7 @@ impl LlmClient for AnthropicClient {
         };
 
         let supports_extended_thinking = self.supports_extended_thinking();
+        let messages = apply_history_replay_policy(&self.config, messages);
         let req = AnthropicChatRequest {
             model: self.config.model.clone(),
             messages: map_messages(messages),

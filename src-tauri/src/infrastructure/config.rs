@@ -27,6 +27,19 @@ pub struct ProviderCapabilities {
     pub anthropic_extended_thinking: Option<bool>,
     #[serde(default)]
     pub anthropic_beta_headers: Option<bool>,
+    #[serde(default)]
+    pub history_tool_results: Option<HistoryToolResultsMode>,
+    #[serde(default)]
+    pub history_tool_result_tools: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryToolResultsMode {
+    #[default]
+    Preserve,
+    Drop,
+    AllowList,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -35,6 +48,10 @@ pub struct ModelCapabilities {
     pub anthropic_extended_thinking: Option<bool>,
     #[serde(default)]
     pub anthropic_beta_headers: Option<bool>,
+    #[serde(default)]
+    pub history_tool_results: Option<HistoryToolResultsMode>,
+    #[serde(default)]
+    pub history_tool_result_tools: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -83,6 +100,8 @@ impl Default for LlmConfig {
             capabilities: ModelCapabilities {
                 anthropic_extended_thinking: Some(true),
                 anthropic_beta_headers: Some(true),
+                history_tool_results: Some(HistoryToolResultsMode::Drop),
+                history_tool_result_tools: None,
             },
         }
     }
@@ -607,6 +626,8 @@ impl Default for ConfigBundle {
                     capabilities: ProviderCapabilities {
                         anthropic_extended_thinking: Some(true),
                         anthropic_beta_headers: Some(true),
+                        history_tool_results: Some(HistoryToolResultsMode::Drop),
+                        history_tool_result_tools: None,
                     },
                     models: vec![ProviderModelConfig {
                         id: "claude-opus-4-5".to_string(),
@@ -616,6 +637,8 @@ impl Default for ConfigBundle {
                         capabilities: ModelCapabilities {
                             anthropic_extended_thinking: Some(true),
                             anthropic_beta_headers: Some(true),
+                            history_tool_results: None,
+                            history_tool_result_tools: None,
                         },
                     }],
                 }],
@@ -719,14 +742,14 @@ pub fn load_config_bundle() -> ConfigBundle {
     };
 
     let normalized = normalize_config_bundle(&mut bundle);
-    let modes = match crate::modes::ensure_mode_files() {
-        Ok(modes) => modes,
+    let agent_definitions = match crate::agents::load_all_agent_definitions() {
+        Ok(definitions) => definitions,
         Err(error) => {
-            eprintln!("[config] Failed to load mode definitions: {}", error);
-            crate::modes::default_mode_definitions()
+            eprintln!("[config] Failed to load agent definitions: {}", error);
+            crate::agents::default_agent_definitions()
         }
     };
-    crate::modes::merge_mode_definitions_into_settings(&mut bundle, &modes);
+    crate::agents::merge_agent_definitions_into_settings(&mut bundle, &agent_definitions);
     if let Err(errors) = validate_config_bundle(&bundle) {
         eprintln!(
             "[config] Invalid config bundle; restoring defaults:\n{}",
@@ -755,8 +778,8 @@ fn create_default_config(path: &std::path::Path) -> ConfigBundle {
 
     let mut bundle = ConfigBundle::default();
     normalize_config_bundle(&mut bundle);
-    if let Ok(modes) = crate::modes::ensure_mode_files() {
-        crate::modes::merge_mode_definitions_into_settings(&mut bundle, &modes);
+    if let Ok(agent_definitions) = crate::agents::load_all_agent_definitions() {
+        crate::agents::merge_agent_definitions_into_settings(&mut bundle, &agent_definitions);
     }
 
     if let Err(e) = save_config_bundle(&bundle) {
@@ -777,10 +800,8 @@ fn migrate_legacy_config_if_present(settings_path: &std::path::Path) -> Option<C
     let (mut bundle, _) = upgrade_config_bundle(raw_value).ok()?;
     normalize_config_bundle(&mut bundle);
 
-    let modes = crate::modes::default_mode_definitions();
-    if crate::modes::save_mode_definitions(&modes).is_ok() {
-        crate::modes::merge_mode_definitions_into_settings(&mut bundle, &modes);
-    }
+    let agent_definitions = crate::agents::default_agent_definitions();
+    crate::agents::merge_agent_definitions_into_settings(&mut bundle, &agent_definitions);
 
     if save_config_bundle(&bundle).is_err() {
         return None;
@@ -1127,10 +1148,10 @@ pub fn save_config_bundle(bundle: &ConfigBundle) -> Result<(), String> {
     let mut normalized = bundle.clone();
     normalize_config_bundle(&mut normalized);
     validate_config_bundle(&normalized).map_err(|errors| errors.join("\n"))?;
-    let mode_definitions = crate::modes::extract_mode_definitions(&normalized);
-    crate::modes::save_mode_definitions(&mode_definitions)?;
     let mut persisted = normalized.clone();
-    crate::modes::strip_mode_data_from_settings(&mut persisted, &mode_definitions);
+    let agent_definitions = crate::agents::load_all_agent_definitions()
+        .unwrap_or_else(|_| crate::agents::default_agent_definitions());
+    crate::agents::strip_agent_data_from_settings(&mut persisted, &agent_definitions);
     let json = serde_json::to_string_pretty(&persisted).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())?;
     cleanup_legacy_config_path();
@@ -1259,10 +1280,15 @@ pub fn list_subagents(settings: &RhythmSettings) -> Vec<SubagentDefinition> {
     settings.profiles.subagent_items.clone()
 }
 
-fn fallback_mode_definition(profile_id: &str) -> Option<crate::modes::ModeDefinition> {
-    crate::modes::default_mode_definitions()
+fn fallback_agent_definition(profile_id: &str) -> Option<crate::agents::AgentDefinition> {
+    crate::agents::default_agent_definitions()
         .into_iter()
-        .find(|mode| mode.profile().id.eq_ignore_ascii_case(profile_id))
+        .find(|definition| {
+            definition
+                .profile()
+                .map(|profile| profile.id.eq_ignore_ascii_case(profile_id))
+                .unwrap_or(false)
+        })
 }
 
 pub fn resolve_subagent_definition(
@@ -1276,7 +1302,7 @@ pub fn resolve_subagent_definition(
         .find(|subagent| subagent.id.eq_ignore_ascii_case(subagent_id))
         .cloned()
         .or_else(|| {
-            crate::modes::default_mode_definitions()
+            crate::agents::default_agent_definitions()
                 .into_iter()
                 .filter_map(|definition| definition.subagent().cloned())
                 .find(|subagent| subagent.id.eq_ignore_ascii_case(subagent_id))
@@ -1321,7 +1347,8 @@ pub fn resolve_runtime_profile(
         .find(|profile| profile.id.eq_ignore_ascii_case(requested))
         .cloned()
         .or_else(|| {
-            fallback_mode_definition(requested).map(|mode| mode.profile().clone())
+            fallback_agent_definition(requested)
+                .and_then(|definition| definition.profile().cloned())
         })
         .or_else(|| {
             settings
@@ -1332,8 +1359,8 @@ pub fn resolve_runtime_profile(
                 .cloned()
         })
         .unwrap_or_else(|| {
-            fallback_mode_definition("chat")
-                .map(|mode| mode.profile().clone())
+            fallback_agent_definition("chat")
+                .and_then(|definition| definition.profile().cloned())
                 .unwrap_or(RuntimeProfile {
                     id: "chat".to_string(),
                     label: "Chat".to_string(),
@@ -1368,8 +1395,8 @@ fn resolve_permission_policy(
         })
         .cloned()
         .or_else(|| {
-            fallback_mode_definition(&profile.id).and_then(|mode| {
-                mode.policies().and_then(|policies| {
+            fallback_agent_definition(&profile.id).and_then(|definition| {
+                definition.policies().and_then(|policies| {
                     policies.permission.iter().find(|policy| {
                         policy.locked == profile.permissions.locked
                             && profile.permissions.default_mode.as_ref() == Some(&policy.mode)
@@ -1399,13 +1426,13 @@ fn resolve_delegation_policy(
         })
         .cloned()
         .or_else(|| {
-            fallback_mode_definition(&profile.id).and_then(|mode| {
+            fallback_agent_definition(&profile.id).and_then(|definition| {
                 profile
                     .execution
                     .delegation_policy_ref
                     .as_deref()
                     .and_then(|id| {
-                        mode.policies().and_then(|policies| {
+                        definition.policies().and_then(|policies| {
                             policies
                                 .delegation
                                 .iter()
@@ -1450,9 +1477,9 @@ fn resolve_review_policy(
         })
         .cloned()
         .or_else(|| {
-            fallback_mode_definition(&profile.id).and_then(|mode| {
+            fallback_agent_definition(&profile.id).and_then(|definition| {
                 profile.execution.review_policy_ref.as_deref().and_then(|id| {
-                    mode.policies().and_then(|policies| {
+                    definition.policies().and_then(|policies| {
                         policies
                             .review
                             .iter()
@@ -1494,13 +1521,13 @@ fn resolve_completion_policy(
         })
         .cloned()
         .or_else(|| {
-            fallback_mode_definition(&profile.id).and_then(|mode| {
+            fallback_agent_definition(&profile.id).and_then(|definition| {
                 profile
                     .execution
                     .completion_policy_ref
                     .as_deref()
                     .and_then(|id| {
-                        mode.policies().and_then(|policies| {
+                        definition.policies().and_then(|policies| {
                             policies
                                 .completion
                                 .iter()
@@ -1540,13 +1567,13 @@ fn resolve_observability_policy(
         })
         .cloned()
         .or_else(|| {
-            fallback_mode_definition(&profile.id).and_then(|mode| {
+            fallback_agent_definition(&profile.id).and_then(|definition| {
                 profile
                     .execution
                     .observability_policy_ref
                     .as_deref()
                     .and_then(|id| {
-                        mode.policies().and_then(|policies| {
+                        definition.policies().and_then(|policies| {
                             policies
                                 .observability
                                 .iter()
@@ -1585,9 +1612,9 @@ fn resolve_limit_policy_agent_turn_limit(settings: &RhythmSettings, profile: &Ru
         })
         .and_then(|policy| policy.agent_turn_limit)
         .or_else(|| {
-            fallback_mode_definition(&profile.id).and_then(|mode| {
+            fallback_agent_definition(&profile.id).and_then(|definition| {
                 profile.execution.limit_policy_ref.as_deref().and_then(|id| {
-                    mode.policies().and_then(|policies| {
+                    definition.policies().and_then(|policies| {
                         policies
                             .limits
                             .iter()
@@ -2127,6 +2154,11 @@ fn merge_model_capabilities(
         anthropic_beta_headers: model
             .anthropic_beta_headers
             .or(provider.anthropic_beta_headers),
+        history_tool_results: model.history_tool_results.or(provider.history_tool_results),
+        history_tool_result_tools: model
+            .history_tool_result_tools
+            .clone()
+            .or(provider.history_tool_result_tools.clone()),
     }
 }
 

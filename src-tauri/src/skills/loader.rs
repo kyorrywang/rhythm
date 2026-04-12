@@ -6,19 +6,11 @@ use std::path::Path;
 
 // ─── Bundled skills (embedded at compile time) ────────────────────────────────
 
-const PLAN_SKILL: &str = include_str!("bundled/plan.md");
-const DEBUG_SKILL: &str = include_str!("bundled/debug.md");
-const REVIEW_SKILL: &str = include_str!("bundled/review.md");
-const COMMIT_SKILL: &str = include_str!("bundled/commit.md");
-const TEST_SKILL: &str = include_str!("bundled/test.md");
+const SPEC_WORKFLOW_SKILL: &str = include_str!("bundled/spec-workflow.md");
 
 fn get_bundled_skills() -> Vec<SkillDefinition> {
     vec![
-        parse_skill("plan", PLAN_SKILL, SkillSource::Bundled),
-        parse_skill("debug", DEBUG_SKILL, SkillSource::Bundled),
-        parse_skill("review", REVIEW_SKILL, SkillSource::Bundled),
-        parse_skill("commit", COMMIT_SKILL, SkillSource::Bundled),
-        parse_skill("test", TEST_SKILL, SkillSource::Bundled),
+        parse_skill("spec-workflow", SPEC_WORKFLOW_SKILL, SkillSource::Bundled),
     ]
 }
 

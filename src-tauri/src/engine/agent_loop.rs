@@ -7,7 +7,7 @@ use tokio::time::{sleep, Duration};
 
 use super::context::QueryContext;
 use super::stream_events::UsageTracker;
-use crate::coordinator::coordinator_mode;
+use crate::agents;
 use crate::hooks::events::HookEvent;
 use crate::infrastructure::event_bus;
 use crate::llm::{ChatMessage, ChatMessageBlock, LlmResponse, LlmToolCall, LlmToolDefinition};
@@ -658,10 +658,10 @@ async fn execute_single_tool(
 
     if !decision.allowed {
         if decision.requires_confirmation {
-            if coordinator_mode::is_swarm_worker() {
-                let team_name = coordinator_mode::get_team_name().unwrap_or_default();
+            if agents::is_swarm_worker() {
+                let team_name = agents::get_team_name().unwrap_or_default();
                 let worker_id =
-                    coordinator_mode::get_agent_id().unwrap_or_else(|| context.agent_id.clone());
+                    agents::get_agent_id().unwrap_or_else(|| context.agent_id.clone());
                 let request = crate::swarm::permission_sync::SwarmPermissionRequest {
                     id: format!("perm-{}", tool_id),
                     worker_id: worker_id.clone(),

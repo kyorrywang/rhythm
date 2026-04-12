@@ -1,16 +1,14 @@
-// Spec lifecycle tools: create_spec and start_spec.
-//
-// These tools emit structured JSON results that the frontend
-// intercepts (in chatFlow.ts / useLLMStream) to drive the Spec workbench UI.
-// The backend itself does not touch the filesystem — the frontend owns the
-// .spec/changes/<slug>/ directory tree.
-
-use super::{BaseTool, ToolExecutionContext, ToolResult};
+use crate::tools::{BaseTool, ToolExecutionContext, ToolResult};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 
-// ─── create_spec ─────────────────────────────────────────────────────────────
+// Spec lifecycle bridge tools.
+//
+// These tools are part of the bundled `spec` primary agent design. They emit
+// structured JSON that the frontend consumes to drive the Spec workbench.
+// The backend itself does not scaffold `.spec/changes/<slug>/`; the frontend
+// owns that workflow and may launch the bundled `spec-agent` subagent.
 
 pub struct CreateSpecTool;
 
@@ -59,13 +57,13 @@ impl BaseTool for CreateSpecTool {
     }
 
     fn is_read_only(&self) -> bool {
-        true // the backend does nothing; the frontend performs the write
+        true
     }
 
     async fn execute(&self, args: Value, _ctx: &ToolExecutionContext) -> ToolResult {
         let args: CreateSpecArgs = match serde_json::from_value(args) {
-            Ok(v) => v,
-            Err(e) => return ToolResult::error(e.to_string()),
+            Ok(value) => value,
+            Err(error) => return ToolResult::error(error.to_string()),
         };
 
         ToolResult::ok(
@@ -80,8 +78,6 @@ impl BaseTool for CreateSpecTool {
         )
     }
 }
-
-// ─── start_spec ───────────────────────────────────────────────────────────────
 
 pub struct StartSpecTool;
 
@@ -99,7 +95,7 @@ impl BaseTool for StartSpecTool {
     fn description(&self) -> String {
         "Start executing a previously created Spec. \
          The frontend transitions the Spec state from 'draft' to 'active' and launches \
-         the spec-agent subagent to execute the tasks in tasks.md. \
+         the bundled spec-agent subagent to execute the tasks in tasks.md. \
          Only call this after the user has explicitly confirmed they want to start execution."
             .to_string()
     }
@@ -118,13 +114,13 @@ impl BaseTool for StartSpecTool {
     }
 
     fn is_read_only(&self) -> bool {
-        true // state transition and agent launch are handled by the frontend
+        true
     }
 
     async fn execute(&self, args: Value, _ctx: &ToolExecutionContext) -> ToolResult {
         let args: StartSpecArgs = match serde_json::from_value(args) {
-            Ok(v) => v,
-            Err(e) => return ToolResult::error(e.to_string()),
+            Ok(value) => value,
+            Err(error) => return ToolResult::error(error.to_string()),
         };
 
         ToolResult::ok(

@@ -1,5 +1,6 @@
 use super::{
-    ChatMessage, ChatMessageBlock, LlmClient, LlmResponse, LlmResponseStream, LlmToolDefinition,
+    apply_history_replay_policy, ChatMessage, ChatMessageBlock, LlmClient, LlmResponse,
+    LlmResponseStream, LlmToolDefinition,
 };
 use crate::infrastructure::config::LlmConfig;
 use async_trait::async_trait;
@@ -381,6 +382,7 @@ impl LlmClient for OpenAiClient {
             )
         };
 
+        let messages = apply_history_replay_policy(&self.config, messages);
         let req = OpenAiChatRequest {
             model: self.config.model.clone(),
             messages: map_messages(messages),

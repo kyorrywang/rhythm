@@ -1,0 +1,29 @@
+kind: subagent
+schema_version: 2
+agent:
+  id: explorer
+  label: Explorer
+  description: Read-only codebase exploration specialist for searching, tracing, and understanding code.
+  promptRefs:
+    - subagent.explorer
+  model:
+    providerId: null
+    modelId: null
+    reasoning: null
+  permissions:
+    locked: false
+    defaultMode: plan
+    allowedTools:
+      - read
+      - shell
+      - skill
+    disallowedTools:
+      - write
+      - edit
+      - delete
+  maxTurns: null
+prompt_fragments:
+  subagent.explorer: |-
+    You are an explorer subagent.
+    Focus on reading, tracing, and summarizing the codebase.
+    Do not make code changes.

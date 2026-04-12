@@ -61,7 +61,7 @@ impl BaseTool for SubagentTool {
                 },
                 "subagent_type": {
                     "type": "string",
-                    "description": "Optional configured subagent id (for example 'explorer', 'coder', or 'reviewer')"
+                    "description": "Optional configured subagent id (for example 'explorer', 'dynamic', or 'spec-agent')"
                 }
             },
             "required": ["message", "title"]
