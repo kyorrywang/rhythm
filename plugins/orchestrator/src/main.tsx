@@ -9,8 +9,8 @@ import { RunView } from './components/RunView';
 import { TemplateView } from './components/TemplateView';
 import { ORCHESTRATOR_VIEWS } from './constants';
 import { registerOrchestratorMessageActions } from './messageActions';
-import { getRun, listRuns, saveRun, withRunLock } from './storage';
-import { recoverOrchestratorRun, watchdogOrchestratorRun } from './runtime';
+import { getRun, listRuns, saveRun, withRunLock } from '../../../src/spec/storage';
+import { recoverOrchestratorRun, watchdogOrchestratorRun } from '../../../src/spec/runtime';
 import { registerOrchestratorToolActions } from './toolActions';
 import type { OrchestratorAgentRunPayload, OrchestratorCoordinatorRunPayload, OrchestratorPlanDraftPayload, OrchestratorRunPayload, OrchestratorTemplatePayload } from './types';
 

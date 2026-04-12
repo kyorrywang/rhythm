@@ -2,12 +2,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PluginContext } from '@/plugin/sdk';
-import { launchAgentSession } from '../../plugins/orchestrator/src/agentSessionRuntime';
-import { applyOrchestratorDecision, completeOrchestratorTask, failOrchestratorTask, listReviewedArtifacts, overrideReviewDecision, pauseOrchestratorRun, recoverOrchestratorRun, resumeOrchestratorRun, retryOrchestratorTask, startOrchestratorRun, wakeRunById } from '../../plugins/orchestrator/src/runtime';
-import { getProjectState, getRun, listAgentRunsForRun, listArtifactsForRun, listCoordinatorRunsForRun, listTasksForRun, saveAgentRun, saveArtifact, saveReviewPolicy, saveRun, saveTask, updateTask } from '../../plugins/orchestrator/src/storage';
-import { createRunFromPlan } from '../../plugins/orchestrator/src/utils';
-import type { OrchestrationDecision, OrchestratorConfirmedPlan, OrchestratorReviewLog, OrchestratorRun } from '../../plugins/orchestrator/src/types';
+import type { PluginContext } from '@/core/plugin/sdk';
+import { launchAgentSession } from '@/domains/spec/agentSessionRuntime';
+import { applyOrchestratorDecision, completeOrchestratorTask, failOrchestratorTask, listReviewedArtifacts, overrideReviewDecision, pauseOrchestratorRun, recoverOrchestratorRun, resumeOrchestratorRun, retryOrchestratorTask, startOrchestratorRun, wakeRunById } from '@/domains/spec/runtime';
+import { getProjectState, getRun, listAgentRunsForRun, listArtifactsForRun, listCoordinatorRunsForRun, listTasksForRun, saveAgentRun, saveArtifact, saveReviewPolicy, saveRun, saveTask, updateTask } from '@/domains/spec/storage';
+import { createRunFromPlan } from '@/domains/spec/utils';
+import type { OrchestrationDecision, OrchestratorConfirmedPlan, OrchestratorReviewLog, OrchestratorRun } from '@/domains/spec/types';
 
 const mockSessionState = {
   sessions: new Map(),
@@ -27,7 +27,7 @@ vi.mock('../../plugins/orchestrator/src/agentSessionRuntime', () => ({
   }),
 }));
 
-vi.mock('../shared/state/useSessionStore', () => ({
+vi.mock('../core/sessions/useSessionStore', () => ({
   useSessionStore: {
     getState: () => mockSessionState,
   },
@@ -1187,7 +1187,7 @@ describe('orchestrator runtime', () => {
       updatedAt: now,
     }]));
 
-    const runtime = await import('../../plugins/orchestrator/src/runtime');
+    const runtime = await import('@/domains/spec/runtime');
     const applyDecision = (runtime as unknown as { applyOrchestratorDecision?: (ctx: PluginContext, runId: string, coordinatorRunId: string, decision: OrchestrationDecision) => Promise<unknown> }).applyOrchestratorDecision;
     expect(applyDecision).toBeTypeOf('function');
     await applyDecision!(ctx, run.id, 'coordinator_1', {

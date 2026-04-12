@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { reduceSessionChunk } from '../shared/state/sessionChunkReducer';
-import { normalizeSessions } from '../shared/api/commands';
-import { createMessageSlice } from '../shared/state/slices/messageSlice';
+import { reduceSessionChunk } from '../core/sessions/sessionChunkReducer';
+import { normalizeSessions } from '../core/runtime/api/commands';
+import { createMessageSlice } from '../core/sessions/slices/messageSlice';
 import type { Message, Session } from '../shared/types/schema';
 
 function buildSession(id: string, overrides: Partial<Session> = {}): Session {
