@@ -6,6 +6,7 @@ import { themeRecipes } from '@/ui/theme/recipes';
 import { Button, MenuContent, MenuItem, MenuPortal, MenuRoot, MenuSub, MenuSubmenuContent, MenuSubmenuTrigger, MenuTrigger, PopoverArrow, PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from '@/ui/components';
 import type { ComposerModelSelection, MainComposerProps, DockType } from '../types';
 import type { Attachment } from '@/shared/types/schema';
+import type { BackendRuntimeProfile } from '@/shared/types/api';
 
 const MAX_TEXT_ATTACHMENT_SIZE = 256 * 1024;
 
@@ -26,6 +27,60 @@ const REASONING_OPTIONS: Array<{ value: MainComposerProps['controls']['reasoning
   { value: 'medium', label: 'Medium', description: '平衡速度与思考' },
   { value: 'high', label: 'High', description: '更深入推理' },
 ];
+
+const DEFAULT_MODE_OPTIONS: Array<{
+  value: MainComposerProps['controls']['mode'];
+  label: string;
+  description: string;
+}> = [
+  { value: 'Chat', label: 'Chat', description: '单 agent 普通对话' },
+  { value: 'Coordinate', label: 'Coordinate', description: '多 agent 协调执行' },
+  { value: 'Spec', label: 'Spec', description: '规划驱动的 spec 工作流' },
+];
+
+const CANONICAL_MODE_IDS: Record<MainComposerProps['controls']['mode'], string> = {
+  Chat: 'chat',
+  Coordinate: 'coordinate',
+  Spec: 'spec',
+};
+
+function resolveRuntimeProfileForMode(
+  runtimeProfiles: BackendRuntimeProfile[],
+  mode: MainComposerProps['controls']['mode'],
+) {
+  const canonicalId = CANONICAL_MODE_IDS[mode];
+  return runtimeProfiles.find((profile) => profile.id.toLowerCase() === canonicalId)
+    || runtimeProfiles.find((profile) => profile.mode === mode)
+    || null;
+}
+
+function getVisibleModeOptions(runtimeProfiles: BackendRuntimeProfile[]) {
+  const byMode = new Map<MainComposerProps['controls']['mode'], BackendRuntimeProfile>();
+
+  for (const profile of runtimeProfiles) {
+    const mode = profile.mode as MainComposerProps['controls']['mode'];
+    const existing = byMode.get(mode);
+    if (!existing) {
+      byMode.set(mode, profile);
+      continue;
+    }
+
+    const canonicalId = CANONICAL_MODE_IDS[mode];
+    if (profile.id.toLowerCase() === canonicalId && existing.id.toLowerCase() !== canonicalId) {
+      byMode.set(mode, profile);
+    }
+  }
+
+  const orderedModes: Array<MainComposerProps['controls']['mode']> = ['Chat', 'Coordinate', 'Spec'];
+  return orderedModes
+    .map((mode) => byMode.get(mode))
+    .filter((profile): profile is BackendRuntimeProfile => Boolean(profile))
+    .map((profile) => ({
+      value: profile.mode as MainComposerProps['controls']['mode'],
+      label: profile.label,
+      description: profile.description,
+    }));
+}
 
 const TEXT_FILE_ACCEPT = [
   'text/*',
@@ -145,13 +200,12 @@ export const MainComposer = ({
   const composerRef = useRef<HTMLDivElement>(null);
   const [isCompactControls, setIsCompactControls] = useState(false);
   const runtimeProfiles = useSettingsStore((state) => state.settings.runtimeProfiles ?? []);
-  const modeOptions = useMemo(() =>
-    runtimeProfiles.map((profile) => ({
-      value: profile.mode,
-      label: profile.label,
-      description: profile.description,
-    })),
-  [runtimeProfiles]);
+  const modeOptions = useMemo(() => getVisibleModeOptions(runtimeProfiles), [runtimeProfiles]);
+  const activeProfile = useMemo(
+    () => resolveRuntimeProfileForMode(runtimeProfiles, controls.mode),
+    [runtimeProfiles, controls.mode],
+  );
+  const isLockedMode = Boolean(activeProfile?.permissions.locked);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -325,7 +379,7 @@ export const MainComposer = ({
                 icon={<Sparkles size={13} />}
                 label={controls.mode}
                 title="选择模式"
-                options={modeOptions.length > 0 ? modeOptions : [{ value: 'Chat', label: 'Chat', description: '单 agent 普通对话' }]}
+                options={modeOptions.length > 0 ? modeOptions : DEFAULT_MODE_OPTIONS}
                 value={controls.mode}
                 onSelect={onSetMode}
               />
@@ -351,17 +405,20 @@ export const MainComposer = ({
           <Button
             variant="unstyled"
             size="none"
-            onClick={onToggleFullAuto}
+            onClick={isLockedMode ? undefined : onToggleFullAuto}
+            disabled={isLockedMode}
             className={cn(
               'inline-flex min-h-[var(--theme-control-height-sm)] items-center gap-[var(--theme-toolbar-gap)] rounded-[var(--theme-radius-control)] px-[var(--theme-control-padding-x-sm)] transition-colors',
-              controls.fullAuto
+              isLockedMode
+                ? 'cursor-not-allowed bg-[var(--theme-surface)] text-[var(--theme-text-muted)] opacity-80'
+                : controls.fullAuto
                 ? 'bg-[var(--theme-success-surface)] text-[var(--theme-success-text)]'
                 : 'bg-[var(--theme-surface)] text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]',
             )}
-            title="切换权限模式"
+            title={isLockedMode ? '当前模式使用锁定权限' : '切换权限模式'}
           >
             <Shield size={13} />
-            <span>{controls.fullAuto ? '全部允许' : '逐次确认'}</span>
+            <span>{isLockedMode ? '锁定权限' : controls.fullAuto ? '全部允许' : '逐次确认'}</span>
           </Button>
         </div>
       </div>
@@ -389,13 +446,7 @@ const CompactControlsPopover = ({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const runtimeProfiles = useSettingsStore((state) => state.settings.runtimeProfiles ?? []);
-  const modeOptions = useMemo(() =>
-    runtimeProfiles.map((profile) => ({
-      value: profile.mode,
-      label: profile.label,
-      description: profile.description,
-    })),
-  [runtimeProfiles]);
+  const modeOptions = useMemo(() => getVisibleModeOptions(runtimeProfiles), [runtimeProfiles]);
 
   return (
     <MenuRoot
@@ -432,7 +483,7 @@ const CompactControlsPopover = ({
             </MenuSubmenuTrigger>
             <MenuPortal>
               <MenuSubmenuContent>
-                {modeOptions.map((option) => (
+                {(modeOptions.length > 0 ? modeOptions : DEFAULT_MODE_OPTIONS).map((option) => (
                   <MenuItem
                     key={option.value}
                     onSelect={() => onSetMode(option.value)}

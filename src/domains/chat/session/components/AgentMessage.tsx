@@ -21,6 +21,7 @@ import type { Message, MessageSegment, ToolCall } from '@/shared/types/schema';
 import { Badge, Button, CopyIconButton } from '@/ui/components';
 import { CodeBlock } from '@/ui/components/CodeBlock';
 import { getMessageTextContent } from '@/core/sessions/sessionState';
+import { buildSpecWorkbenchOpenInput, parseSpecWorkbenchHref } from '@/domains/spec/integration/navigation';
 
 interface AgentMessageProps {
   message: Message;
@@ -652,6 +653,7 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
   const modelName = message.model || 'Rhythm AI';
   const messageActions = usePluginHostStore((s) => s.messageActions);
   const copyText = getMessageTextContent(message);
+  const openWorkbench = useSessionStore((s) => s.openWorkbench);
 
   return (
     <motion.div
@@ -706,6 +708,34 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
                             <code className="rounded-[calc(var(--theme-radius-control)*0.7)] bg-[var(--theme-surface-muted)] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--theme-accent)]">
                               {children}
                             </code>
+                          );
+                        },
+                        a({ href, children }) {
+                          const target = parseSpecWorkbenchHref(href);
+                          if (target) {
+                            return (
+                              <Button
+                                variant="link"
+                                size="sm"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  openWorkbench(buildSpecWorkbenchOpenInput(target, { layoutMode: 'split' }));
+                                }}
+                                className="px-0 text-[var(--theme-accent)] underline underline-offset-4"
+                              >
+                                {children}
+                              </Button>
+                            );
+                          }
+                          return (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[var(--theme-accent)] underline underline-offset-4"
+                            >
+                              {children}
+                            </a>
                           );
                         },
                       }}

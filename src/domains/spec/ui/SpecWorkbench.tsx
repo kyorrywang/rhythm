@@ -42,6 +42,7 @@ import {
   startSpecRunInWorkspace,
   syncSpecWorkbenchFromDisk,
 } from '../integration/workbench';
+import { buildSpecWorkbenchOpenInput } from '../integration/navigation';
 import { SpecStatusHeader } from './SpecStatusHeader';
 import { SpecDocumentTabs } from './SpecDocumentTabs';
 import { SpecLiveDocument } from './SpecLiveDocument';
@@ -167,18 +168,10 @@ export function SpecWorkbench({ payload }: WorkbenchProps<SpecWorkbenchPayload>)
         overview: draftOverview,
       });
 
-      openWorkbench({
-        id: `core:spec:${draftState.change.slug}`,
-        pluginId: 'core',
-        viewType: 'core.spec.workbench',
-        renderer: 'core.spec.workbench',
-        title: draftState.change.title,
-        description: 'Draft',
-        payload: { slug: draftState.change.slug, mode: 'browse', documentId: 'change' },
-        lifecycle: 'live',
-        layoutMode: 'replace',
-        isOpen: true,
-      });
+      openWorkbench(buildSpecWorkbenchOpenInput(
+        { slug: draftState.change.slug, mode: 'browse', documentId: 'change' },
+        { title: draftState.change.title, description: 'Draft', layoutMode: 'split' },
+      ));
     });
   };
 

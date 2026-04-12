@@ -8,6 +8,7 @@ import { Badge, Button, Card, EmptyState, FilterBar, SearchField, SidebarHeader,
 import { themeRecipes } from '@/ui/theme/recipes';
 import type { SpecState } from '../domain/types';
 import { badgeToneForSpecStatus, describeSpecStatus } from './helpers';
+import { buildSpecWorkbenchOpenInput } from '../integration/navigation';
 
 interface SpecListItem {
   slug: string;
@@ -83,32 +84,17 @@ export function SpecChangesPanel({ width }: LeftPanelProps) {
   }, [filteredItems]);
 
   const handleOpenCreate = () => {
-    openWorkbench({
-      pluginId: 'core',
-      viewType: 'core.spec.workbench',
-      renderer: 'core.spec.workbench',
-      title: 'New Spec',
-      description: 'Create a new spec change draft.',
-      payload: { mode: 'create', documentId: 'change' },
-      lifecycle: 'live',
-      layoutMode: 'replace',
-      isOpen: true,
-    });
+    openWorkbench(buildSpecWorkbenchOpenInput(
+      { mode: 'create', documentId: 'change' },
+      { title: 'New Spec', description: 'Create a new spec change draft.', layoutMode: 'split' },
+    ));
   };
 
   const handleOpenChange = (item: SpecListItem) => {
-    openWorkbench({
-      id: `core:spec:${item.slug}`,
-      pluginId: 'core',
-      viewType: 'core.spec.workbench',
-      renderer: 'core.spec.workbench',
-      title: item.state.change.title,
-      description: describeSpecStatus(item.state.change.status),
-      payload: { slug: item.slug, mode: 'browse', documentId: 'change' },
-      lifecycle: 'live',
-      layoutMode: 'replace',
-      isOpen: true,
-    });
+    openWorkbench(buildSpecWorkbenchOpenInput(
+      { slug: item.slug, mode: 'browse', documentId: 'change' },
+      { title: item.state.change.title, description: describeSpecStatus(item.state.change.status), layoutMode: 'split' },
+    ));
   };
 
   return (

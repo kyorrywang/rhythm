@@ -13,6 +13,7 @@ pub mod plan;
 pub mod read_file;
 pub mod shell;
 pub mod skill;
+pub mod spec_tools;
 pub mod subagent;
 pub mod write_file;
 
@@ -149,6 +150,9 @@ impl ToolRegistry {
         registry.register(Box::new(plan::PlanTool));
         registry.register(Box::new(subagent::SubagentTool));
         registry.register(Box::new(skill::SkillTool));
+        registry.register(Box::new(spec_tools::CreateSpecTool));
+        registry.register(Box::new(spec_tools::UpdateSpecTool));
+        registry.register(Box::new(spec_tools::StartSpecTool));
 
         for plugin in plugins {
             if !plugin.is_runtime_active() {

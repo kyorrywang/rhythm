@@ -126,7 +126,7 @@ export interface QueuedMessage {
   createdAt: number;
 }
 
-export type MessageMode = 'Chat' | 'Coordinate';
+export type MessageMode = 'Chat' | 'Coordinate' | 'Spec';
 
 export type SessionQueueState =
   | 'idle'

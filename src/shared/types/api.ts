@@ -24,7 +24,7 @@ export interface BackendRuntimeProfilePermissions {
 export interface BackendRuntimeProfile {
   id: string;
   label: string;
-  mode: "Chat" | "Coordinate";
+  mode: "Chat" | "Coordinate" | "Spec";
   description: string;
   promptRefs?: string[];
   model?: {

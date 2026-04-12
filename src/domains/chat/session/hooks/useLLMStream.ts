@@ -10,6 +10,8 @@ import { hasSessionPermissionGrant } from '@/core/permissions/sessionPermissions
 import { Attachment, Message, ServerEventChunk, Session } from '@/shared/types/schema';
 import { attachSessionStream, chatStream, submitUserAnswer, approvePermission, interruptSession, llmComplete, listRuntimeSessions } from '@/core/runtime/api/commands';
 import { getMessageTextContent, isSessionRunning } from '@/core/sessions/sessionState';
+import { applySpecToolResult } from '@/domains/spec/integration/chatFlow';
+import type { BackendRuntimeProfile, BackendSettings } from '@/shared/types/api';
 
 const TITLE_SYSTEM_PROMPT = [
   'You generate concise chat titles.',
@@ -214,6 +216,48 @@ export const useLLMStream = () => {
       return;
     }
 
+    if (chunk.type === 'tool_result' && !chunk.isError) {
+      const session = liveState.sessions.get(targetSessionId);
+      const workspacePath = session?.workspacePath || getActiveWorkspacePath();
+      const toolMessageId = resolveAiMessageId(liveState.sessions, targetSessionId) || fallbackAiMessageId;
+      const toolName = session?.messages
+        .flatMap((message) => message.segments || [])
+        .find((segment) => segment.type === 'tool' && segment.tool.id === chunk.toolId);
+      const resolvedToolName = toolName?.type === 'tool' ? toolName.tool.name : undefined;
+
+      if (workspacePath && toolMessageId && (resolvedToolName === 'create_spec' || resolvedToolName === 'update_spec' || resolvedToolName === 'start_spec')) {
+        void applySpecToolResult({
+          workspacePath,
+          session,
+          rawResult: chunk.result,
+        }).then((result) => {
+          if (!result?.handled || !result.toolMessage) {
+            return;
+          }
+          const latestState = store.getState();
+          latestState.updateMessage(targetSessionId, toolMessageId, {
+            segments: (latestState.sessions.get(targetSessionId)?.messages.find((message) => message.id === toolMessageId)?.segments || []).map((segment) =>
+              segment.type === 'tool' && segment.tool.id === chunk.toolId
+                ? {
+                    ...segment,
+                    tool: {
+                      ...segment.tool,
+                      result: result.toolMessage,
+                    },
+                  }
+                : segment,
+            ),
+          });
+          if (result.specTitle) {
+            latestState.setSessionTitle(targetSessionId, result.specTitle);
+          }
+          schedulePersistSession(targetSessionId, true);
+        }).catch((error) => {
+          console.error('Spec tool result handling failed', error);
+        });
+      }
+    }
+
     const targetAiMessageId = resolveAiMessageId(liveState.sessions, targetSessionId) || fallbackAiMessageId;
     if (!targetAiMessageId) return;
     const reduced = liveState.processChunk(liveState.sessions, targetSessionId, targetAiMessageId, chunk);
@@ -289,10 +333,16 @@ export const useLLMStream = () => {
     }
     const reasoning = state.composerControls.reasoning;
     const permissionMode = state.composerControls.fullAuto ? 'full_auto' : 'default';
-    const runtimeProfiles = useSettingsStore.getState().settings.runtimeProfiles ?? [];
-    const profile = runtimeProfiles.find((item) => item.mode === state.composerControls.mode)
-      || runtimeProfiles.find((item) => item.id === useSettingsStore.getState().settings.defaultProfileId)
-      || null;
+    const settings = useSettingsStore.getState().settings;
+    const runtimeProfiles = settings.runtimeProfiles ?? [];
+    const profile = resolveRuntimeProfileForComposerMode(runtimeProfiles, settings.defaultProfileId, state.composerControls.mode);
+    if (state.composerControls.mode === 'Spec' && (!profile || profile.id.toLowerCase() !== 'spec')) {
+      useToastStore.getState().addToast({
+        type: 'error',
+        message: 'Spec 模式未绑定到受限 spec profile，已拒绝发送。',
+      });
+      return;
+    }
     const profileRequest = profile?.permissions.locked
       ? {
           profileId: profile.id,
@@ -342,6 +392,7 @@ export const useLLMStream = () => {
       id: aiMessageId,
       role: 'assistant',
       model,
+      mode: state.composerControls.mode,
       createdAt: Date.now(),
       startedAt: Date.now(),
       status: 'running',
@@ -618,6 +669,31 @@ export const useLLMStream = () => {
 
 function isFirstSessionTurn(session: Session | undefined, prompt: string) {
   return !!session && session.messages.length === 0 && prompt.trim().length > 0;
+}
+
+const CANONICAL_PROFILE_IDS: Record<'Chat' | 'Coordinate' | 'Spec', string> = {
+  Chat: 'chat',
+  Coordinate: 'coordinate',
+  Spec: 'spec',
+};
+
+function resolveRuntimeProfileForComposerMode(
+  runtimeProfiles: BackendRuntimeProfile[],
+  defaultProfileId: BackendSettings['defaultProfileId'],
+  mode: 'Chat' | 'Coordinate' | 'Spec',
+) {
+  const canonicalId = CANONICAL_PROFILE_IDS[mode];
+  const canonicalProfile = runtimeProfiles.find((item) => item.id.toLowerCase() === canonicalId);
+  if (canonicalProfile) {
+    return canonicalProfile;
+  }
+
+  const exactModeProfiles = runtimeProfiles.filter((item) => item.mode === mode);
+  if (exactModeProfiles.length === 1) {
+    return exactModeProfiles[0];
+  }
+
+  return runtimeProfiles.find((item) => item.id === defaultProfileId) || null;
 }
 
 function getActiveWorkspacePath() {

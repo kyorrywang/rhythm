@@ -274,6 +274,113 @@ fn default_coordinate_mode() -> ModeDefinition {
     }
 }
 
+fn default_spec_mode() -> ModeDefinition {
+    ModeDefinition::Primary {
+        schema_version: MODE_SCHEMA_VERSION,
+        profile: RuntimeProfile {
+            id: "spec".to_string(),
+            label: "Spec".to_string(),
+            mode: "Spec".to_string(),
+            description: "聊天主导的 spec 起草与推进".to_string(),
+            prompt_refs: vec![
+                "base.spec_chat".to_string(),
+                "policy.spec_chat_rules".to_string(),
+            ],
+            model: RuntimeProfileModelConfig {
+                provider_id: None,
+                model_id: None,
+                reasoning: Some("high".to_string()),
+            },
+            permissions: RuntimeProfilePermissions {
+                locked: true,
+                default_mode: Some(PermissionMode::Default),
+                allowed_tools: vec![
+                    "list_dir".to_string(),
+                    "read".to_string(),
+                    "skill".to_string(),
+                    "create_spec".to_string(),
+                    "update_spec".to_string(),
+                    "start_spec".to_string(),
+                ],
+                disallowed_tools: vec![
+                    "write".to_string(),
+                    "edit".to_string(),
+                    "shell".to_string(),
+                    "delete".to_string(),
+                    "spawn_subagent".to_string(),
+                    "ask_user".to_string(),
+                ],
+            },
+            execution: RuntimeProfileExecution {
+                agent_turn_limit: None,
+                delegation_policy_ref: Some("spec_no_delegate".to_string()),
+                review_policy_ref: Some("spec_optional".to_string()),
+                completion_policy_ref: Some("direct_answer".to_string()),
+                observability_policy_ref: Some("standard".to_string()),
+                limit_policy_ref: Some("default".to_string()),
+                available_subagents: vec![],
+            },
+        },
+        prompt_fragments: HashMap::from([
+            (
+                "base.spec_chat".to_string(),
+                "You are the Spec agent.\n\nYour job is to turn the user's idea into a durable spec and keep that spec moving forward in chat.\n\nStay in chat. Do not leave chat. Do not switch the user to another workflow.".to_string(),
+            ),
+            (
+                "policy.spec_chat_rules".to_string(),
+                "How to work:\n1. First understand what the user is trying to make, change, or plan.\n2. If you need context from the project, use only list_dir or read.\n3. Before any spec lifecycle action, load the skill named spec-workflow.\n4. Then decide whether to:\n   - keep discussing in chat,\n   - call create_spec,\n   - call update_spec,\n   - or call start_spec.\n\nHard rules:\n- You may only use list_dir, read, skill, create_spec, update_spec, and start_spec.\n- Do not execute implementation work.\n- Do not write final deliverable content directly when the user is asking for outlines, plans, task breakdowns, story structure, chapter plans, or other spec artifacts.\n- For spec lifecycle work, call create_spec, update_spec, or start_spec.\n- Do not start execution until the user explicitly confirms with language like OK 启动 or 开始执行.".to_string(),
+            ),
+        ]),
+        policies: ModePolicyCatalog {
+            permission: vec![PermissionPolicyDefinition {
+                id: "spec_readonly".to_string(),
+                mode: PermissionMode::Default,
+                allowed_tools: vec![
+                    "list_dir".to_string(),
+                    "read".to_string(),
+                    "skill".to_string(),
+                    "create_spec".to_string(),
+                    "update_spec".to_string(),
+                    "start_spec".to_string(),
+                ],
+                denied_tools: vec![
+                    "write".to_string(),
+                    "edit".to_string(),
+                    "shell".to_string(),
+                    "delete".to_string(),
+                    "spawn_subagent".to_string(),
+                    "ask_user".to_string(),
+                ],
+                locked: true,
+            }],
+            delegation: vec![DelegationPolicyDefinition {
+                id: "spec_no_delegate".to_string(),
+                enabled: false,
+                root_may_execute: false,
+                max_subagents_per_turn: Some(0),
+            }],
+            review: vec![ReviewPolicyDefinition {
+                id: "spec_optional".to_string(),
+                required: false,
+                human_checkpoint_required: false,
+            }],
+            completion: vec![CompletionPolicyDefinition {
+                id: "direct_answer".to_string(),
+                strategy: "direct_answer".to_string(),
+            }],
+            observability: vec![ObservabilityPolicyDefinition {
+                id: "standard".to_string(),
+                capture_resolved_spec: true,
+                capture_provenance: true,
+            }],
+            limits: vec![LimitPolicyDefinition {
+                id: "default".to_string(),
+                agent_turn_limit: None,
+            }],
+        },
+    }
+}
+
 fn default_explorer_subagent() -> ModeDefinition {
     ModeDefinition::Subagent {
         schema_version: MODE_SCHEMA_VERSION,
@@ -350,6 +457,7 @@ pub fn default_mode_definitions() -> Vec<ModeDefinition> {
     vec![
         default_chat_mode(),
         default_coordinate_mode(),
+        default_spec_mode(),
         default_explorer_subagent(),
         default_coder_subagent(),
         default_reviewer_subagent(),
