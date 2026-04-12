@@ -1,5 +1,4 @@
-import type { SpecDocumentId, SpecWorkbenchPayload } from '../ui/helpers';
-
+// 简化的 navigation
 interface OpenWorkbenchInput {
   id?: string;
   pluginId: string;
@@ -13,41 +12,30 @@ interface OpenWorkbenchInput {
   isOpen: boolean;
 }
 
-export function buildSpecWorkbenchHref(slug: string, documentId: SpecDocumentId = 'change') {
-  return `spec://${slug}?doc=${documentId}`;
+export function buildSpecWorkbenchHref(slug: string) {
+  return `spec://${slug}`;
 }
 
-export function parseSpecWorkbenchHref(href?: string | null): SpecWorkbenchPayload | null {
+export function parseSpecWorkbenchHref(href?: string | null): { slug: string } | null {
   if (!href) return null;
 
   if (href.startsWith('spec://')) {
     try {
-      const parsed = new URL(href);
-      const slug = parsed.hostname || parsed.pathname.replace(/^\/+/, '');
+      const slug = href.replace('spec://', '').split('?')[0];
       if (!slug) return null;
-      const doc = parsed.searchParams.get('doc');
-      return {
-        slug,
-        mode: 'browse',
-        documentId: isSpecDocumentId(doc) ? doc : 'change',
-      };
+      return { slug };
     } catch {
       return null;
     }
   }
 
-  const pathMatch = href.match(/(?:^|\/)\.spec\/changes\/([a-z0-9-]+)(?:\/(change|plan|tasks)\.md|\/timeline\.jsonl)?$/i);
+  const pathMatch = href.match(/(?:^|\/)\.spec\/changes\/([a-z0-9-]+)(?:\/(change|tasks)\.md)?$/i);
   if (!pathMatch) return null;
-  const [, slug, docFromPath] = pathMatch;
-  return {
-    slug,
-    mode: 'browse',
-    documentId: isSpecDocumentId(docFromPath) ? docFromPath : docFromPath === 'timeline' ? 'timeline' : 'change',
-  };
+  return { slug: pathMatch[1] };
 }
 
 export function buildSpecWorkbenchOpenInput(
-  payload: SpecWorkbenchPayload,
+  payload: { slug: string; mode?: string },
   options?: {
     title?: string;
     description?: string;
@@ -56,7 +44,7 @@ export function buildSpecWorkbenchOpenInput(
 ): OpenWorkbenchInput {
   const slug = payload.slug;
   const title = options?.title || (slug ? `Spec: ${slug}` : 'Spec');
-  const description = options?.description || (payload.mode === 'create' ? 'Create a new spec change draft.' : 'Open spec in split view.');
+  const description = options?.description || '文档驱动的单任务执行模式';
 
   return {
     id: slug ? `core:spec:${slug}` : 'core:spec:new',
@@ -70,8 +58,4 @@ export function buildSpecWorkbenchOpenInput(
     layoutMode: options?.layoutMode || 'split',
     isOpen: true,
   };
-}
-
-function isSpecDocumentId(value: string | null | undefined): value is SpecDocumentId {
-  return value === 'change' || value === 'plan' || value === 'tasks' || value === 'timeline';
 }

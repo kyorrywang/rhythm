@@ -1,196 +1,109 @@
+// 重写后的 workbench - 简化版本
 import { readWorkspaceTextFile, writeWorkspaceTextFile } from '@/core/runtime/api/commands';
-import {
-  applyEditableSpecDocuments,
-  createSpecDraftState,
-  reduceApproveHumanTask,
-  reducePauseSpecRun,
-  reduceResumeSpecRun,
-  reduceRetrySpecTask,
-  reduceStartSpecRun,
-  type CreateSpecDraftInput,
-  type SpecEditableDocumentBundle,
-} from '../application/editor';
-import type { SpecState, SpecTimelineEvent } from '../domain/types';
-import { renderSpecChangeMarkdown, renderSpecPlanMarkdown, renderSpecTasksMarkdown } from '../infra/markdown';
+import { createSpecDraftState, renderInitialDocuments, syncProgressFromTasks, startSpecRun } from '../application/editor';
+import { getSpecRelativePaths } from '../infra/changeFs';
+import type { SpecState, SpecDocuments } from '../domain/types';
+import type { CreateSpecDraftInput } from '../application/editor';
 
-export interface SpecWorkbenchLoadResult {
+// ─── Load ─────────────────────────────────────────────────────────────────────
+
+export interface SpecWorkbenchData {
   state: SpecState;
-  documents: SpecEditableDocumentBundle;
-  timeline: SpecTimelineEvent[];
+  documents: SpecDocuments;
 }
 
-export interface SpecWorkbenchTransition {
-  state: SpecState;
-  event: SpecTimelineEvent | null;
-}
-
-export function getSpecRelativePaths(slug: string) {
-  return {
-    root: `.spec/changes/${slug}`,
-    change: `.spec/changes/${slug}/change.md`,
-    plan: `.spec/changes/${slug}/plan.md`,
-    tasks: `.spec/changes/${slug}/tasks.md`,
-    state: `.spec/changes/${slug}/state.json`,
-    timeline: `.spec/changes/${slug}/timeline.jsonl`,
-    agentSessions: `.spec/changes/${slug}/agent-sessions.json`,
-  };
-}
-
-export function renderSpecDocuments(state: SpecState): SpecEditableDocumentBundle {
-  return {
-    change: renderSpecChangeMarkdown({
-      title: state.change.title,
-      goal: state.change.goal,
-      overview: state.change.overview,
-      scope: state.change.scope,
-      constraints: state.change.constraints,
-      successCriteria: state.change.successCriteria,
-      nonGoals: state.change.nonGoals,
-      risks: state.change.risks,
-      affectedAreas: state.change.affectedAreas,
-    }),
-    plan: renderSpecPlanMarkdown(state),
-    tasks: renderSpecTasksMarkdown(state),
-  };
-}
-
-export function appendTimelineEvent(events: SpecTimelineEvent[], event: SpecTimelineEvent | null) {
-  return event ? [...events, event] : events;
-}
-
-export function serializeTimeline(events: SpecTimelineEvent[]) {
-  return events.map((event) => JSON.stringify(event)).join('\n');
-}
-
-export function parseTimeline(raw: string) {
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as SpecTimelineEvent);
-}
-
-async function persistSpecWorkspaceState(
-  workspacePath: string,
-  state: SpecState,
-  documents: SpecEditableDocumentBundle,
-  timeline: SpecTimelineEvent[],
-) {
-  const paths = getSpecRelativePaths(state.change.slug);
-  await Promise.all([
-    writeWorkspaceTextFile(workspacePath, paths.change, documents.change),
-    writeWorkspaceTextFile(workspacePath, paths.plan, documents.plan),
-    writeWorkspaceTextFile(workspacePath, paths.tasks, documents.tasks),
-    writeWorkspaceTextFile(workspacePath, paths.state, JSON.stringify(state, null, 2)),
-    writeWorkspaceTextFile(workspacePath, paths.timeline, serializeTimeline(timeline)),
-  ]);
-}
-
-export async function loadSpecWorkbenchState(workspacePath: string, slug: string): Promise<SpecWorkbenchLoadResult> {
+export async function loadSpecWorkbench(workspacePath: string, slug: string): Promise<SpecWorkbenchData> {
   const paths = getSpecRelativePaths(slug);
-  const [stateFile, changeFile, planFile, tasksFile, timelineFile] = await Promise.all([
+  const [stateFile, proposalFile, tasksFile] = await Promise.all([
     readWorkspaceTextFile(workspacePath, paths.state),
-    readWorkspaceTextFile(workspacePath, paths.change),
-    readWorkspaceTextFile(workspacePath, paths.plan),
+    readWorkspaceTextFile(workspacePath, paths.proposal),
     readWorkspaceTextFile(workspacePath, paths.tasks),
-    readWorkspaceTextFile(workspacePath, paths.timeline).catch(() => null),
   ]);
 
-  if (!stateFile.content) {
-    throw new Error(`Missing spec state for ${slug}.`);
-  }
+  if (!stateFile.content) throw new Error(`Spec not found: ${slug}`);
 
   const state = JSON.parse(stateFile.content) as SpecState;
   return {
     state,
     documents: {
-      change: changeFile.content || renderSpecDocuments(state).change,
-      plan: planFile.content || renderSpecDocuments(state).plan,
-      tasks: tasksFile.content || renderSpecDocuments(state).tasks,
+      proposal: proposalFile.content || '',
+      tasks:  tasksFile.content || '',
     },
-    timeline: timelineFile?.content ? parseTimeline(timelineFile.content) : [],
   };
 }
 
-export async function createSpecDraftInWorkspace(workspacePath: string, input: CreateSpecDraftInput) {
-  const state = createSpecDraftState(input);
-  const documents = renderSpecDocuments(state);
-  const paths = getSpecRelativePaths(state.change.slug);
+// ─── Persist ──────────────────────────────────────────────────────────────────
 
+export async function persistSpecWorkbench(
+  workspacePath: string,
+  state: SpecState,
+  documents: SpecDocuments,
+) {
+  const paths = getSpecRelativePaths(state.slug);
   await Promise.all([
-    writeWorkspaceTextFile(workspacePath, paths.change, documents.change),
-    writeWorkspaceTextFile(workspacePath, paths.plan, documents.plan),
-    writeWorkspaceTextFile(workspacePath, paths.tasks, documents.tasks),
     writeWorkspaceTextFile(workspacePath, paths.state, JSON.stringify(state, null, 2)),
-    writeWorkspaceTextFile(workspacePath, paths.timeline, ''),
-    writeWorkspaceTextFile(workspacePath, paths.agentSessions, '[]'),
+    writeWorkspaceTextFile(workspacePath, paths.proposal, documents.proposal),
+    writeWorkspaceTextFile(workspacePath, paths.tasks,  documents.tasks),
   ]);
+}
 
+// ─── Create ───────────────────────────────────────────────────────────────────
+
+export async function createSpecInWorkspace(
+  workspacePath: string,
+  input: CreateSpecDraftInput,
+): Promise<SpecState> {
+  const state = createSpecDraftState(input);
+  const documents = renderInitialDocuments(state);
+  await persistSpecWorkbench(workspacePath, state, documents);
   return state;
 }
 
-export async function saveEditableSpecDocumentsInWorkspace(
+// ─── Run ──────────────────────────────────────────────────────────────────────
+
+/**
+ * 将状态转为 active 并持久化，返回发给 chat_stream 的 prompt。
+ * 调用者负责实际发起 chat_stream。
+ */
+export async function prepareSpecRun(
   workspacePath: string,
   state: SpecState,
-  documents: SpecEditableDocumentBundle,
-  timeline: SpecTimelineEvent[],
-) {
-  const nextState = applyEditableSpecDocuments(state, documents);
-  const nextDocuments = renderSpecDocuments(nextState);
-  await persistSpecWorkspaceState(workspacePath, nextState, nextDocuments, timeline);
+  documents: SpecDocuments,
+): Promise<{ nextState: SpecState; prompt: string }> {
+  const nextState = startSpecRun(state);
+  await persistSpecWorkbench(workspacePath, nextState, documents);
+
+  // prompt 构建交给 agents.ts
+  const { buildSpecAgentPrompt } = await import('../infra/agents');
+  const prompt = buildSpecAgentPrompt(documents.proposal, documents.tasks);
+  return { nextState, prompt };
+}
+
+// ─── After run ────────────────────────────────────────────────────────────────
+
+/**
+ * Agent 执行完毕后调用。重新读取 tasks.md，同步进度到 state.json。
+ */
+export async function finalizeSpecRun(
+  workspacePath: string,
+  state: SpecState,
+): Promise<SpecState> {
+  const paths = getSpecRelativePaths(state.slug);
+  const tasksFile = await readWorkspaceTextFile(workspacePath, paths.tasks);
+  const tasksMd = tasksFile.content || '';
+  const nextState = syncProgressFromTasks(state, tasksMd);
+  // 只更新 state.json，documents 不变（Agent 已经直接改过了）
+  await writeWorkspaceTextFile(workspacePath, paths.state, JSON.stringify(nextState, null, 2));
   return nextState;
 }
 
-export async function syncSpecWorkbenchFromDisk(workspacePath: string, slug: string) {
-  const loaded = await loadSpecWorkbenchState(workspacePath, slug);
-  const nextState = applyEditableSpecDocuments(loaded.state, loaded.documents);
-  const nextDocuments = renderSpecDocuments(nextState);
-  await persistSpecWorkspaceState(workspacePath, nextState, nextDocuments, loaded.timeline);
-  return { state: nextState, documents: nextDocuments, timeline: loaded.timeline };
-}
+// ─── List ─────────────────────────────────────────────────────────────────────
 
-export async function startSpecRunInWorkspace(
-  workspacePath: string,
-  state: SpecState,
-  documents: SpecEditableDocumentBundle,
-  timeline: SpecTimelineEvent[],
-) {
-  const preparedState = applyEditableSpecDocuments(state, documents);
-  const transition = reduceStartSpecRun(preparedState);
-  const nextTimeline = appendTimelineEvent(timeline, transition.event);
-  const nextDocuments = renderSpecDocuments(transition.state);
-  await persistSpecWorkspaceState(workspacePath, transition.state, nextDocuments, nextTimeline);
-  return { ...transition, documents: nextDocuments, timeline: nextTimeline };
-}
-
-export async function pauseSpecRunInWorkspace(workspacePath: string, state: SpecState, timeline: SpecTimelineEvent[]) {
-  const transition = reducePauseSpecRun(state);
-  const nextTimeline = appendTimelineEvent(timeline, transition.event);
-  const nextDocuments = renderSpecDocuments(transition.state);
-  await persistSpecWorkspaceState(workspacePath, transition.state, nextDocuments, nextTimeline);
-  return { ...transition, documents: nextDocuments, timeline: nextTimeline };
-}
-
-export async function resumeSpecRunInWorkspace(workspacePath: string, state: SpecState, timeline: SpecTimelineEvent[]) {
-  const transition = reduceResumeSpecRun(state);
-  const nextTimeline = appendTimelineEvent(timeline, transition.event);
-  const nextDocuments = renderSpecDocuments(transition.state);
-  await persistSpecWorkspaceState(workspacePath, transition.state, nextDocuments, nextTimeline);
-  return { ...transition, documents: nextDocuments, timeline: nextTimeline };
-}
-
-export async function approveSpecHumanTaskInWorkspace(workspacePath: string, state: SpecState, timeline: SpecTimelineEvent[]) {
-  const transition = reduceApproveHumanTask(state);
-  const nextTimeline = appendTimelineEvent(timeline, transition.event);
-  const nextDocuments = renderSpecDocuments(transition.state);
-  await persistSpecWorkspaceState(workspacePath, transition.state, nextDocuments, nextTimeline);
-  return { ...transition, documents: nextDocuments, timeline: nextTimeline };
-}
-
-export async function retrySpecTaskInWorkspace(workspacePath: string, state: SpecState, timeline: SpecTimelineEvent[]) {
-  const transition = reduceRetrySpecTask(state);
-  const nextTimeline = appendTimelineEvent(timeline, transition.event);
-  const nextDocuments = renderSpecDocuments(transition.state);
-  await persistSpecWorkspaceState(workspacePath, transition.state, nextDocuments, nextTimeline);
-  return { ...transition, documents: nextDocuments, timeline: nextTimeline };
+/**
+ * 列出所有 spec changes。
+ * 注意：简化版本返回空数组，完整实现需要在 Rust 端提供扫描 API。
+ */
+export async function listSpecWorkbenches(_workspacePath: string): Promise<SpecState[]> {
+  // TODO: 实现扫描逻辑，需要在 Rust 端提供 API
+  return [];
 }

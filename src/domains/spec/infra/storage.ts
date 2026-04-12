@@ -1,166 +1,26 @@
-import fs from 'node:fs/promises';
-import { getSpecChangePaths, getSpecChangesDir, makeSpecChangeSlug } from './changeFs';
-import { deserializeSpecState, serializeSpecState } from './serializer';
-import type { SpecChangeScaffoldInput, SpecRuntimeContext } from '../domain/contracts';
-import { refreshDerivedSpecState } from '../domain/derived';
-import { buildInitialSpecState, renderSpecFilesFromState, syncSpecStateFromMarkdown } from './stateSync';
-import { appendSerializedSpecTimelineEvent } from './timeline';
-import type { SpecState, SpecTimelineEvent } from '../domain/types';
-import type { SpecAgentSessionRecord } from './agentSessionRuntime';
+// 简化的 storage - 使用 Tauri API 替代 node:fs
+import { readWorkspaceTextFile, writeWorkspaceTextFile } from '@/core/runtime/api/commands';
+import { getSpecRelativePaths } from '../infra/changeFs';
+import type { SpecState } from '../domain/types';
 
-const fileLocks = new Map<string, Promise<unknown>>();
-
-async function withFileLock<T>(key: string, operation: () => Promise<T>) {
-  const previous = fileLocks.get(key) || Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => {
-    release = () => resolve();
-  });
-  fileLocks.set(key, previous.finally(() => current));
-  await previous;
-  try {
-    return await operation();
-  } finally {
-    release();
-    if (fileLocks.get(key) === current) {
-      fileLocks.delete(key);
-    }
-  }
+export async function listSpecWorkbenches(_workspacePath: string) {
+  // 简化版：返回空数组，实际应该扫描 .spec/changes 目录
+  // 这个功能可能需要在 Rust 端实现
+  return [];
 }
 
-async function ensureDir(dirPath: string) {
-  await fs.mkdir(dirPath, { recursive: true });
-}
-
-async function readJsonFile<T>(filePath: string, fallback: T) {
+export async function loadSpecWorkbench(workspacePath: string, slug: string): Promise<SpecState | null> {
   try {
-    const raw = await fs.readFile(filePath, 'utf8');
-    if (filePath.endsWith('state.json')) {
-      return deserializeSpecState(raw) as T;
-    }
-    return JSON.parse(raw) as T;
+    const paths = getSpecRelativePaths(slug);
+    const stateFile = await readWorkspaceTextFile(workspacePath, paths.state);
+    if (!stateFile.content) return null;
+    return JSON.parse(stateFile.content) as SpecState;
   } catch {
-    return fallback;
+    return null;
   }
 }
 
-export async function listSpecChangeSlugs(workspacePath: string) {
-  try {
-    const entries = await fs.readdir(getSpecChangesDir(workspacePath), { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  } catch {
-    return [];
-  }
-}
-
-export async function loadSpecState(workspacePath: string, slug: string) {
-  const paths = getSpecChangePaths(workspacePath, slug);
-  return readJsonFile<SpecState | null>(paths.stateFile, null);
-}
-
-export async function saveSpecState(workspacePath: string, slug: string, state: SpecState) {
-  const paths = getSpecChangePaths(workspacePath, slug);
-  await ensureDir(paths.changeDir);
-  await fs.writeFile(paths.stateFile, serializeSpecState(state), 'utf8');
-}
-
-export async function appendSpecTimelineEvent(workspacePath: string, slug: string, event: SpecTimelineEvent) {
-  await appendSerializedSpecTimelineEvent(workspacePath, slug, event);
-}
-
-export async function saveSpecMarkdownFiles(workspacePath: string, slug: string, state: SpecState) {
-  const paths = getSpecChangePaths(workspacePath, slug);
-  const rendered = renderSpecFilesFromState(state);
-  await ensureDir(paths.artifactsDir);
-  await ensureDir(paths.reviewsDir);
-  await ensureDir(paths.runsDir);
-  await fs.writeFile(paths.changeFile, rendered.change, 'utf8');
-  await fs.writeFile(paths.planFile, rendered.plan, 'utf8');
-  await fs.writeFile(paths.tasksFile, rendered.tasks, 'utf8');
-}
-
-export async function loadSpecAgentSessions(workspacePath: string, slug: string) {
-  const paths = getSpecChangePaths(workspacePath, slug);
-  return readJsonFile<SpecAgentSessionRecord[]>(paths.agentSessionsFile, []);
-}
-
-export async function saveSpecAgentSessions(workspacePath: string, slug: string, sessions: SpecAgentSessionRecord[]) {
-  const paths = getSpecChangePaths(workspacePath, slug);
-  await ensureDir(paths.changeDir);
-  await fs.writeFile(paths.agentSessionsFile, JSON.stringify(sessions, null, 2), 'utf8');
-}
-
-export async function updateSpecAgentSessions(
-  workspacePath: string,
-  slug: string,
-  updater: (current: SpecAgentSessionRecord[]) => SpecAgentSessionRecord[],
-) {
-  return withFileLock(`${workspacePath}:${slug}:agent-sessions`, async () => {
-    const current = await loadSpecAgentSessions(workspacePath, slug);
-    const next = updater(current);
-    await saveSpecAgentSessions(workspacePath, slug, next);
-    return next;
-  });
-}
-
-export async function syncSpecStateFromDisk(ctx: SpecRuntimeContext, slug: string) {
-  return withFileLock(`${ctx.workspacePath}:${slug}:state`, async () => {
-    const current = await loadSpecState(ctx.workspacePath, slug);
-    if (!current) {
-      throw new Error(`Spec change not found: ${slug}`);
-    }
-    const next = await syncSpecStateFromMarkdown(ctx.workspacePath, slug, current);
-    await saveSpecState(ctx.workspacePath, slug, next);
-    await saveSpecMarkdownFiles(ctx.workspacePath, slug, next);
-    return next;
-  });
-}
-
-export async function createSpecChange(workspacePath: string, input: SpecChangeScaffoldInput) {
-  const initialState = buildInitialSpecState(input);
-  const slug = makeSpecChangeSlug(input.title);
-  const state = refreshDerivedSpecState({
-    ...initialState,
-    change: {
-      ...initialState.change,
-      slug,
-    },
-  });
-  const paths = getSpecChangePaths(workspacePath, slug);
-  await ensureDir(paths.changeDir);
-  await saveSpecState(workspacePath, slug, state);
-  await saveSpecMarkdownFiles(workspacePath, slug, state);
-  await appendSpecTimelineEvent(workspacePath, slug, {
-    id: `evt_${Date.now().toString(36)}`,
-    changeId: state.change.id,
-    runId: state.change.currentRunId || undefined,
-    type: 'change.created',
-    title: 'Change created',
-    detail: 'Initial spec scaffold created.',
-    createdAt: Date.now(),
-  });
-  return { slug, state, paths };
-}
-
-export async function updateSpecState(
-  ctx: SpecRuntimeContext,
-  slug: string,
-  updater: (current: SpecState) => SpecState,
-) {
-  return withFileLock(`${ctx.workspacePath}:${slug}:state`, async () => {
-    const current = await loadSpecState(ctx.workspacePath, slug);
-    if (!current) {
-      throw new Error(`Spec change not found: ${slug}`);
-    }
-    const next = refreshDerivedSpecState(updater(current));
-    await saveSpecState(ctx.workspacePath, slug, next);
-    await saveSpecMarkdownFiles(ctx.workspacePath, slug, next);
-    return next;
-  });
-}
-
-export async function listSpecStates(workspacePath: string) {
-  const slugs = await listSpecChangeSlugs(workspacePath);
-  const states = await Promise.all(slugs.map((slug) => loadSpecState(workspacePath, slug)));
-  return states.filter((state): state is SpecState => Boolean(state));
+export async function saveSpecWorkbench(workspacePath: string, state: SpecState) {
+  const paths = getSpecRelativePaths(state.slug);
+  await writeWorkspaceTextFile(workspacePath, paths.state, JSON.stringify(state, null, 2));
 }

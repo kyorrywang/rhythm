@@ -55,45 +55,45 @@ export function SpecChangesPanel({ width }: LeftPanelProps) {
     const normalizedSearch = search.trim().toLowerCase();
     return items.filter((item) => {
       const matchesSearch = normalizedSearch.length === 0
-        || item.state.change.title.toLowerCase().includes(normalizedSearch)
-        || item.state.change.goal.toLowerCase().includes(normalizedSearch)
-        || item.state.change.overview.toLowerCase().includes(normalizedSearch);
+        || item.state.title.toLowerCase().includes(normalizedSearch)
+        || item.state.goal.toLowerCase().includes(normalizedSearch)
+        || item.state.overview.toLowerCase().includes(normalizedSearch);
 
-      const needsAttention = ['waiting_human', 'failed', 'paused'].includes(item.state.change.status);
-      const active = ['running', 'waiting_review', 'waiting_human', 'paused', 'failed', 'ready', 'planned', 'draft'].includes(item.state.change.status);
-      const done = item.state.change.status === 'completed';
+      const needsAttention = item.state.status === 'active';
+      const isActive = item.state.status === 'active';
+      const isDone = item.state.status === 'done';
 
       const matchesFilter = statusFilter === 'all'
         || (statusFilter === 'attention' && needsAttention)
-        || (statusFilter === 'active' && active && !needsAttention)
-        || (statusFilter === 'done' && done);
+        || (statusFilter === 'active' && isActive)
+        || (statusFilter === 'done' && isDone);
 
       return matchesSearch && matchesFilter;
     });
   }, [items, search, statusFilter]);
 
   const groupedItems = useMemo(() => {
-    const attention = filteredItems.filter((item) => ['waiting_human', 'failed', 'paused'].includes(item.state.change.status));
-    const active = filteredItems.filter((item) => ['running', 'waiting_review', 'ready', 'planned', 'draft'].includes(item.state.change.status));
-    const done = filteredItems.filter((item) => item.state.change.status === 'completed');
+    const attention = filteredItems.filter((item) => item.state.status === 'active');
+    const active = filteredItems.filter((item) => item.state.status === 'draft');
+    const done = filteredItems.filter((item) => item.state.status === 'done');
     return [
-      { key: 'attention', title: 'Needs Attention', items: attention },
-      { key: 'active', title: 'Active Changes', items: active },
-      { key: 'done', title: 'Completed', items: done },
+      { key: 'attention', title: '需要关注', items: attention },
+      { key: 'active', title: '活跃变更', items: active },
+      { key: 'done', title: '已完成', items: done },
     ].filter((group) => group.items.length > 0);
   }, [filteredItems]);
 
   const handleOpenCreate = () => {
     openWorkbench(buildSpecWorkbenchOpenInput(
-      { mode: 'create', documentId: 'change' },
+      { slug: '', mode: 'create' },
       { title: 'New Spec', description: 'Create a new spec change draft.', layoutMode: 'split' },
     ));
   };
 
   const handleOpenChange = (item: SpecListItem) => {
     openWorkbench(buildSpecWorkbenchOpenInput(
-      { slug: item.slug, mode: 'browse', documentId: 'change' },
-      { title: item.state.change.title, description: describeSpecStatus(item.state.change.status), layoutMode: 'split' },
+      { slug: item.slug, mode: 'browse' },
+      { title: item.state.title, description: describeSpecStatus(item.state.status), layoutMode: 'split' },
     ));
   };
 
@@ -168,23 +168,20 @@ export function SpecChangesPanel({ width }: LeftPanelProps) {
                         <Card className="transition-colors hover:border-[var(--theme-text-secondary)]">
                           <div className="min-w-0">
                             <div className="flex items-start justify-between gap-3">
-                              <div className={`truncate font-medium ${themeRecipes.listRowTitle(false)}`}>{item.state.change.title}</div>
-                              {['waiting_human', 'failed', 'paused'].includes(item.state.change.status) ? (
+                              <div className={`truncate font-medium ${themeRecipes.listRowTitle(false)}`}>{item.state.title}</div>
+                              {item.state.status === 'active' ? (
                                 <AlertTriangle size={14} className="mt-1 text-[var(--theme-warning-text)]" />
                               ) : null}
                             </div>
                             <div className={`mt-1 text-sm leading-6 ${themeRecipes.description()}`}>
-                              {item.state.change.overview || item.state.change.goal}
+                              {item.state.overview || item.state.goal}
                             </div>
                             <div className="mt-3 flex flex-wrap items-center gap-2">
-                              <Badge tone={badgeToneForSpecStatus(item.state.change.status)}>
-                                {describeSpecStatus(item.state.change.status)}
+                              <Badge tone={badgeToneForSpecStatus(item.state.status)}>
+                                {describeSpecStatus(item.state.status)}
                               </Badge>
                               <Badge tone="muted">
-                                {item.state.metrics.tasks.completed}/{item.state.metrics.tasks.total || 0} tasks
-                              </Badge>
-                              <Badge tone={item.state.metrics.tasks.waitingReview > 0 ? 'warning' : 'muted'}>
-                                {item.state.metrics.tasks.waitingReview} review
+                                {item.state.progress.done}/{item.state.progress.total || 0} 任务
                               </Badge>
                             </div>
                           </div>

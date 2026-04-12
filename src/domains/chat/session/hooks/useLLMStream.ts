@@ -225,10 +225,9 @@ export const useLLMStream = () => {
         .find((segment) => segment.type === 'tool' && segment.tool.id === chunk.toolId);
       const resolvedToolName = toolName?.type === 'tool' ? toolName.tool.name : undefined;
 
-      if (workspacePath && toolMessageId && (resolvedToolName === 'create_spec' || resolvedToolName === 'update_spec' || resolvedToolName === 'start_spec')) {
+      if (workspacePath && toolMessageId && resolvedToolName === 'create_spec') {
         void applySpecToolResult({
           workspacePath,
-          session,
           rawResult: chunk.result,
         }).then((result) => {
           if (!result?.handled || !result.toolMessage) {

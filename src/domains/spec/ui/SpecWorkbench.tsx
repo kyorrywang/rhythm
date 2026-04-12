@@ -1,95 +1,46 @@
-import { useEffect, useMemo, useState, startTransition } from 'react';
-import {
-  CheckCircle2,
-  LoaderCircle,
-  Pause,
-  Play,
-  RefreshCcw,
-  ShieldCheck,
-  Sparkles,
-} from 'lucide-react';
+// 重写后的 SpecWorkbench - 简化版本
+import { useEffect, useState, startTransition } from 'react';
+import { LoaderCircle, Square } from 'lucide-react';
 import type { WorkbenchProps } from '@/core/plugin/sdk';
 import { useActiveWorkspace } from '@/core/workspace/useWorkspaceStore';
-import { useSessionStore } from '@/core/sessions/useSessionStore';
 import {
-  ActionBar,
-  Button,
   EmptyState,
-  Input,
-  Textarea,
   WorkbenchPage,
   WorkbenchSection,
 } from '@/ui/components';
 import { themeRecipes } from '@/ui/theme/recipes';
-import type { SpecState, SpecTimelineEvent } from '../domain/types';
-import {
-  canResumeSpecFromUi,
-  canStartSpecFromUi,
-  isSpecEditableStatus,
-  type SpecDocumentBundle,
-  type SpecDocumentId,
-  type SpecWorkbenchPayload,
-} from './helpers';
-import {
-  approveSpecHumanTaskInWorkspace,
-  createSpecDraftInWorkspace,
-  loadSpecWorkbenchState,
-  pauseSpecRunInWorkspace,
-  renderSpecDocuments,
-  resumeSpecRunInWorkspace,
-  retrySpecTaskInWorkspace,
-  saveEditableSpecDocumentsInWorkspace,
-  startSpecRunInWorkspace,
-  syncSpecWorkbenchFromDisk,
-} from '../integration/workbench';
-import { buildSpecWorkbenchOpenInput } from '../integration/navigation';
+import { invoke } from '@tauri-apps/api/core';
+import { Channel } from '@tauri-apps/api/core';
+import { loadSpecWorkbench, persistSpecWorkbench, prepareSpecRun, finalizeSpecRun } from '../integration/workbench';
+import type { SpecState, SpecDocuments } from '../domain/types';
 import { SpecStatusHeader } from './SpecStatusHeader';
-import { SpecDocumentTabs } from './SpecDocumentTabs';
-import { SpecLiveDocument } from './SpecLiveDocument';
-import { SpecTimelineView } from './SpecTimelineView';
-import { SpecRunSnapshot } from './SpecRunSnapshot';
+import { hasHumanCheckpoint } from '../domain/stateMachine';
 
-export function SpecWorkbench({ payload }: WorkbenchProps<SpecWorkbenchPayload>) {
-  const workbenchPayload = payload || {};
+export function SpecWorkbench({ payload }: WorkbenchProps<{ slug: string }>) {
   const workspace = useActiveWorkspace();
-  const openWorkbench = useSessionStore((state) => state.openWorkbench);
-  const [isLoading, setIsLoading] = useState(workbenchPayload.mode !== 'create');
-  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<SpecState | null>(null);
-  const [documents, setDocuments] = useState<SpecDocumentBundle>({ change: '', plan: '', tasks: '' });
-  const [timelineText, setTimelineText] = useState('');
-  const [activeDocument, setActiveDocument] = useState<SpecDocumentId>(workbenchPayload.documentId || 'change');
-  const [draftTitle, setDraftTitle] = useState('');
-  const [draftGoal, setDraftGoal] = useState('');
-  const [draftOverview, setDraftOverview] = useState('');
+  const [documents, setDocuments] = useState<SpecDocuments>({ proposal: '', tasks: '' });
+
+  const slug = payload?.slug;
 
   useEffect(() => {
-    if (workbenchPayload.mode === 'create' && !workbenchPayload.slug) {
+    if (!slug) {
       setIsLoading(false);
-      setState(null);
-      setDocuments({ change: '', plan: '', tasks: '' });
-      setTimelineText('');
-      setActiveDocument('change');
       return;
     }
 
-    if (!workbenchPayload.slug) {
-      return;
-    }
-
-    const slug = workbenchPayload.slug;
     let cancelled = false;
     setIsLoading(true);
     setError(null);
     startTransition(() => {
-      void loadSpecWorkbenchState(workspace.path, slug)
+      loadSpecWorkbench(workspace.path, slug)
         .then((loaded) => {
           if (cancelled) return;
           setState(loaded.state);
           setDocuments(loaded.documents);
-          setTimelineText(loaded.timeline.map((event) => JSON.stringify(event)).join('\n'));
-          setActiveDocument(workbenchPayload.documentId || getDefaultDocumentId(loaded.state));
         })
         .catch((loadError) => {
           if (!cancelled) {
@@ -106,135 +57,77 @@ export function SpecWorkbench({ payload }: WorkbenchProps<SpecWorkbenchPayload>)
     return () => {
       cancelled = true;
     };
-  }, [workspace.path, workbenchPayload.documentId, workbenchPayload.mode, workbenchPayload.slug]);
+  }, [workspace.path, slug]);
 
-  const editable = state ? isSpecEditableStatus(state.change.status) : true;
-  const liveDocumentBundle = useMemo(() => (state ? renderSpecDocuments(state) : documents), [documents, state]);
-
-  const currentDocumentValue = activeDocument === 'timeline' ? timelineText : documents[activeDocument];
-  const renderedLiveValue = activeDocument === 'timeline'
-    ? timelineText
-    : liveDocumentBundle[activeDocument];
-
-  const timelineEvents = useMemo<SpecTimelineEvent[]>(
-    () =>
-      timelineText
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          try {
-            return JSON.parse(line) as SpecTimelineEvent;
-          } catch {
-            return null;
-          }
-        })
-        .filter((event): event is SpecTimelineEvent => Boolean(event)),
-    [timelineText],
-  );
-
-  const updateFromTransition = (next: {
-    state: SpecState;
-    documents: SpecDocumentBundle;
-    timeline: SpecTimelineEvent[];
-  }) => {
-    setState(next.state);
-    setDocuments(next.documents);
-    setTimelineText(next.timeline.map((event) => JSON.stringify(event)).join('\n'));
-  };
-
-  const withSaving = async (operation: () => Promise<void>) => {
-    setIsSaving(true);
-    setError(null);
-    try {
-      await operation();
-    } catch (operationError) {
-      setError(operationError instanceof Error ? operationError.message : String(operationError));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCreateDraft = async () => {
-    if (!draftTitle.trim() || !draftGoal.trim()) {
-      setError('Title and goal are required to create a spec.');
-      return;
-    }
-
-    await withSaving(async () => {
-      const draftState = await createSpecDraftInWorkspace(workspace.path, {
-        title: draftTitle,
-        goal: draftGoal,
-        overview: draftOverview,
-      });
-
-      openWorkbench(buildSpecWorkbenchOpenInput(
-        { slug: draftState.change.slug, mode: 'browse', documentId: 'change' },
-        { title: draftState.change.title, description: 'Draft', layoutMode: 'split' },
-      ));
-    });
-  };
-
-  const handleDocumentChange = (value: string) => {
-    if (activeDocument === 'timeline') return;
-    setDocuments((current) => ({
-      ...current,
-      [activeDocument]: value,
-    }));
-  };
-
-  const handleSaveDraft = async () => {
+  const handleRun = async () => {
     if (!state) return;
-    await withSaving(async () => {
-      const nextState = await saveEditableSpecDocumentsInWorkspace(workspace.path, state, documents, timelineEvents);
+    setIsRunning(true);
+    setError(null);
+
+    try {
+      // 1. 持久化状态变为 active，获取 prompt
+      const { nextState, prompt } = await prepareSpecRun(workspace.path, state, documents);
       setState(nextState);
-      setDocuments(renderSpecDocuments(nextState));
-    });
+
+      // 2. 创建事件通道，用于接收 Agent 的流式输出
+      const channel = new Channel();
+      const specSessionId = `spec-${state.slug}-${Date.now()}`;
+
+      // 3. 监听 Agent 完成事件
+      channel.onmessage = (event: unknown) => {
+        const evt = event as Record<string, unknown>;
+        if (evt?.state === 'completed' || evt?.state === 'failed') {
+          // Agent 执行完毕，重新读取 tasks.md，同步进度
+          finalizeSpecRun(workspace.path, nextState).then((finalState) => {
+            setState(finalState);
+            // 重新加载 documents（tasks.md 已被 Agent 更新）
+            loadSpecWorkbench(workspace.path, state.slug).then((data) => {
+              setDocuments(data.documents);
+            });
+            setIsRunning(false);
+          }).catch((err) => {
+            setError(err instanceof Error ? err.message : String(err));
+            setIsRunning(false);
+          });
+        }
+      };
+
+      // 4. 发起 chat_stream，使用 spec profile
+      await invoke('chat_stream', {
+        sessionId: specSessionId,
+        prompt,
+        cwd: workspace.path,
+        profileId: 'spec',
+        permissionMode: 'full_auto',
+        onEvent: channel,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setIsRunning(false);
+    }
   };
 
-  const handleSyncFromDisk = async () => {
-    if (!workbenchPayload.slug) return;
-    await withSaving(async () => {
-      const loaded = await syncSpecWorkbenchFromDisk(workspace.path, workbenchPayload.slug!);
-      setState(loaded.state);
-      setDocuments(loaded.documents);
-      setTimelineText(loaded.timeline.map((event) => JSON.stringify(event)).join('\n'));
-    });
+  const handleInterrupt = async () => {
+    if (!state) return;
+    // 中断：将状态从 active 退回 draft
+    const nextState = { ...state, status: 'draft' as const, updatedAt: Date.now() };
+    await persistSpecWorkbench(workspace.path, nextState, documents);
+    setState(nextState);
+    setIsRunning(false);
   };
 
   if (isLoading) {
     return (
       <WorkbenchPage icon={<LoaderCircle size={18} className="animate-spin" />} eyebrow="Spec" title="Loading Spec">
-        <EmptyState title="Loading spec change" description="Reading markdown documents and state from the workspace." />
+        <EmptyState title="Loading spec" description="Reading markdown documents and state from the workspace." />
       </WorkbenchPage>
     );
   }
 
-  if (error && !state && workbenchPayload.mode !== 'create') {
+  if (error && !state) {
     return (
-      <WorkbenchPage icon={<Sparkles size={18} />} eyebrow="Spec" title="Spec Unavailable">
+      <WorkbenchPage icon={<Square size={18} />} eyebrow="Spec" title="Spec Unavailable">
         <EmptyState title="Could not open this spec" description={error} />
-      </WorkbenchPage>
-    );
-  }
-
-  if (workbenchPayload.mode === 'create' && !state) {
-    return (
-      <WorkbenchPage
-        icon={<Sparkles size={18} />}
-        eyebrow="Spec"
-        title="New Spec"
-        description="Seed the first markdown documents, then keep working in md until the run starts."
-        actions={<Button onClick={handleCreateDraft} isLoading={isSaving}>Create Draft</Button>}
-      >
-        <WorkbenchSection title="Create Change" description="This seeds change.md, plan.md, tasks.md, state.json, and timeline.jsonl.">
-          <div className="grid gap-4">
-            <Input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="Add login rate limit" />
-            <Textarea value={draftGoal} onChange={(event) => setDraftGoal(event.target.value)} placeholder="Describe what the change must accomplish." />
-            <Textarea value={draftOverview} onChange={(event) => setDraftOverview(event.target.value)} placeholder="Optional context, scope, and why this matters." />
-            {error ? <div className={`text-sm ${themeRecipes.description()}`}>{error}</div> : null}
-          </div>
-        </WorkbenchSection>
       </WorkbenchPage>
     );
   }
@@ -243,182 +136,64 @@ export function SpecWorkbench({ payload }: WorkbenchProps<SpecWorkbenchPayload>)
     return null;
   }
 
-  const latestRun = state.runs[state.runs.length - 1] || null;
-  const latestReview = state.reviews[state.reviews.length - 1] || null;
-  const pendingHumanTask = latestRun?.pendingHumanAction?.taskId
-    ? state.tasks.find((task) => task.id === latestRun.pendingHumanAction?.taskId) || null
-    : null;
-  const failedTask = latestRun?.failureState?.taskId
-    ? state.tasks.find((task) => task.id === latestRun.failureState?.taskId) || null
-    : null;
+  const showHumanWarning = state.status === 'active' && hasHumanCheckpoint(documents.tasks);
 
   return (
     <WorkbenchPage
-      icon={<Sparkles size={18} />}
+      icon={<Square size={18} />}
       eyebrow="Spec"
-      title={state.change.title}
-      description={state.change.goal}
+      title={state.title}
+      description={state.goal}
       actions={null}
     >
       <SpecStatusHeader
         state={state}
-        latestRun={latestRun}
-        pendingHumanTask={pendingHumanTask}
-        failedTask={failedTask}
-        latestReview={latestReview}
-        isSaving={isSaving}
-        onSync={handleSyncFromDisk}
+        showHumanWarning={showHumanWarning}
+        isRunning={isRunning}
+        onRun={handleRun}
+        onInterrupt={handleInterrupt}
       />
 
-      <ActionBar
-        leading={<SpecDocumentTabs activeDocument={activeDocument} onChange={setActiveDocument} />}
-        trailing={(
-          <div className="flex flex-wrap items-center gap-2">
-            {editable ? (
-              <>
-                <Button variant="secondary" size="sm" onClick={handleSaveDraft} isLoading={isSaving}>
-                  Save Markdown
-                </Button>
-                {canResumeSpecFromUi(state) ? (
-                  <Button
-                    size="sm"
-                    onClick={() => void withSaving(async () => {
-                      const next = await resumeSpecRunInWorkspace(workspace.path, state, timelineEvents);
-                      updateFromTransition(next);
-                    })}
-                  >
-                    <Play size={14} />
-                    Resume
-                  </Button>
-                ) : null}
-                {canStartSpecFromUi(state) && !canResumeSpecFromUi(state) ? (
-                  <Button
-                    size="sm"
-                    onClick={() => void withSaving(async () => {
-                      const next = await startSpecRunInWorkspace(workspace.path, state, documents, timelineEvents);
-                      updateFromTransition(next);
-                    })}
-                  >
-                    <Play size={14} />
-                    Run
-                  </Button>
-                ) : null}
-              </>
-            ) : (
-              <>
-                {state.change.status === 'running' ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => void withSaving(async () => {
-                      const next = await pauseSpecRunInWorkspace(workspace.path, state, timelineEvents);
-                      updateFromTransition(next);
-                    })}
-                  >
-                    <Pause size={14} />
-                    Pause
-                  </Button>
-                ) : null}
-                {state.change.status === 'paused' ? (
-                  <Button
-                    size="sm"
-                    onClick={() => void withSaving(async () => {
-                      const next = await resumeSpecRunInWorkspace(workspace.path, state, timelineEvents);
-                      updateFromTransition(next);
-                    })}
-                  >
-                    <Play size={14} />
-                    Resume
-                  </Button>
-                ) : null}
-                {state.change.status === 'waiting_human' ? (
-                  <Button
-                    size="sm"
-                    onClick={() => void withSaving(async () => {
-                      const next = await approveSpecHumanTaskInWorkspace(workspace.path, state, timelineEvents);
-                      updateFromTransition(next);
-                    })}
-                  >
-                    <ShieldCheck size={14} />
-                    Approve
-                  </Button>
-                ) : null}
-                {state.change.status === 'failed' || failedTask ? (
-                  <Button
-                    size="sm"
-                    onClick={() => void withSaving(async () => {
-                      const next = await retrySpecTaskInWorkspace(workspace.path, state, timelineEvents);
-                      updateFromTransition(next);
-                    })}
-                  >
-                    <RefreshCcw size={14} />
-                    Retry
-                  </Button>
-                ) : null}
-              </>
-            )}
-          </div>
-        )}
-      />
-
-      <WorkbenchSection
-        title={editable ? 'Markdown Editor' : 'Live Spec Document'}
-        description={
-          editable
-            ? 'Edit the markdown directly while the change is still in a planning state.'
-            : 'The run is live, so the document surface becomes a read-only execution view.'
-        }
-      >
-        {editable && activeDocument !== 'timeline' ? (
-          <Textarea
-            className="min-h-[65vh] font-mono text-[13px] leading-6"
-            value={currentDocumentValue}
-            onChange={(event) => handleDocumentChange(event.target.value)}
+      {/* proposal.md 编辑器 */}
+      {state.status === 'draft' && (
+        <WorkbenchSection
+          title="变更提案"
+          description="编辑 proposal.md 来定义目标、范围和约束"
+        >
+          <textarea
+            className="w-full min-h-[30vh] font-mono text-sm p-4 bg-transparent border rounded"
+            value={documents.proposal}
+            onChange={(e) => setDocuments({ ...documents, proposal: e.target.value })}
+            onBlur={() => persistSpecWorkbench(workspace.path, state, documents)}
           />
-        ) : (
-          activeDocument === 'timeline'
-            ? <SpecTimelineView events={timelineEvents} />
-            : <SpecLiveDocument markdown={renderedLiveValue} />
-        )}
+        </WorkbenchSection>
+      )}
+
+      {/* tasks.md 显示 */}
+      <WorkbenchSection
+        title="任务列表"
+        description={state.status === 'draft' ? 'Agent 将在此生成具体任务' : 'Agent 正在执行任务'}
+      >
+        <div className="font-mono text-sm whitespace-pre-wrap p-4">
+          {documents.tasks}
+        </div>
       </WorkbenchSection>
 
-      <SpecRunSnapshot
-        currentTaskTitle={state.metrics.tasks.currentTaskTitle}
-        latestRun={latestRun}
-        pendingHumanTask={pendingHumanTask}
-        failedTask={failedTask}
-        latestReview={latestReview}
-        waitingReviewCount={state.metrics.tasks.waitingReview}
-      />
-
-      {error ? (
-        <WorkbenchSection title="Last Error" description="The last UI-side save or sync issue.">
-          <div className={`rounded-[var(--theme-radius-card)] border-[var(--theme-border-width)] border-[var(--theme-danger-border)] bg-[var(--theme-danger-surface)] px-4 py-3 text-sm ${themeRecipes.description()}`}>
+      {error && (
+        <WorkbenchSection title="错误" description="执行过程中出现错误">
+          <div className={`rounded border px-4 py-3 text-sm ${themeRecipes.description()}`}>
             {error}
           </div>
         </WorkbenchSection>
-      ) : null}
+      )}
 
-      {state.change.status === 'completed' ? (
-        <WorkbenchSection title="Completed" description="The change reached a settled state and the document surface is now archival.">
-          <div className="flex items-center gap-2 text-sm text-[var(--theme-text-primary)]">
-            <CheckCircle2 size={16} />
-            This spec is complete. The markdown remains the primary record.
+      {state.status === 'done' && (
+        <WorkbenchSection title="完成" description="所有任务已完成">
+          <div className="flex items-center gap-2 text-sm">
+            ✓ 此 Spec 已完成，tasks.md 保留了执行记录。
           </div>
-          {latestReview ? (
-            <div className={`mt-3 text-sm ${themeRecipes.description()}`}>
-              Final review: {latestReview.summary}
-            </div>
-          ) : null}
         </WorkbenchSection>
-      ) : null}
+      )}
     </WorkbenchPage>
   );
-}
-
-function getDefaultDocumentId(state: SpecState): SpecDocumentId {
-  if (['running', 'waiting_review', 'waiting_human', 'failed', 'completed'].includes(state.change.status)) {
-    return 'tasks';
-  }
-  return 'change';
 }
