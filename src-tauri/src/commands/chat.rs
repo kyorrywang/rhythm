@@ -25,6 +25,29 @@ const CHAT_AUTO_RETRY_DELAY_MS: u64 = 10_000;
 const CHAT_TRANSIENT_RETRY_DELAY_MS: u64 = 2_000;
 const CHAT_MAX_TRANSIENT_RETRIES: u32 = 2;
 
+fn effective_allowed_tools(
+    runtime_spec: &config::ResolvedRuntimeSpec,
+) -> Option<&[String]> {
+    if runtime_spec.profile.permissions.locked {
+        return Some(&runtime_spec.permission.allowed_tools);
+    }
+    if runtime_spec.permission.allowed_tools.is_empty() {
+        None
+    } else {
+        Some(&runtime_spec.permission.allowed_tools)
+    }
+}
+
+fn effective_disallowed_tools(
+    runtime_spec: &config::ResolvedRuntimeSpec,
+) -> Option<&[String]> {
+    if runtime_spec.permission.denied_tools.is_empty() {
+        None
+    } else {
+        Some(&runtime_spec.permission.denied_tools)
+    }
+}
+
 fn runtime_state_message(
     state: &str,
     reason: Option<&str>,
@@ -128,16 +151,8 @@ pub async fn chat_stream(
         let tool_registry = Arc::new(ToolRegistry::create_for_agent_with_plugins(
             &loaded_plugins,
             mcp_manager.clone(),
-            if runtime_spec.permission.allowed_tools.is_empty() {
-                None
-            } else {
-                Some(&runtime_spec.permission.allowed_tools)
-            },
-            if runtime_spec.permission.denied_tools.is_empty() {
-                None
-            } else {
-                Some(&runtime_spec.permission.denied_tools)
-            },
+            effective_allowed_tools(&runtime_spec),
+            effective_disallowed_tools(&runtime_spec),
         ));
         let permission_checker = Arc::new(PermissionChecker::new(&runtime_spec.permission));
 

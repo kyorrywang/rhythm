@@ -28,6 +28,7 @@ import {
   updateAgentRun,
   updateArtifact,
   updateCoordinatorRun,
+  updateRun,
   updateTask,
   withRunLock,
 } from './storage';
@@ -61,12 +62,24 @@ import type {
 import { createId } from './utils';
 
 const MAX_WATCHDOG_IDLE_MS = 5 * 60 * 1000;
+const MAINTENANCE_LEASE_TTL_MS = 30 * 1000;
 const MAX_TRANSIENT_AGENT_RETRIES = 2;
 const MAX_REWORK_ATTEMPTS = 2;
 const AUTO_RETRY_DELAY_MS = 10_000;
-const ORCHESTRATOR_WORK_AGENT_ALLOWED_TOOLS = ['read', 'write', 'edit'];
-const ORCHESTRATOR_REVIEW_AGENT_ALLOWED_TOOLS = ['read'];
-const ORCHESTRATOR_COORDINATOR_ALLOWED_TOOLS: string[] = [];
+const ORCHESTRATOR_COORDINATOR_PROFILE_ID = 'orchestrator-coordinate';
+const ORCHESTRATOR_WORK_PROFILE_ID = 'orchestrator-work';
+const ORCHESTRATOR_REVIEW_PROFILE_ID = 'orchestrator-review';
+const COORDINATOR_FORBIDDEN_STREAM_EVENTS = new Set<ServerEventChunk['type']>([
+  'tool_start',
+  'tool_call_delta',
+  'tool_output',
+  'tool_result',
+  'tool_end',
+  'ask_request',
+  'subagent_start',
+  'subagent_end',
+  'permission_request',
+]);
 const RUN_STATUS_TRANSITIONS: Record<OrchestratorRun['status'], OrchestratorRun['status'][]> = {
   pending: ['running', 'cancelled', 'failed'],
   running: ['waiting_review', 'waiting_human', 'pause_requested', 'paused', 'completed', 'failed', 'cancelled'],
@@ -85,7 +98,7 @@ const TASK_STATUS_TRANSITIONS: Record<OrchestratorAgentTask['status'], Orchestra
   running: ['waiting_review', 'waiting_human', 'paused', 'completed', 'failed', 'cancelled', 'blocked'],
   blocked: ['ready', 'waiting_human', 'cancelled', 'failed'],
   waiting_review: ['running', 'waiting_human', 'completed', 'cancelled', 'failed'],
-  waiting_human: ['ready', 'running', 'cancelled', 'failed'],
+  waiting_human: ['ready', 'running', 'completed', 'cancelled', 'failed'],
   paused: ['ready', 'running', 'cancelled', 'failed'],
   completed: [],
   failed: ['ready', 'cancelled'],
@@ -94,6 +107,7 @@ const TASK_STATUS_TRANSITIONS: Record<OrchestratorAgentTask['status'], Orchestra
 };
 const pendingAutomaticRetries = new Map<string, number>();
 const pendingAutomaticRunResumes = new Map<string, number>();
+const activeMaintenanceLeaseOwners = new Map<string, string>();
 
 type Dispatch = {
   parentTask: OrchestratorAgentTask;
@@ -286,6 +300,66 @@ function clearAutomaticRunResume(runId: string) {
   }
 }
 
+async function acquireMaintenanceLease(ctx: PluginContext, runId: string, ownerId: string, now: number) {
+  let acquired = false;
+  const run = await updateRun(ctx, runId, (current) => {
+    if (!current) return current;
+    const existing = current.maintenanceLease;
+    const leaseIsActive = existing && existing.expiresAt > now && existing.ownerId !== ownerId;
+    if (leaseIsActive) {
+      return current;
+    }
+    acquired = true;
+    return {
+      ...current,
+      maintenanceLease: {
+        ownerId,
+        acquiredAt: existing?.ownerId === ownerId ? existing.acquiredAt : now,
+        heartbeatAt: now,
+        expiresAt: now + MAINTENANCE_LEASE_TTL_MS,
+      },
+      updatedAt: current.updatedAt,
+    };
+  });
+  return { acquired, run };
+}
+
+async function releaseMaintenanceLease(ctx: PluginContext, runId: string, ownerId: string) {
+  await updateRun(ctx, runId, (current) => {
+    if (!current || current.maintenanceLease?.ownerId !== ownerId) {
+      return current;
+    }
+    return {
+      ...current,
+      maintenanceLease: undefined,
+    };
+  });
+}
+
+async function withMaintenanceLease<T>(
+  ctx: PluginContext,
+  runId: string,
+  onUnavailable: () => Promise<T>,
+  operation: () => Promise<T>,
+) {
+  if (activeMaintenanceLeaseOwners.has(runId)) {
+    return operation();
+  }
+  const ownerId = createId('lease');
+  const now = Date.now();
+  const { acquired } = await acquireMaintenanceLease(ctx, runId, ownerId, now);
+  if (!acquired) {
+    return onUnavailable();
+  }
+  activeMaintenanceLeaseOwners.set(runId, ownerId);
+  try {
+    return await operation();
+  } finally {
+    activeMaintenanceLeaseOwners.delete(runId);
+    await releaseMaintenanceLease(ctx, runId, ownerId);
+  }
+}
+
 function scheduleAutomaticRunResume(
   ctx: PluginContext,
   runId: string,
@@ -299,6 +373,22 @@ function scheduleAutomaticRunResume(
   }, delayMs);
   pendingAutomaticRunResumes.set(runId, timer);
   ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId });
+}
+
+function getCoordinatorPolicyViolation(chunk: ServerEventChunk) {
+  if (!COORDINATOR_FORBIDDEN_STREAM_EVENTS.has(chunk.type)) {
+    return null;
+  }
+  if ('toolName' in chunk && typeof chunk.toolName === 'string' && chunk.toolName.length > 0) {
+    return `Coordinator attempted forbidden tool usage: ${chunk.toolName}.`;
+  }
+  if (chunk.type === 'subagent_start' || chunk.type === 'subagent_end') {
+    return 'Coordinator attempted forbidden subagent delegation.';
+  }
+  if (chunk.type === 'ask_request') {
+    return 'Coordinator attempted forbidden interactive user input.';
+  }
+  return 'Coordinator attempted forbidden tool activity.';
 }
 
 type AutomaticRecoveryTarget =
@@ -320,7 +410,10 @@ async function scheduleTransientFailureRecovery(
   now: number,
 ) {
   const retryCount = getAutomaticRecoveryRetryCount(run, target);
-  if (!shouldAutoRecoverTransientFailure(message, retryCount)) {
+  const shouldAutoRecover = target.kind === 'coordinator'
+    ? shouldAutoRecoverCoordinatorFailure(message, retryCount)
+    : shouldAutoRecoverTransientFailure(message, retryCount);
+  if (!shouldAutoRecover) {
     return false;
   }
 
@@ -390,6 +483,11 @@ async function scheduleTransientFailureRecovery(
 
 function shouldAutoRecoverTransientFailure(message: string, retryCount: number) {
   return isTransientAgentFailure(message) && retryCount < MAX_TRANSIENT_AGENT_RETRIES;
+}
+
+function shouldAutoRecoverCoordinatorFailure(message: string, retryCount: number) {
+  return retryCount < MAX_TRANSIENT_AGENT_RETRIES
+    && (isTransientAgentFailure(message) || isRecoverableCoordinatorDecisionFailure(message));
 }
 
 function getAutomaticRecoveryRetryCount(run: OrchestratorRun, target: AutomaticRecoveryTarget) {
@@ -491,12 +589,16 @@ export async function wakeOrchestratorRun(
   run: OrchestratorRun,
   input: OrchestratorWakeRunInput,
 ) {
-  return withRunLock(run.id, async () => {
-    const wakeAt = Date.now();
-    const currentRun = await getRun(ctx, run.id) || run;
-    if (currentRun.status === 'pause_requested' || currentRun.status === 'paused' || currentRun.status === 'waiting_human' || currentRun.status === 'cancelled') {
-      return currentRun;
-    }
+  return withMaintenanceLease(
+    ctx,
+    run.id,
+    async () => (await getRun(ctx, run.id)) || run,
+    () => withRunLock(run.id, async () => {
+      const wakeAt = Date.now();
+      const currentRun = await getRun(ctx, run.id) || run;
+      if (currentRun.status === 'pause_requested' || currentRun.status === 'paused' || currentRun.status === 'waiting_human' || currentRun.status === 'cancelled') {
+        return currentRun;
+      }
 
     let tasks = await listTasksForRun(ctx, run.id);
     const reviewPolicy = await getReviewPolicy(ctx, run.id);
@@ -564,6 +666,7 @@ export async function wakeOrchestratorRun(
       id: createId('orchestrator_run'),
       runId: run.id,
       sessionId: `orchestrator-main-${run.id}-${wakeAt}`,
+      profileId: ORCHESTRATOR_COORDINATOR_PROFILE_ID,
       title: `${effectiveRun.planTitle} Orchestrator Agent`,
       prompt: orchestrationPrompt,
       wakeReason: input.reason,
@@ -609,14 +712,194 @@ export async function wakeOrchestratorRun(
     await saveRun(ctx, runningWithCoordinator);
     void startCoordinatorRunSession(ctx, runningWithCoordinator, coordinatorRun, dispatchPlan.candidates);
     ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: runningWithCoordinator.id });
-    return runningWithCoordinator;
-  });
+      return runningWithCoordinator;
+    }),
+  );
 }
 
 export async function wakeRunById(ctx: PluginContext, input: OrchestratorWakeRunInput) {
   const run = await getRun(ctx, input.runId);
   if (!run) throw new Error(`Run not found: ${input.runId}`);
   return wakeOrchestratorRun(ctx, run, input);
+}
+
+function buildAssignmentBriefForTask(run: OrchestratorRun, task: OrchestratorAgentTask, stage: OrchestratorPlanStage): AssignmentBrief {
+  const targetFolder = task.targetFolder || stage.targetFolder;
+  const expectedFiles = (task.expectedFiles?.length ? task.expectedFiles : stage.outputFiles).map(normalizeRelativePath);
+  return {
+    assignmentId: createId('assignment'),
+    runId: run.id,
+    taskId: task.id,
+    kind: 'work',
+    title: task.title,
+    whyNow: task.summary || task.objective || `${stage.name} is ready to continue after human approval.`,
+    goal: task.objective || stage.goal,
+    context: [
+      `Stage: ${stage.name}`,
+      run.confirmedPlan.overview,
+      task.summary || stage.goal,
+    ].filter(Boolean),
+    inputArtifacts: task.inputs || [],
+    instructions: [task.summary || task.objective || stage.goal].filter(Boolean),
+    acceptanceCriteria: run.confirmedPlan.successCriteria.length ? [...run.confirmedPlan.successCriteria] : [...stage.deliverables],
+    deliverables: stage.deliverables.length ? [...stage.deliverables] : [...expectedFiles],
+    targetFolder,
+    expectedFiles,
+    reviewTargetPaths: expectedFiles.map((file) => `${targetFolder}/${file}`),
+    reviewFocus: run.confirmedPlan.reviewCheckpoints.length ? [...run.confirmedPlan.reviewCheckpoints] : ['Confirm the approved changes are reflected in the expected files.'],
+    risks: [],
+    createdAt: Date.now(),
+  };
+}
+
+async function createAgentRunForTask(
+  ctx: PluginContext,
+  run: OrchestratorRun,
+  task: OrchestratorAgentTask,
+  now: number,
+) {
+  if (task.kind !== 'work' || !task.stageId) {
+    throw new Error(`Task cannot be resumed automatically without a work assignment: ${task.id}`);
+  }
+  const stage = run.confirmedPlan.stages.find((item) => item.id === task.stageId);
+  if (!stage) {
+    throw new Error(`Stage not found for task: ${task.id}`);
+  }
+  const [projectState, reviewLogs, artifacts] = await Promise.all([
+    getProjectState(ctx, run.id),
+    listReviewLogsForRun(ctx, run.id),
+    listArtifactsForRun(ctx, run.id),
+  ]);
+  const assignmentBrief = buildAssignmentBriefForTask(run, task, stage);
+  const input = buildWorkAgentInput(run, stage, projectState, reviewLogs, artifacts, assignmentBrief);
+  const sessionId = `orchestrator-${run.id}-${task.agentId || stage.id}:work-${task.id}-${now}`;
+  const agentRun: OrchestratorAgentRun = {
+    id: createId('agent_run'),
+    runId: run.id,
+    taskId: task.id,
+    planId: run.planId,
+    profileId: ORCHESTRATOR_WORK_PROFILE_ID,
+    kind: 'work',
+    stageId: stage.id,
+    stageName: stage.name,
+    agentId: task.agentId || `${stage.id}:work`,
+    agentName: task.agentName || `${stage.name} Work Agent`,
+    sessionId,
+    title: task.agentName || task.title,
+    prompt: buildWorkAgentPrompt(input),
+    input,
+    status: 'ready',
+    createdAt: now,
+    updatedAt: now,
+  };
+  await saveAgentRun(ctx, agentRun);
+  const nextTask = await updateTask(ctx, task.id, (current) => ({
+    ...current,
+    status: 'ready',
+    blockedReason: undefined,
+    latestAgentRunId: agentRun.id,
+    sessionId,
+    attemptCount: Math.max(1, current.attemptCount + 1),
+    updatedAt: now,
+  }));
+  return {
+    task: nextTask || task,
+    agentRun,
+  };
+}
+
+async function releaseWaitingHumanTasks(ctx: PluginContext, run: OrchestratorRun, now: number) {
+  const tasks = await listTasksForRun(ctx, run.id);
+  const waitingHumanTasks = tasks.filter((task) => task.status === 'waiting_human');
+  const launches: Array<{ task: OrchestratorAgentTask; agentRun: OrchestratorAgentRun }> = [];
+  const parentsToRecompute = new Set<string>();
+
+  for (const task of waitingHumanTasks.sort((a, b) => a.depth - b.depth || a.order - b.order || a.createdAt - b.createdAt)) {
+    if (task.nodeType === 'checkpoint') {
+      await updateTask(ctx, task.id, (current) => ({
+        ...(assertTaskStatusTransition(current.status, 'completed'), current),
+        status: 'completed',
+        blockedReason: undefined,
+        updatedAt: now,
+      }));
+      if (task.parentTaskId) parentsToRecompute.add(task.parentTaskId);
+      continue;
+    }
+
+    if (task.kind === 'work') {
+      const existingAgentRun = await getAgentRunByTaskId(ctx, task.id);
+      if (existingAgentRun) {
+        const nextAgentRun: OrchestratorAgentRun = {
+          ...existingAgentRun,
+          id: createId('agent_run'),
+          sessionId: `orchestrator-${run.id}-${task.agentId}-${task.id}-${now}`,
+          status: 'ready',
+          error: undefined,
+          startedAt: undefined,
+          completedAt: undefined,
+          lastEventAt: undefined,
+          output: undefined,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await saveAgentRun(ctx, nextAgentRun);
+        const nextTask = await updateTask(ctx, task.id, (current) => ({
+          ...(assertTaskStatusTransition(current.status, 'ready'), current),
+          status: 'ready',
+          blockedReason: undefined,
+          latestAgentRunId: nextAgentRun.id,
+          sessionId: nextAgentRun.sessionId,
+          attemptCount: current.attemptCount + 1,
+          updatedAt: now,
+        }));
+        launches.push({ task: nextTask || task, agentRun: nextAgentRun });
+      } else {
+        launches.push(await createAgentRunForTask(ctx, run, task, now));
+      }
+      if (task.parentTaskId) parentsToRecompute.add(task.parentTaskId);
+      continue;
+    }
+
+    await updateTask(ctx, task.id, (current) => ({
+      ...(assertTaskStatusTransition(current.status, 'ready'), current),
+      status: 'ready',
+      requiresHumanApproval: false,
+      blockedReason: undefined,
+      updatedAt: now,
+    }));
+    if (task.parentTaskId) parentsToRecompute.add(task.parentTaskId);
+  }
+
+  for (const parentTaskId of parentsToRecompute) {
+    await recomputeContainerTaskState(ctx, run.id, parentTaskId, now);
+  }
+
+  const refreshedTasks = await listTasksForRun(ctx, run.id);
+  const activeTaskCount = refreshedTasks.filter((task) => isLiveTask(task)).length + launches.length;
+  const nextRun: OrchestratorRun = {
+    ...run,
+    status: 'running',
+    failureState: undefined,
+    pendingHumanCheckpoint: undefined,
+    pendingHumanAction: undefined,
+    pausedAt: undefined,
+    pauseRequestedAt: undefined,
+    watchdogStatus: 'healthy',
+    watchdogWarning: undefined,
+    watchdogCheckedAt: now,
+    activeTaskCount,
+    updatedAt: now,
+  };
+
+  for (const launch of launches) {
+    void launchDetachedAgentRunSession(ctx, nextRun, launch.task, launch.agentRun, {
+      title: `${launch.agentRun.agentName || launch.agentRun.title} · ${launch.agentRun.stageName || 'Approved Task'}`,
+      prompt: launch.agentRun.prompt,
+      startedDetail: `${launch.task.agentName || launch.task.title} resumed after human approval.`,
+    });
+  }
+
+  return nextRun;
 }
 
 export async function pauseOrchestratorRun(ctx: PluginContext, input: OrchestratorPauseRunInput) {
@@ -673,44 +956,58 @@ export async function pauseOrchestratorRun(ctx: PluginContext, input: Orchestrat
 }
 
 export async function resumeOrchestratorRun(ctx: PluginContext, input: OrchestratorResumeRunInput) {
-  const run = await getRun(ctx, input.runId);
-  if (!run) throw new Error(`Run not found: ${input.runId}`);
-  if (run.status !== 'paused' && run.status !== 'waiting_human') {
-    throw new Error(`Run is not paused: ${input.runId}`);
-  }
+  return withMaintenanceLease(
+    ctx,
+    input.runId,
+    async () => {
+      const current = await getRun(ctx, input.runId);
+      if (!current) throw new Error(`Run not found: ${input.runId}`);
+      return current;
+    },
+    async () => {
+      const run = await getRun(ctx, input.runId);
+      if (!run) throw new Error(`Run not found: ${input.runId}`);
+      if (run.status !== 'paused' && run.status !== 'waiting_human') {
+        throw new Error(`Run is not paused: ${input.runId}`);
+      }
 
-  const resumedAt = Date.now();
-  if (run.failureState && !run.failureState.retryable && run.status !== 'waiting_human') {
-    throw new Error(`Run cannot be resumed automatically from non-retryable failure: ${run.failureState.kind}`);
-  }
-  assertRunStatusTransition(run.status, 'running');
-  const resumedRun: OrchestratorRun = {
-    ...run,
-    status: 'running',
-    failureState: undefined,
-    pendingHumanCheckpoint: undefined,
-    pendingHumanAction: undefined,
-    engineHealthSummary: 'Run resumed and waiting for the orchestrator agent to continue.',
-    lastHumanInterventionAt: resumedAt,
-    lastHumanInterventionSummary: 'Resumed the run.',
-    pausedAt: undefined,
-    pauseRequestedAt: undefined,
-    updatedAt: resumedAt,
-  };
+      const resumedAt = Date.now();
+      if (run.failureState && !run.failureState.retryable && run.status !== 'waiting_human') {
+        throw new Error(`Run cannot be resumed automatically from non-retryable failure: ${run.failureState.kind}`);
+      }
+      assertRunStatusTransition(run.status, 'running');
+      const resumedRun: OrchestratorRun = {
+        ...run,
+        status: 'running',
+        failureState: undefined,
+        pendingHumanCheckpoint: undefined,
+        pendingHumanAction: undefined,
+        engineHealthSummary: 'Run resumed and waiting for the orchestrator agent to continue.',
+        lastHumanInterventionAt: resumedAt,
+        lastHumanInterventionSummary: 'Resumed the run.',
+        pausedAt: undefined,
+        pauseRequestedAt: undefined,
+        updatedAt: resumedAt,
+      };
+      const nextRun = run.status === 'waiting_human'
+        ? await releaseWaitingHumanTasks(ctx, resumedRun, resumedAt)
+        : resumedRun;
 
-  await saveRun(ctx, resumedRun);
-  await refreshRunDerivedState(ctx, resumedRun.id);
-  await appendControlIntent(ctx, { runId: run.id, action: 'resume', createdAt: resumedAt });
-  await appendRunEvent(ctx, {
-    id: createId('evt'),
-    runId: run.id,
-    type: 'run.resumed',
-    title: 'Run resumed',
-    detail: 'Main agent will be awakened again.',
-    createdAt: resumedAt,
-  });
-  ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: resumedRun.id });
-  return wakeOrchestratorRun(ctx, resumedRun, { runId: resumedRun.id, reason: 'resume' });
+      await saveRun(ctx, nextRun);
+      await refreshRunDerivedState(ctx, nextRun.id);
+      await appendControlIntent(ctx, { runId: run.id, action: 'resume', createdAt: resumedAt });
+      await appendRunEvent(ctx, {
+        id: createId('evt'),
+        runId: run.id,
+        type: 'run.resumed',
+        title: 'Run resumed',
+        detail: 'Main agent will be awakened again.',
+        createdAt: resumedAt,
+      });
+      ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: nextRun.id });
+      return wakeOrchestratorRun(ctx, nextRun, { runId: nextRun.id, reason: 'resume' });
+    },
+  );
 }
 
 export async function completeOrchestratorTask(ctx: PluginContext, input: OrchestratorCompleteTaskInput) {
@@ -1253,84 +1550,143 @@ export async function overrideReviewDecision(ctx: PluginContext, input: Orchestr
 }
 
 export async function retryOrchestratorTask(ctx: PluginContext, input: OrchestratorRetryTaskInput) {
-  const task = await getTask(ctx, input.taskId);
-  if (!task) throw new Error(`Task not found: ${input.taskId}`);
-  const run = await getRun(ctx, task.runId);
-  if (!run) throw new Error(`Run not found: ${task.runId}`);
-  if (!['failed', 'waiting_human', 'paused', 'blocked'].includes(task.status)) {
-    throw new Error(`Task is not retryable in its current status: ${task.status}`);
-  }
-  if (run.failureState && !run.failureState.retryable && run.failureState.taskId && run.failureState.taskId !== task.id) {
-    throw new Error(`Task is blocked by another non-retryable failure: ${run.failureState.kind}`);
-  }
-  const agentRun = await getAgentRunByTaskId(ctx, task.id);
-  if (!agentRun) throw new Error(`Agent run not found for task: ${task.id}`);
-  clearAutomaticRetry(task.id);
+  const initialTask = await getTask(ctx, input.taskId);
+  if (!initialTask) throw new Error(`Task not found: ${input.taskId}`);
 
-  const now = Date.now();
-  const sessionId = `orchestrator-${run.id}-${task.agentId}-${task.id}-${now}`;
-  const nextAgentRun: OrchestratorAgentRun = {
-    ...agentRun,
-    id: createId('agent_run'),
-    sessionId,
-    status: 'ready',
-    error: undefined,
-    startedAt: undefined,
-    completedAt: undefined,
-    lastEventAt: undefined,
-    output: undefined,
-    createdAt: now,
-    updatedAt: now,
-  };
-  const nextTask = await updateTask(ctx, task.id, (current) => ({
-    ...(assertTaskStatusTransition(current.status, 'ready'), current),
-    status: 'ready',
-    latestAgentRunId: nextAgentRun.id,
-    sessionId,
-    attemptCount: current.attemptCount + 1,
-    source: 'rework',
-    updatedAt: now,
-  }));
-  await saveAgentRun(ctx, nextAgentRun);
-  if (task.parentTaskId) {
-    await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now);
-  }
-  assertRunStatusTransition(run.status, 'running');
-  const nextRun: OrchestratorRun = {
-    ...run,
-    status: 'running',
-    failureState: run.failureState?.taskId === task.id ? undefined : run.failureState,
-    pendingHumanCheckpoint: run.failureState?.taskId === task.id ? undefined : run.pendingHumanCheckpoint,
-    pendingHumanAction: run.failureState?.taskId === task.id ? undefined : run.pendingHumanAction,
-    pausedAt: undefined,
-    pauseRequestedAt: undefined,
-    watchdogStatus: 'healthy',
-    watchdogWarning: undefined,
-    watchdogCheckedAt: now,
-    engineHealthSummary: `${task.agentName || task.title} restarted after human retry.`,
-    lastHumanInterventionAt: now,
-    lastHumanInterventionSummary: `Retried ${task.agentName || task.title}.`,
-    activeTaskCount: isActiveTask(task) ? run.activeTaskCount : run.activeTaskCount + 1,
-    updatedAt: now,
-  };
-  await saveRun(ctx, nextRun);
-  await appendRunEvent(ctx, {
-    id: createId('evt'),
-    runId: run.id,
-    type: 'task.updated',
-    title: 'Task retried by human',
-    detail: `${task.agentName || task.title} was sent back to execution.`,
-    createdAt: now,
-  });
-  ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
-  if (nextTask && nextAgentRun) {
-    void launchDetachedAgentRunSession(ctx, nextRun, nextTask, nextAgentRun, {
-      title: `${nextAgentRun.agentName || nextAgentRun.title} · ${nextAgentRun.stageName || 'Retry'}`,
-      prompt: `Retry the following orchestration assignment with the latest human guidance.\n\n${nextAgentRun.prompt}`,
-      startedDetail: `${task.agentName || task.title} restarted after human retry.`,
-    });
-  }
-  return { run: nextRun, task: nextTask, agentRun: nextAgentRun };
+  return withMaintenanceLease(
+    ctx,
+    initialTask.runId,
+    async () => {
+      const currentTask = await getTask(ctx, input.taskId);
+      if (!currentTask) throw new Error(`Task not found: ${input.taskId}`);
+      const currentRun = await getRun(ctx, currentTask.runId);
+      if (!currentRun) throw new Error(`Run not found: ${currentTask.runId}`);
+      const currentAgentRun = await getAgentRunByTaskId(ctx, currentTask.id);
+      return { run: currentRun, task: currentTask, agentRun: currentAgentRun };
+    },
+    async () => {
+      const task = await getTask(ctx, input.taskId);
+      if (!task) throw new Error(`Task not found: ${input.taskId}`);
+      const run = await getRun(ctx, task.runId);
+      if (!run) throw new Error(`Run not found: ${task.runId}`);
+      if (!['failed', 'waiting_human', 'paused', 'blocked'].includes(task.status)) {
+        throw new Error(`Task is not retryable in its current status: ${task.status}`);
+      }
+      if (run.failureState && !run.failureState.retryable && run.failureState.taskId && run.failureState.taskId !== task.id) {
+        throw new Error(`Task is blocked by another non-retryable failure: ${run.failureState.kind}`);
+      }
+      clearAutomaticRetry(task.id);
+
+      const now = Date.now();
+      if (task.nodeType === 'checkpoint') {
+        const nextTask = await updateTask(ctx, task.id, (current) => ({
+          ...(assertTaskStatusTransition(current.status, 'completed'), current),
+          status: 'completed',
+          blockedReason: undefined,
+          updatedAt: now,
+        }));
+        if (task.parentTaskId) {
+          await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now);
+        }
+        const nextRun = {
+          ...run,
+          status: 'running' as const,
+          failureState: run.failureState?.taskId === task.id ? undefined : run.failureState,
+          pendingHumanCheckpoint: run.failureState?.taskId === task.id ? undefined : run.pendingHumanCheckpoint,
+          pendingHumanAction: run.failureState?.taskId === task.id ? undefined : run.pendingHumanAction,
+          pausedAt: undefined,
+          pauseRequestedAt: undefined,
+          watchdogStatus: 'healthy' as const,
+          watchdogWarning: undefined,
+          watchdogCheckedAt: now,
+          lastHumanInterventionAt: now,
+          lastHumanInterventionSummary: `Approved ${task.title}.`,
+          updatedAt: now,
+        };
+        await saveRun(ctx, nextRun);
+        ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
+        const awakened = await wakeOrchestratorRun(ctx, nextRun, { runId: nextRun.id, reason: 'user_request' });
+        return { run: awakened, task: nextTask, agentRun: null };
+      }
+
+      const agentRun = await getAgentRunByTaskId(ctx, task.id);
+      let nextTask: OrchestratorAgentTask | null;
+      let nextAgentRun: OrchestratorAgentRun;
+      if (agentRun) {
+        const sessionId = `orchestrator-${run.id}-${task.agentId}-${task.id}-${now}`;
+        nextAgentRun = {
+          ...agentRun,
+          id: createId('agent_run'),
+          sessionId,
+          status: 'ready',
+          error: undefined,
+          startedAt: undefined,
+          completedAt: undefined,
+          lastEventAt: undefined,
+          output: undefined,
+          createdAt: now,
+          updatedAt: now,
+        };
+        nextTask = await updateTask(ctx, task.id, (current) => ({
+          ...(assertTaskStatusTransition(current.status, 'ready'), current),
+          status: 'ready',
+          blockedReason: undefined,
+          latestAgentRunId: nextAgentRun.id,
+          sessionId,
+          attemptCount: current.attemptCount + 1,
+          source: 'rework',
+          updatedAt: now,
+        }));
+        await saveAgentRun(ctx, nextAgentRun);
+      } else {
+        if (task.kind !== 'work') {
+          throw new Error(`Agent run not found for task: ${task.id}`);
+        }
+        const created = await createAgentRunForTask(ctx, run, task, now);
+        nextTask = created.task;
+        nextAgentRun = created.agentRun;
+      }
+      if (task.parentTaskId) {
+        await recomputeContainerTaskState(ctx, task.runId, task.parentTaskId, now);
+      }
+      assertRunStatusTransition(run.status, 'running');
+      const nextRun: OrchestratorRun = {
+        ...run,
+        status: 'running',
+        failureState: run.failureState?.taskId === task.id ? undefined : run.failureState,
+        pendingHumanCheckpoint: run.failureState?.taskId === task.id ? undefined : run.pendingHumanCheckpoint,
+        pendingHumanAction: run.failureState?.taskId === task.id ? undefined : run.pendingHumanAction,
+        pausedAt: undefined,
+        pauseRequestedAt: undefined,
+        watchdogStatus: 'healthy',
+        watchdogWarning: undefined,
+        watchdogCheckedAt: now,
+        engineHealthSummary: `${task.agentName || task.title} restarted after human retry.`,
+        lastHumanInterventionAt: now,
+        lastHumanInterventionSummary: `Retried ${task.agentName || task.title}.`,
+        activeTaskCount: isActiveTask(task) ? run.activeTaskCount : run.activeTaskCount + 1,
+        updatedAt: now,
+      };
+      await saveRun(ctx, nextRun);
+      await appendRunEvent(ctx, {
+        id: createId('evt'),
+        runId: run.id,
+        type: 'task.updated',
+        title: 'Task retried by human',
+        detail: `${task.agentName || task.title} was sent back to execution.`,
+        createdAt: now,
+      });
+      ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
+      if (nextTask && nextAgentRun) {
+        void launchDetachedAgentRunSession(ctx, nextRun, nextTask, nextAgentRun, {
+          title: `${nextAgentRun.agentName || nextAgentRun.title} · ${nextAgentRun.stageName || 'Retry'}`,
+          prompt: `Retry the following orchestration assignment with the latest human guidance.\n\n${nextAgentRun.prompt}`,
+          startedDetail: `${task.agentName || task.title} restarted after human retry.`,
+        });
+      }
+      return { run: nextRun, task: nextTask, agentRun: nextAgentRun };
+    },
+  );
 }
 
 export async function skipOrchestratorTask(ctx: PluginContext, input: OrchestratorSkipTaskInput) {
@@ -1782,11 +2138,11 @@ function buildOrchestrationInput(
 
 function buildOrchestrationPrompt(input: OrchestrationInputSnapshot) {
   return [
-    `You are the Orchestration Agent for "${input.planTitle}".`,
-    'Your only job is to continue the project by orchestration.',
-    'Do not do the work yourself.',
-    'Read the plan, current task state, recent review results, and current output structure, then decide the next delegation step.',
-    'Your main task right now is to decide who should work next, what they should do now, what they may read if needed, and what they must write.',
+    `Decide the next orchestration step for "${input.planTitle}".`,
+    'Do not do project work.',
+    'Do not delegate manually.',
+    'Do not call tools.',
+    'Return one JSON object only.',
     `Project goal: ${input.runGoal}`,
     `Wake reason: ${input.wakeReason || 'system'}`,
     input.currentStageId ? `Current stage id: ${input.currentStageId}` : null,
@@ -1813,32 +2169,27 @@ function buildOrchestrationPrompt(input: OrchestrationInputSnapshot) {
     input.currentStageTargetFolder ? `Planned output folder for this stage: ${input.currentStageTargetFolder}` : null,
     input.currentStageOutputFiles.length ? `Planned output files for this stage:\n- ${input.currentStageOutputFiles.join('\n- ')}` : null,
     input.currentStageReviewableOutputPaths.length ? `Reviewable output paths for this stage:\n- ${input.currentStageReviewableOutputPaths.join('\n- ')}` : null,
-    'If you delegate, make the assignment concrete and focused on the current stage.',
-    'If you dispatch, choose only the next work or review step for the current stage.',
-    'Candidate dispatches are exhaustive. You must choose only from the allowed dispatch kinds shown above.',
-    'You may also return taskOperations to activate a blocked or pending task, reprioritize a task, or mark a task blocked for human attention.',
-    'Accepted project state shows only outputs that already passed review. Draft outputs waiting for review may appear separately and still require a review dispatch.',
-    'If the current stage is waiting for review, or review is the only allowed dispatch kind, you must dispatch review.',
-    'Only dispatch work when work is an allowed dispatch kind and there are no draft outputs waiting for review for the current stage.',
-    'Keep the existing output location unless the plan requires a change.',
-    'Return one JSON object only.',
-    'status must be one of: dispatch, wait, throttle, complete.',
-    'Return keys: status, summary, ruleHits, risks, requiresHuman, currentStageId, currentStageName, currentAgentId, currentAgentName, taskOperations, dispatches.',
-    'currentStageId must exactly equal the current stage id shown above. Do not invent or rename stage ids.',
-    'taskOperations must be an array. Use an empty array if there are none.',
-    'taskOperations may use only: wait, complete_run, activate_task, block_task, reprioritize_task, create_task, create_checkpoint.',
-    'Each task operation object must use the key "type". Never use the key "action".',
-    'activate_task and block_task require taskId. reprioritize_task requires taskId and priority.',
-    'create_task requires parentTaskId, title, targetFolder, and expectedFiles. Use it to split the current stage into a new child task.',
-    'create_checkpoint requires parentTaskId and note. Use it to request explicit human approval before continuing.',
-    'Use the current stage. Do not invent ids, new file names, or extra agents.',
-    'Each dispatch must contain only: parentTaskId, stageId, stageName, kind, assignmentBrief.',
-    'kind must be either "work" or "review".',
-    'parentTaskId must exactly match one candidate parent task in the current stage.',
-    'assignmentBrief must contain: title, whyNow, goal, context, inputArtifacts, instructions, acceptanceCriteria, deliverables, targetFolder, expectedFiles, reviewTargetPaths, reviewFocus, risks.',
-    'ruleHits and risks must be arrays of short strings. requiresHuman must be true when your decision asks for a human checkpoint or escalation.',
-    'Valid taskOperations example: [{"type":"activate_task","taskId":"task_123"}]',
-    'If there are no task operations, return "taskOperations": [].',
+    'Rules:',
+    '- Pick exactly one next legal step.',
+    '- Stay in the current stage.',
+    '- Candidate dispatches are exhaustive. Choose only from them.',
+    '- Dispatch review when review is the only allowed kind or draft outputs are waiting for review.',
+    '- Dispatch work only when work is allowed and there are no draft outputs waiting for review.',
+    '- Keep targetFolder and expectedFiles unchanged unless the plan explicitly requires refinement.',
+    '- taskOperations may only use: wait, complete_run, activate_task, block_task, reprioritize_task, create_task, create_checkpoint.',
+    '- Use "type", never "action".',
+    '- assignmentBrief is optional. If present, keep it minimal. Missing fields will be filled automatically.',
+    'Return format:',
+    '- status: dispatch | wait | throttle | complete',
+    '- summary: short string',
+    '- ruleHits: string[]',
+    '- risks: string[]',
+    '- requiresHuman: boolean',
+    '- currentStageId/currentStageName/currentAgentId/currentAgentName',
+    '- taskOperations: array',
+    '- dispatches: array',
+    'Example response:',
+    `{"status":"dispatch","summary":"Start the current stage work.","ruleHits":["advance one stage at a time"],"risks":[],"requiresHuman":false,"currentStageId":"${input.currentStageId || 'stage_1'}","currentStageName":"${input.currentStageName || 'Stage 1'}","currentAgentId":null,"currentAgentName":null,"taskOperations":[{"type":"activate_task","taskId":"task_123"}],"dispatches":[{"parentTaskId":"task_123","stageId":"${input.currentStageId || 'stage_1'}","stageName":"${input.currentStageName || 'Stage 1'}","kind":"work"}]}`,
   ].filter(Boolean).join('\n\n');
 }
 
@@ -1883,7 +2234,12 @@ function parseOrchestrationDecisionJson(
   context: OrchestrationContext,
   candidates: Dispatch[],
 ): OrchestrationDecision {
-  const parsed = JSON.parse(normalizeAssistantJson(raw)) as Partial<OrchestrationDecision>;
+  const parsed = parseAssistantJson<Partial<OrchestrationDecision>>(
+    raw,
+    (value): value is Partial<OrchestrationDecision> =>
+      Boolean(value) && typeof value === 'object' && 'status' in value,
+    'Orchestrator agent did not return a valid structured orchestration decision.',
+  );
   const status = parsed.status;
   if (!status || !['dispatch', 'wait', 'throttle', 'complete'].includes(status)) {
     throw new Error('Orchestrator agent returned an invalid decision status.');
@@ -1898,9 +2254,6 @@ function parseOrchestrationDecisionJson(
       }
       if (!dispatch.parentTaskId) {
         throw new Error('Orchestrator agent must return dispatch.parentTaskId.');
-      }
-      if (!dispatch.assignmentBrief || typeof dispatch.assignmentBrief !== 'object') {
-        throw new Error('Orchestrator agent must return dispatch.assignmentBrief.');
       }
       const currentStageCandidates = candidates.filter((candidate) => candidate.stage.id === context.run.currentStageId);
       const candidate = inferDispatchCandidate(dispatch, currentStageCandidates.length ? currentStageCandidates : candidates, context);
@@ -1969,10 +2322,11 @@ function validateOrchestrationDecision(
   context: OrchestrationContext,
   candidates: Dispatch[],
 ): OrchestrationDecision {
+  const stageScopedCandidates = context.run.currentStageId
+    ? candidates.filter((candidate) => candidate.stage.id === context.run.currentStageId)
+    : candidates;
   const allowedKinds = new Set(
-    candidates
-      .filter((candidate) => !context.run.currentStageId || candidate.stage.id === context.run.currentStageId)
-      .map((candidate) => candidate.kind),
+    stageScopedCandidates.map((candidate) => candidate.kind),
   );
   if (!decision.summary?.trim()) {
     throw new Error('Orchestrator agent must return a non-empty summary.');
@@ -1988,6 +2342,15 @@ function validateOrchestrationDecision(
   }
   if (decision.status === 'dispatch' && decision.dispatches.length === 0) {
     throw new Error('Dispatch decisions must include at least one dispatch.');
+  }
+  if (
+    decision.status === 'wait'
+    && context.activeTaskCount === 0
+    && context.availableSlots > 0
+    && stageScopedCandidates.length > 0
+    && decision.taskOperations.every((operation) => operation.type === 'wait')
+  ) {
+    throw new Error('Wait is not legal while a dispatch candidate is available for the current stage.');
   }
   if (decision.dispatches.length > context.availableSlots) {
     throw new Error(`Decision exceeds available slots: ${decision.dispatches.length} > ${context.availableSlots}.`);
@@ -2257,19 +2620,98 @@ function normalizeDispatchAssignmentBrief(
   };
 }
 
-function normalizeAssistantJson(raw: string) {
+function extractBalancedJsonObject(text: string, startIndex: number) {
+  if (text[startIndex] !== '{') return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{') {
+      depth += 1;
+      continue;
+    }
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(startIndex, index + 1);
+      }
+      if (depth < 0) {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function collectAssistantJsonCandidates(raw: string) {
   const trimmed = raw.trim();
   if (!trimmed) {
     throw new Error('Orchestrator agent returned an empty decision.');
   }
-  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const candidate = fencedMatch ? fencedMatch[1].trim() : trimmed;
-  const firstBrace = candidate.indexOf('{');
-  const lastBrace = candidate.lastIndexOf('}');
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+  const fencedMatches = Array.from(trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi))
+    .map((match) => match[1]?.trim())
+    .filter((match): match is string => Boolean(match));
+  const sources = Array.from(new Set([trimmed, ...fencedMatches]));
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+
+  const pushCandidate = (candidate: string | null) => {
+    const next = candidate?.trim();
+    if (!next || seen.has(next)) return;
+    seen.add(next);
+    candidates.push(next);
+  };
+
+  for (const source of sources) {
+    for (let index = 0; index < source.length; index += 1) {
+      if (source[index] !== '{') continue;
+      pushCandidate(extractBalancedJsonObject(source, index));
+    }
+  }
+
+  if (candidates.length === 0) {
     throw new Error('Orchestrator agent did not return a valid JSON object.');
   }
-  return candidate.slice(firstBrace, lastBrace + 1);
+  return candidates;
+}
+
+function normalizeAssistantJson(raw: string) {
+  const candidates = collectAssistantJsonCandidates(raw);
+  return candidates[candidates.length - 1];
+}
+
+function parseAssistantJson<T>(
+  raw: string,
+  validator?: (parsed: unknown) => parsed is T,
+  invalidMessage = 'Orchestrator agent did not return a valid JSON object.',
+) {
+  const candidates = collectAssistantJsonCandidates(raw);
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    try {
+      const parsed = JSON.parse(candidates[index]) as unknown;
+      if (!validator || validator(parsed)) {
+        return parsed as T;
+      }
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  throw new Error(invalidMessage);
 }
 
 export async function applyOrchestratorDecision(
@@ -2542,6 +2984,7 @@ export async function applyOrchestratorDecision(
           runId,
           taskId: task.id,
           planId: nextRun.planId,
+          profileId: dispatch.kind === 'review' ? ORCHESTRATOR_REVIEW_PROFILE_ID : ORCHESTRATOR_WORK_PROFILE_ID,
           kind: dispatch.kind,
           stageId: dispatch.stage.id,
           stageName: dispatch.stage.name,
@@ -2990,20 +3433,26 @@ function buildWorkAgentPrompt(input: OrchestratorAgentRun['input']) {
     ? `Recent review notes: ${input.recentReviewSummaries.slice(0, 2).join(' | ')}`
     : null;
   return [
-    `You are ${input.stageName || 'the current stage'} Work Agent inside the "${input.planTitle}" run.`,
+    `Complete the assigned work for "${input.planTitle}".`,
+    `Current stage: ${input.stageName || 'the current stage'}`,
+    'Do only this assignment.',
+    'Write the required files.',
+    'Do not plan the whole project.',
+    'Do not review the work.',
+    'Do not explain your process.',
     `Project goal: ${input.runGoal}`,
-    'Focus only on this assignment. Do not plan the whole project. Do not explain your process.',
     completedContext,
     recentReview,
     `Assignment:\n${formatAssignmentBrief(input.assignmentBrief)}`,
     readableFiles,
-    `Target folder: ${input.targetFolder}`,
-    `Required files:\n- ${input.expectedFiles.join('\n- ')}`,
     input.constraints.length ? `Constraints:\n- ${input.constraints.join('\n- ')}` : null,
-    'Use only the built-in file tools named "read", "write", and "edit" when needed.',
-    'You must actually use the tool system for file changes. Never print raw <minimax:tool_call> or <invoke ...> markup in your final answer.',
-    `After your work, this stage will go to review. Review focus: ${input.assignmentBrief.reviewFocus.join(' | ') || 'follow the assignment exactly.'}`,
-    'After the file work is finished, your final chat response must only be a short completion summary of what was written.',
+    'Use the configured tools only when needed.',
+    `Write only inside: ${input.targetFolder}`,
+    `Required files:\n- ${input.expectedFiles.join('\n- ')}`,
+    `Review focus: ${input.assignmentBrief.reviewFocus.join(' | ') || 'follow the assignment exactly.'}`,
+    'Final response: one short plain-text completion summary only.',
+    'Example final response:',
+    `Done. Wrote ${input.expectedFiles.join(', ')} for ${input.stageName || 'the current stage'}.`,
   ].filter(Boolean).join('\n\n');
 }
 
@@ -3086,9 +3535,12 @@ function buildReviewAgentPrompt(input: OrchestratorAgentRun['input']) {
     ? `Accepted project state: ${input.projectStateSummary.slice(0, 4).join(' | ')}`
     : null;
   return [
-    `You are ${input.stageName || 'the current stage'} Review Agent inside the "${input.planTitle}" run.`,
+    `Review the submitted work for "${input.planTitle}".`,
+    `Current stage: ${input.stageName || 'the current stage'}`,
+    'Review only.',
+    'Do not rewrite the work.',
+    'Do not plan the next stage.',
     `Project goal: ${input.runGoal}`,
-    'Judge whether this stage output is good enough for the next stage. Do not rewrite it.',
     `Review assignment:\n${formatAssignmentBrief(input.assignmentBrief)}`,
     input.reviewedArtifactSummaries.length
       ? `Artifacts under review:\n- ${input.reviewedArtifactSummaries.join('\n- ')}`
@@ -3098,15 +3550,22 @@ function buildReviewAgentPrompt(input: OrchestratorAgentRun['input']) {
       : 'Artifact snapshots under review: none were attached.',
     `Target folder: ${input.targetFolder}`,
     input.reviewedArtifactPaths.length
-      ? `Reviewed artifact paths (for traceability only):\n- ${input.reviewedArtifactPaths.join('\n- ')}`
-      : `Reviewed artifact paths (for traceability only):\n- ${input.expectedFiles.map((file) => `${input.targetFolder}/${file}`).join('\n- ')}`,
-    'Review the attached artifact snapshots as the source of truth.',
-    'Do not search the workspace, list directories, or inspect unrelated files.',
-    'Never print raw <minimax:tool_call> or <invoke ...> markup in your final answer.',
+        ? `Reviewed artifact paths (for traceability only):\n- ${input.reviewedArtifactPaths.join('\n- ')}`
+        : `Reviewed artifact paths (for traceability only):\n- ${input.expectedFiles.map((file) => `${input.targetFolder}/${file}`).join('\n- ')}`,
+    'Use the attached artifact snapshots as the source of truth.',
+    'Do not search the workspace or inspect unrelated files.',
     completedContext,
     input.constraints.length ? `Constraints:\n- ${input.constraints.join('\n- ')}` : null,
-    'Return strict JSON only with this shape: {"decision":"approved|needs_changes|rejected","summary":"...","issues":["..."],"requiredRework":["..."],"confidence":0.0}.',
-    'If not approved, requiredRework must list the exact fixes required before the run can continue.',
+    'Return one JSON object only.',
+    'Response shape:',
+    '- decision: approved | needs_changes | rejected',
+    '- summary: short string',
+    '- issues: string[]',
+    '- requiredRework: string[]',
+    '- confidence: number 0..1',
+    'If decision is not approved, requiredRework must list exact fixes.',
+    'Example:',
+    '{"decision":"approved","summary":"The stage output is ready for the next step.","issues":[],"requiredRework":[],"confidence":0.9}',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -3119,7 +3578,11 @@ function getLatestAssistantContent(sessionId: string) {
   if (!session) return '';
   const assistantMessages = session.messages.filter((message) => message.role === 'assistant');
   for (let index = assistantMessages.length - 1; index >= 0; index -= 1) {
-    const content = (assistantMessages[index]?.segments || [])
+    const message = assistantMessages[index];
+    if (typeof message?.content === 'string' && message.content.trim()) {
+      return message.content.trim();
+    }
+    const content = (message?.segments || [])
       .filter((segment) => segment.type === 'text')
       .map((segment) => segment.content)
       .join('')
@@ -3239,13 +3702,23 @@ function parseReviewDecision(content: string, reviewedArtifactCount = 0) {
     };
   }
   try {
-    const parsed = JSON.parse(normalizeAssistantJson(content)) as {
+    const parsed = parseAssistantJson<{
       decision?: unknown;
       summary?: unknown;
       issues?: unknown;
       requiredRework?: unknown;
       confidence?: unknown;
-    };
+    }>(
+      content,
+      (value): value is {
+        decision?: unknown;
+        summary?: unknown;
+        issues?: unknown;
+        requiredRework?: unknown;
+        confidence?: unknown;
+      } => Boolean(value) && typeof value === 'object' && 'decision' in value,
+      'Review did not return a valid structured review result.',
+    );
     if (parsed.decision !== 'approved' && parsed.decision !== 'needs_changes' && parsed.decision !== 'rejected') {
       throw new Error('Missing structured review decision.');
     }
@@ -3285,6 +3758,18 @@ function containsToolCallMarkup(content: string) {
   return normalized.includes('<minimax:tool_call>')
     || normalized.includes('<invoke name=')
     || normalized.includes('<invoke name name=');
+}
+
+function isRecoverableCoordinatorDecisionFailure(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes('structured orchestration decision')
+    || normalized.includes('invalid decision status')
+    || normalized.includes('invalid currentstageid')
+    || normalized.includes('must return dispatch')
+    || normalized.includes('invalid dispatch target')
+    || normalized.includes('did not provide')
+    || normalized.includes('valid json object')
+    || normalized.includes('empty decision');
 }
 
 function isTransientAgentFailure(message: string) {
@@ -3590,13 +4075,76 @@ function startCoordinatorRunSession(
   coordinatorRun: OrchestratorCoordinatorRun,
   _candidates: Dispatch[],
 ) {
+  let interruptedByPolicyViolation = false;
+  let policyViolationMessage = '';
+  let policyViolationInterruptRequested = false;
+  const failCoordinatorRun = async (message: string, now = Date.now()) => {
+    const latestCoordinatorRun = (await listCoordinatorRunsForRun(ctx, run.id)).find((item) => item.id === coordinatorRun.id);
+    if (latestCoordinatorRun?.status === 'completed') {
+      return;
+    }
+    await updateCoordinatorRun(ctx, coordinatorRun.id, (current) => ({
+      ...current,
+      status: 'failed',
+      error: message,
+      lastEventAt: now,
+      updatedAt: now,
+    }));
+    const failedRun = await getRun(ctx, run.id);
+    if (!failedRun) {
+      return;
+    }
+    const transientRetryScheduled = await scheduleTransientFailureRecovery(
+      ctx,
+      failedRun,
+      { kind: 'coordinator', coordinatorRun },
+      message,
+      now,
+    );
+    if (transientRetryScheduled) {
+      return;
+    }
+    await saveRun(ctx, {
+      ...failedRun,
+      status: 'paused',
+      pausedAt: now,
+      activeTaskCount: Math.max(0, failedRun.activeTaskCount - 1),
+      failureState: buildRunFailureState(failedRun, {
+        kind: 'agent_runtime_error',
+        summary: message,
+        retryable: true,
+        requiresHuman: true,
+        recommendedAction: 'Inspect the coordinator failure, then resume the run when it is safe to continue.',
+        agentRunId: coordinatorRun.id,
+      }, now),
+      lastDecisionAt: now,
+      lastDecisionSummary: 'Orchestrator agent failed and the run was paused.',
+      engineHealthSummary: message,
+      updatedAt: now,
+    });
+    await appendRunEvent(ctx, {
+      id: createId('evt'),
+      runId: run.id,
+      type: 'run.updated',
+      title: 'Orchestrator agent failed',
+      detail: message,
+      createdAt: now,
+    });
+    ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
+  };
+
   return launchAgentSession({
     sessionId: coordinatorRun.sessionId,
     title: coordinatorRun.title,
     prompt: coordinatorRun.prompt,
+    profileId: coordinatorRun.profileId || ORCHESTRATOR_COORDINATOR_PROFILE_ID,
     parentSessionId: run.sourceSessionId,
-    executionContext: run.executionContext,
-    allowedTools: ORCHESTRATOR_COORDINATOR_ALLOWED_TOOLS,
+    executionContext: {
+      ...run.executionContext,
+      toolPolicy: {
+        permissionMode: 'full_auto',
+      },
+    },
     onStarted: async () => {
       const now = Date.now();
       await updateCoordinatorRun(ctx, coordinatorRun.id, (current) => ({
@@ -3610,6 +4158,15 @@ function startCoordinatorRunSession(
     },
     onChunk: async (chunk) => {
       const now = Date.now();
+      const policyViolation = getCoordinatorPolicyViolation(chunk);
+      if (policyViolation) {
+        interruptedByPolicyViolation = true;
+        policyViolationMessage = policyViolation;
+        if (!policyViolationInterruptRequested) {
+          policyViolationInterruptRequested = true;
+          void interruptAgentSession(coordinatorRun.sessionId).catch(() => {});
+        }
+      }
       await updateCoordinatorRun(ctx, coordinatorRun.id, (current) => ({
         ...current,
         runtime: chunk.type === 'runtime_status'
@@ -3741,60 +4298,14 @@ function startCoordinatorRunSession(
     onFailed: async (error) => {
       const now = Date.now();
       const message = error instanceof Error ? error.message : String(error);
-      const latestCoordinatorRun = (await listCoordinatorRunsForRun(ctx, run.id)).find((item) => item.id === coordinatorRun.id);
-      if (latestCoordinatorRun?.status === 'completed') {
-        return;
-      }
-      await updateCoordinatorRun(ctx, coordinatorRun.id, (current) => ({
-        ...current,
-        status: 'failed',
-        error: message,
-        lastEventAt: now,
-        updatedAt: now,
-      }));
-      const failedRun = await getRun(ctx, run.id);
-      if (failedRun) {
-        const transientRetryScheduled = await scheduleTransientFailureRecovery(
-          ctx,
-          failedRun,
-          { kind: 'coordinator', coordinatorRun },
-          message,
-          now,
-        );
-        if (transientRetryScheduled) {
-          return;
-        }
-        await saveRun(ctx, {
-          ...failedRun,
-          status: 'paused',
-          pausedAt: now,
-          activeTaskCount: Math.max(0, failedRun.activeTaskCount - 1),
-          failureState: buildRunFailureState(failedRun, {
-            kind: 'agent_runtime_error',
-            summary: message,
-            retryable: true,
-            requiresHuman: true,
-            recommendedAction: 'Inspect the coordinator failure, then resume the run when it is safe to continue.',
-            agentRunId: coordinatorRun.id,
-          }, now),
-          lastDecisionAt: now,
-          lastDecisionSummary: 'Orchestrator agent failed and the run was paused.',
-          engineHealthSummary: message,
-          updatedAt: now,
-        });
-        await appendRunEvent(ctx, {
-          id: createId('evt'),
-          runId: run.id,
-          type: 'run.updated',
-          title: 'Orchestrator agent failed',
-          detail: message,
-          createdAt: now,
-        });
-        ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
-      }
+      await failCoordinatorRun(message, now);
     },
     onInterrupted: async () => {
       const now = Date.now();
+      if (interruptedByPolicyViolation) {
+        await failCoordinatorRun(policyViolationMessage || 'Coordinator was interrupted after violating orchestration policy.', now);
+        return;
+      }
       await updateCoordinatorRun(ctx, coordinatorRun.id, (current) => ({
         ...current,
         status: 'paused',
@@ -3803,11 +4314,30 @@ function startCoordinatorRunSession(
       }));
       const currentRun = await getRun(ctx, run.id);
       if (currentRun) {
+        const nextActiveTaskCount = Math.max(0, currentRun.activeTaskCount - 1);
+        const nextStatus = currentRun.status === 'pause_requested' && nextActiveTaskCount === 0
+          ? 'paused'
+          : currentRun.status;
         await saveRun(ctx, {
           ...currentRun,
-          activeTaskCount: Math.max(0, currentRun.activeTaskCount - 1),
+          status: nextStatus,
+          activeTaskCount: nextActiveTaskCount,
+          engineHealthSummary: nextStatus === 'paused'
+            ? 'Run is paused and waiting for human action.'
+            : currentRun.engineHealthSummary,
+          pausedAt: nextStatus === 'paused' ? now : currentRun.pausedAt,
           updatedAt: now,
         });
+        if (nextStatus === 'paused') {
+          await appendRunEvent(ctx, {
+            id: createId('evt'),
+            runId: run.id,
+            type: 'run.paused',
+            title: 'Run paused',
+            detail: 'Coordinator stopped and the pause request is now effective.',
+            createdAt: now,
+          });
+        }
         ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
       }
     },
@@ -3815,22 +4345,27 @@ function startCoordinatorRunSession(
 }
 
 export async function recoverOrchestratorRun(ctx: PluginContext, runId: string) {
-  const run = await getRun(ctx, runId);
-  if (!run || run.status === 'completed' || run.status === 'cancelled') return run;
-  if (run.failureState?.retryable && !run.failureState.requiresHuman && run.failureState.autoRetryAt && run.failureState.taskId) {
-    scheduleAutomaticRetry(ctx, run.id, run.failureState.taskId, run.failureState.autoRetryAt);
-    return run;
-  }
-  if (run.failureState?.retryable && !run.failureState.requiresHuman && run.failureState.autoRetryAt && run.failureState.agentRunId) {
-    scheduleAutomaticRunResume(ctx, run.id, run.failureState.autoRetryAt);
-    return run;
-  }
-  if (run.status === 'waiting_human' || run.status === 'failed' || run.failureState?.requiresHuman) {
-    return run;
-  }
-  const tasks = await listTasksForRun(ctx, run.id);
-  const agentRuns = await listAgentRunsForRun(ctx, run.id);
-  const coordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+  return withMaintenanceLease(
+    ctx,
+    runId,
+    async () => getRun(ctx, runId),
+    async () => {
+      const run = await getRun(ctx, runId);
+      if (!run || run.status === 'completed' || run.status === 'cancelled') return run;
+      if (run.failureState?.retryable && !run.failureState.requiresHuman && run.failureState.autoRetryAt && run.failureState.taskId) {
+        scheduleAutomaticRetry(ctx, run.id, run.failureState.taskId, run.failureState.autoRetryAt);
+        return run;
+      }
+      if (run.failureState?.retryable && !run.failureState.requiresHuman && run.failureState.autoRetryAt && run.failureState.agentRunId) {
+        scheduleAutomaticRunResume(ctx, run.id, run.failureState.autoRetryAt);
+        return run;
+      }
+      if (run.status === 'waiting_human' || run.status === 'failed' || run.failureState?.requiresHuman) {
+        return run;
+      }
+      const tasks = await listTasksForRun(ctx, run.id);
+      const agentRuns = await listAgentRunsForRun(ctx, run.id);
+      const coordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
 
   if (run.currentOrchestratorAgentRunId) {
     const coordinatorRun = coordinatorRuns.find((item) => item.id === run.currentOrchestratorAgentRunId);
@@ -3868,34 +4403,41 @@ export async function recoverOrchestratorRun(ctx: PluginContext, runId: string) 
   if (refreshedRun && ['running', 'waiting_review'].includes(refreshedRun.status) && refreshedRun.activeTaskCount === 0) {
     return wakeOrchestratorRun(ctx, refreshedRun, { runId: refreshedRun.id, reason: 'system' });
   }
-  return refreshedRun;
+      return refreshedRun;
+    },
+  );
 }
 
 export async function watchdogOrchestratorRun(ctx: PluginContext, runId: string) {
-  const run = await getRun(ctx, runId);
-  if (!run) return null;
+  return withMaintenanceLease(
+    ctx,
+    runId,
+    async () => getRun(ctx, runId),
+    async () => {
+      const run = await getRun(ctx, runId);
+      if (!run) return null;
 
-  const now = Date.now();
-  if (run.failureState && run.failureState.requiresHuman) {
-    const nextRun: OrchestratorRun = {
-      ...run,
-      watchdogStatus: 'paused',
-      watchdogCheckedAt: now,
-      updatedAt: now,
-    };
-    await saveRun(ctx, nextRun);
-    return nextRun;
-  }
-  if (!['running', 'pause_requested', 'waiting_review'].includes(run.status)) {
-    const nextRun: OrchestratorRun = {
-      ...run,
-      watchdogStatus: run.status === 'cancelled' ? 'cancelled' : 'paused',
-      watchdogCheckedAt: now,
-      updatedAt: now,
-    };
-    await saveRun(ctx, nextRun);
-    return nextRun;
-  }
+      const now = Date.now();
+      if (run.failureState && run.failureState.requiresHuman) {
+        const nextRun: OrchestratorRun = {
+          ...run,
+          watchdogStatus: 'paused',
+          watchdogCheckedAt: now,
+          updatedAt: now,
+        };
+        await saveRun(ctx, nextRun);
+        return nextRun;
+      }
+      if (!['running', 'pause_requested', 'waiting_review'].includes(run.status)) {
+        const nextRun: OrchestratorRun = {
+          ...run,
+          watchdogStatus: run.status === 'cancelled' ? 'cancelled' : 'paused',
+          watchdogCheckedAt: now,
+          updatedAt: now,
+        };
+        await saveRun(ctx, nextRun);
+        return nextRun;
+      }
 
   const tasks = await listTasksForRun(ctx, run.id);
   const agentRuns = await listAgentRunsForRun(ctx, run.id);
@@ -3965,8 +4507,10 @@ export async function watchdogOrchestratorRun(ctx: PluginContext, runId: string)
   } else if (staleAgentRun?.sessionId) {
     await interruptAgentSession(staleAgentRun.sessionId);
   }
-  ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
-  return nextRun;
+      ctx.events.emit(ORCHESTRATOR_EVENTS.runsChanged, { runId: run.id });
+      return nextRun;
+    },
+  );
 }
 
 function rewriteAgentPrompt(prompt: string, summary: string) {
@@ -3989,11 +4533,9 @@ function startAgentRunSession(
     sessionId: agentRun.sessionId,
     title: options.title,
     prompt: options.prompt,
+    profileId: agentRun.profileId || (agentRun.kind === 'review' ? ORCHESTRATOR_REVIEW_PROFILE_ID : ORCHESTRATOR_WORK_PROFILE_ID),
     parentSessionId: run.sourceSessionId,
     executionContext: run.executionContext,
-    allowedTools: agentRun.kind === 'review'
-      ? ORCHESTRATOR_REVIEW_AGENT_ALLOWED_TOOLS
-      : ORCHESTRATOR_WORK_AGENT_ALLOWED_TOOLS,
     onStarted: async () => {
       const now = Date.now();
       await updateTask(ctx, task.id, (current) => ({

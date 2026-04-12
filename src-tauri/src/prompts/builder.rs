@@ -133,6 +133,18 @@ pub fn build_runtime_prompt_with_addition(
         sections.push(profile_prompt.join("\n\n"));
     }
 
+    if !runtime_spec.available_subagents.is_empty() {
+        let mut lines = vec![
+            "# Available Subagents".to_string(),
+            "The following subagents are available in this session. Use them like specialized capabilities when helpful.".to_string(),
+            String::new(),
+        ];
+        for subagent in &runtime_spec.available_subagents {
+            lines.push(format!("- **{}**: {}", subagent.id, subagent.description));
+        }
+        sections.push(lines.join("\n"));
+    }
+
     // Optional additive prompt for subagents / worker roles
     if let Some(extra) = extra_prompt {
         if !extra.trim().is_empty() {

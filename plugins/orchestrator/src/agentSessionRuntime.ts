@@ -13,6 +13,7 @@ export interface LaunchAgentSessionInput {
   sessionId: string;
   title: string;
   prompt: string;
+  profileId?: string;
   parentSessionId?: string;
   executionContext?: OrchestratorExecutionContext;
   allowedTools?: string[];
@@ -67,6 +68,7 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
     const model = executionContext.model;
     const reasoning = executionContext.reasoning as 'low' | 'medium' | 'high' | undefined;
     const workspacePath = executionContext.workspacePath;
+    const permissionMode = executionContext.toolPolicy?.permissionMode === 'manual' ? 'manual' : 'full_auto';
 
     store.updateSession(input.sessionId, {
       queueState: 'idle',
@@ -107,7 +109,10 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
     const onEvent = new Channel<ServerEventChunk>();
     onEvent.onmessage = (chunk) => {
       if (chunk.type === 'permission_request') {
-        void approvePermission({ toolId: chunk.toolId, approved: true });
+        void approvePermission({
+          toolId: chunk.toolId,
+          approved: permissionMode === 'full_auto',
+        });
       }
       void input.onChunk?.(chunk);
       if (chunk.type === 'runtime_status') {
@@ -151,13 +156,13 @@ export async function launchAgentSession(input: LaunchAgentSessionInput) {
       sessionId: input.sessionId,
       prompt: input.prompt,
       attachments: [],
-      permissionMode: 'full_auto',
+      permissionMode,
       allowedTools: input.allowedTools,
       disallowedTools: input.disallowedTools,
       providerId,
       model,
       reasoning,
-      profileId: 'chat',
+      profileId: input.profileId || 'chat',
       cwd: workspacePath,
     }, onEvent);
   } catch (error) {

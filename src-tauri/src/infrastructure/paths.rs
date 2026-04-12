@@ -13,14 +13,19 @@ pub fn get_settings_path() -> PathBuf {
     get_rhythm_dir().join("settings.json")
 }
 
-/// Returns the mode definitions directory: ~/.rhythm/modes/
-pub fn get_modes_dir() -> PathBuf {
-    get_rhythm_dir().join("modes")
+/// Returns the unified agent definitions directory: ~/.rhythm/agents/
+pub fn get_agents_dir() -> PathBuf {
+    get_rhythm_dir().join("agents")
 }
 
-/// Returns a single mode definition file: ~/.rhythm/modes/<mode_id>.yaml
-pub fn get_mode_definition_path(mode_id: &str) -> PathBuf {
-    get_modes_dir().join(format!("{}.yaml", sanitize_path_segment(mode_id)))
+/// Returns a single agent definition file: ~/.rhythm/agents/<agent_id>.yaml
+pub fn get_agent_definition_path(agent_id: &str) -> PathBuf {
+    get_agents_dir().join(format!("{}.yaml", sanitize_path_segment(agent_id)))
+}
+
+/// Returns the legacy mode definitions directory: ~/.rhythm/modes/
+pub fn get_legacy_modes_dir() -> PathBuf {
+    get_rhythm_dir().join("modes")
 }
 
 /// Returns the pre-refactor config file path: ~/.rhythm/config/config.json
@@ -136,7 +141,7 @@ fn sanitize_path_segment(value: &str) -> String {
 /// Create all required Rhythm directories in one call.
 pub fn init_rhythm_dirs() -> std::io::Result<()> {
     ensure_dir(&get_rhythm_dir())?;
-    ensure_dir(&get_modes_dir())?;
+    ensure_dir(&get_agents_dir())?;
     ensure_dir(&get_data_dir())?;
     ensure_dir(&get_memory_base_dir())?;
     ensure_dir(&get_sessions_dir())?;

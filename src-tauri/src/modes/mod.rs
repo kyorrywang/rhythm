@@ -3,6 +3,7 @@ use crate::infrastructure::config::{
     LimitPolicyDefinition, ObservabilityPolicyDefinition,
     PermissionPolicyDefinition, ResolvedRuntimeSpec, ReviewPolicyDefinition, RuntimeProfile,
     RuntimeProfileExecution, RuntimeProfileModelConfig, RuntimeProfilePermissions,
+    SubagentDefinition,
 };
 use crate::infrastructure::paths;
 use crate::permissions::modes::PermissionMode;
@@ -29,14 +30,65 @@ pub struct ModePolicyCatalog {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ModeDefinition {
-    #[serde(default = "default_mode_schema_version")]
-    pub schema_version: u32,
-    pub profile: RuntimeProfile,
-    #[serde(default)]
-    pub prompt_fragments: HashMap<String, String>,
-    #[serde(default)]
-    pub policies: ModePolicyCatalog,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ModeDefinition {
+    Primary {
+        #[serde(default = "default_mode_schema_version")]
+        schema_version: u32,
+        profile: RuntimeProfile,
+        #[serde(default)]
+        prompt_fragments: HashMap<String, String>,
+        #[serde(default)]
+        policies: ModePolicyCatalog,
+    },
+    Subagent {
+        #[serde(default = "default_mode_schema_version")]
+        schema_version: u32,
+        agent: SubagentDefinition,
+        #[serde(default)]
+        prompt_fragments: HashMap<String, String>,
+    },
+}
+
+impl ModeDefinition {
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Primary { profile, .. } => &profile.id,
+            Self::Subagent { agent, .. } => &agent.id,
+        }
+    }
+
+    pub fn profile(&self) -> &RuntimeProfile {
+        match self {
+            Self::Primary { profile, .. } => profile,
+            Self::Subagent { .. } => panic!("subagent definitions do not expose primary profiles"),
+        }
+    }
+
+    pub fn subagent(&self) -> Option<&SubagentDefinition> {
+        match self {
+            Self::Primary { .. } => None,
+            Self::Subagent { agent, .. } => Some(agent),
+        }
+    }
+
+    pub fn prompt_fragments(&self) -> &HashMap<String, String> {
+        match self {
+            Self::Primary {
+                prompt_fragments, ..
+            } => prompt_fragments,
+            Self::Subagent {
+                prompt_fragments, ..
+            } => prompt_fragments,
+        }
+    }
+
+    pub fn policies(&self) -> Option<&ModePolicyCatalog> {
+        match self {
+            Self::Primary { policies, .. } => Some(policies),
+            Self::Subagent { .. } => None,
+        }
+    }
 }
 
 fn default_mode_schema_version() -> u32 {
@@ -44,7 +96,7 @@ fn default_mode_schema_version() -> u32 {
 }
 
 fn default_chat_mode() -> ModeDefinition {
-    ModeDefinition {
+    ModeDefinition::Primary {
         schema_version: MODE_SCHEMA_VERSION,
         profile: RuntimeProfile {
             id: "chat".to_string(),
@@ -66,6 +118,11 @@ fn default_chat_mode() -> ModeDefinition {
                 completion_policy_ref: Some("direct_answer".to_string()),
                 observability_policy_ref: Some("standard".to_string()),
                 limit_policy_ref: Some("default".to_string()),
+                available_subagents: vec![
+                    "explorer".to_string(),
+                    "coder".to_string(),
+                    "reviewer".to_string(),
+                ],
             },
         },
         prompt_fragments: HashMap::from([(
@@ -109,7 +166,7 @@ fn default_chat_mode() -> ModeDefinition {
 }
 
 fn default_coordinate_mode() -> ModeDefinition {
-    ModeDefinition {
+    ModeDefinition::Primary {
         schema_version: MODE_SCHEMA_VERSION,
         profile: RuntimeProfile {
             id: "coordinate".to_string(),
@@ -149,6 +206,11 @@ fn default_coordinate_mode() -> ModeDefinition {
                 completion_policy_ref: Some("direct_answer".to_string()),
                 observability_policy_ref: Some("standard".to_string()),
                 limit_policy_ref: Some("default".to_string()),
+                available_subagents: vec![
+                    "explorer".to_string(),
+                    "coder".to_string(),
+                    "reviewer".to_string(),
+                ],
             },
         },
         prompt_fragments: HashMap::from([
@@ -212,18 +274,109 @@ fn default_coordinate_mode() -> ModeDefinition {
     }
 }
 
+fn default_explorer_subagent() -> ModeDefinition {
+    ModeDefinition::Subagent {
+        schema_version: MODE_SCHEMA_VERSION,
+        agent: SubagentDefinition {
+            id: "explorer".to_string(),
+            label: "Explorer".to_string(),
+            description: "Read-only codebase exploration specialist for searching, tracing, and understanding code.".to_string(),
+            prompt_refs: vec!["subagent.explorer".to_string()],
+            model: RuntimeProfileModelConfig::default(),
+            permissions: RuntimeProfilePermissions {
+                locked: false,
+                default_mode: Some(PermissionMode::Plan),
+                allowed_tools: vec!["read".to_string(), "shell".to_string(), "skill".to_string()],
+                disallowed_tools: vec!["write".to_string(), "edit".to_string(), "delete".to_string()],
+            },
+            max_turns: None,
+        },
+        prompt_fragments: HashMap::from([(
+            "subagent.explorer".to_string(),
+            "You are an explorer subagent.\nFocus on reading, tracing, and summarizing the codebase.\nDo not make code changes.".to_string(),
+        )]),
+    }
+}
+
+fn default_coder_subagent() -> ModeDefinition {
+    ModeDefinition::Subagent {
+        schema_version: MODE_SCHEMA_VERSION,
+        agent: SubagentDefinition {
+            id: "coder".to_string(),
+            label: "Coder".to_string(),
+            description: "Implementation-focused coding subagent for making targeted code changes.".to_string(),
+            prompt_refs: vec!["subagent.coder".to_string()],
+            model: RuntimeProfileModelConfig::default(),
+            permissions: RuntimeProfilePermissions {
+                locked: false,
+                default_mode: Some(PermissionMode::FullAuto),
+                allowed_tools: vec![],
+                disallowed_tools: vec![],
+            },
+            max_turns: None,
+        },
+        prompt_fragments: HashMap::from([(
+            "subagent.coder".to_string(),
+            "You are a coder subagent.\nRead the relevant files first, then make the smallest effective code changes to complete the assigned task.".to_string(),
+        )]),
+    }
+}
+
+fn default_reviewer_subagent() -> ModeDefinition {
+    ModeDefinition::Subagent {
+        schema_version: MODE_SCHEMA_VERSION,
+        agent: SubagentDefinition {
+            id: "reviewer".to_string(),
+            label: "Reviewer".to_string(),
+            description: "Review-focused subagent for checking correctness, regressions, and risks.".to_string(),
+            prompt_refs: vec!["subagent.reviewer".to_string()],
+            model: RuntimeProfileModelConfig::default(),
+            permissions: RuntimeProfilePermissions {
+                locked: false,
+                default_mode: Some(PermissionMode::Plan),
+                allowed_tools: vec!["read".to_string(), "shell".to_string(), "skill".to_string()],
+                disallowed_tools: vec!["write".to_string(), "edit".to_string(), "delete".to_string()],
+            },
+            max_turns: None,
+        },
+        prompt_fragments: HashMap::from([(
+            "subagent.reviewer".to_string(),
+            "You are a reviewer subagent.\nPrioritize bugs, regressions, edge cases, and missing validation over general summaries.".to_string(),
+        )]),
+    }
+}
+
 pub fn default_mode_definitions() -> Vec<ModeDefinition> {
-    vec![default_chat_mode(), default_coordinate_mode()]
+    vec![
+        default_chat_mode(),
+        default_coordinate_mode(),
+        default_explorer_subagent(),
+        default_coder_subagent(),
+        default_reviewer_subagent(),
+    ]
 }
 
 pub fn ensure_mode_files() -> Result<Vec<ModeDefinition>, String> {
-    let modes_dir = paths::get_modes_dir();
-    paths::ensure_dir(&modes_dir).map_err(|e| e.to_string())?;
+    let agents_dir = paths::get_agents_dir();
+    paths::ensure_dir(&agents_dir).map_err(|e| e.to_string())?;
 
     let defaults = default_mode_definitions();
     let mut changed = false;
+    let legacy_modes_dir = paths::get_legacy_modes_dir();
+    let should_migrate_legacy = legacy_modes_dir.exists()
+        && fs::read_dir(&agents_dir)
+            .map_err(|e| e.to_string())?
+            .next()
+            .is_none();
+    if should_migrate_legacy {
+        let legacy_modes = load_mode_definitions_from_dir(&legacy_modes_dir)?;
+        if !legacy_modes.is_empty() {
+            save_mode_definitions(&legacy_modes)?;
+            changed = true;
+        }
+    }
     for mode in &defaults {
-        let path = paths::get_mode_definition_path(&mode.profile.id);
+        let path = paths::get_agent_definition_path(mode.id());
         if !path.exists() {
             write_mode_definition(path.as_path(), mode)?;
             changed = true;
@@ -245,18 +398,37 @@ pub fn ensure_mode_files() -> Result<Vec<ModeDefinition>, String> {
 }
 
 pub fn load_mode_definitions() -> Result<Vec<ModeDefinition>, String> {
-    let modes_dir = paths::get_modes_dir();
-    if !modes_dir.exists() {
+    let agents_dir = paths::get_agents_dir();
+    if !agents_dir.exists() {
         return Ok(Vec::new());
     }
 
+    load_mode_definitions_from_dir(&agents_dir)
+}
+
+fn load_mode_definitions_from_dir(dir: &std::path::Path) -> Result<Vec<ModeDefinition>, String> {
     let mut modes = Vec::new();
-    for entry in fs::read_dir(&modes_dir).map_err(|e| e.to_string())? {
+    load_mode_definitions_from_dir_recursive(dir, &mut modes)?;
+
+    modes.sort_by(|left, right| left.id().cmp(right.id()));
+    Ok(modes)
+}
+
+fn load_mode_definitions_from_dir_recursive(
+    dir: &std::path::Path,
+    modes: &mut Vec<ModeDefinition>,
+) -> Result<(), String> {
+    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
-        if !entry.file_type().map_err(|e| e.to_string())?.is_file() {
+        let file_type = entry.file_type().map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if file_type.is_dir() {
+            load_mode_definitions_from_dir_recursive(&path, modes)?;
             continue;
         }
-        let path = entry.path();
+        if !file_type.is_file() {
+            continue;
+        }
         let extension = path
             .extension()
             .and_then(|value| value.to_str())
@@ -275,24 +447,23 @@ pub fn load_mode_definitions() -> Result<Vec<ModeDefinition>, String> {
         modes.push(mode);
     }
 
-    modes.sort_by(|left, right| left.profile.id.cmp(&right.profile.id));
-    Ok(modes)
+    Ok(())
 }
 
 pub fn save_mode_definitions(modes: &[ModeDefinition]) -> Result<(), String> {
-    let modes_dir = paths::get_modes_dir();
-    paths::ensure_dir(&modes_dir).map_err(|e| e.to_string())?;
+    let agents_dir = paths::get_agents_dir();
+    paths::ensure_dir(&agents_dir).map_err(|e| e.to_string())?;
 
     let expected_ids = modes
         .iter()
-        .map(|mode| mode.profile.id.to_lowercase())
+        .map(|mode| mode.id().to_lowercase())
         .collect::<HashSet<_>>();
 
     for mode in modes {
-        write_mode_definition(&paths::get_mode_definition_path(&mode.profile.id), mode)?;
+        write_mode_definition(&paths::get_agent_definition_path(mode.id()), mode)?;
     }
 
-    for entry in fs::read_dir(&modes_dir).map_err(|e| e.to_string())? {
+    for entry in fs::read_dir(&agents_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         if !entry.file_type().map_err(|e| e.to_string())?.is_file() {
             continue;
@@ -338,21 +509,27 @@ pub fn merge_mode_definitions_into_settings(
 ) {
     settings.prompts.fragments.clear();
     settings.profiles.items.clear();
+    settings.profiles.subagent_items.clear();
 
     for mode in modes {
-        settings.profiles.items.push(mode.profile.clone());
-        for (key, value) in &mode.prompt_fragments {
+        match mode {
+            ModeDefinition::Primary { profile, .. } => settings.profiles.items.push(profile.clone()),
+            ModeDefinition::Subagent { agent, .. } => settings.profiles.subagent_items.push(agent.clone()),
+        }
+        for (key, value) in mode.prompt_fragments() {
             settings.prompts.fragments.insert(key.clone(), value.clone());
         }
-        merge_policy_catalog(&mut settings.policies.catalog.permission, &mode.policies.permission);
-        merge_policy_catalog(&mut settings.policies.catalog.delegation, &mode.policies.delegation);
-        merge_policy_catalog(&mut settings.policies.catalog.review, &mode.policies.review);
-        merge_policy_catalog(&mut settings.policies.catalog.completion, &mode.policies.completion);
-        merge_policy_catalog(
-            &mut settings.policies.catalog.observability,
-            &mode.policies.observability,
-        );
-        merge_policy_catalog(&mut settings.policies.catalog.limits, &mode.policies.limits);
+        if let Some(policies) = mode.policies() {
+            merge_policy_catalog(&mut settings.policies.catalog.permission, &policies.permission);
+            merge_policy_catalog(&mut settings.policies.catalog.delegation, &policies.delegation);
+            merge_policy_catalog(&mut settings.policies.catalog.review, &policies.review);
+            merge_policy_catalog(&mut settings.policies.catalog.completion, &policies.completion);
+            merge_policy_catalog(
+                &mut settings.policies.catalog.observability,
+                &policies.observability,
+            );
+            merge_policy_catalog(&mut settings.policies.catalog.limits, &policies.limits);
+        }
     }
 }
 
@@ -376,10 +553,10 @@ pub fn extract_mode_definitions(settings: &ConfigBundle) -> Vec<ModeDefinition> 
     let existing = load_mode_definitions().unwrap_or_else(|_| default_mode_definitions());
     let existing_map = existing
         .into_iter()
-        .map(|mode| (mode.profile.id.to_lowercase(), mode))
+        .map(|mode| (mode.id().to_lowercase(), mode))
         .collect::<HashMap<_, _>>();
 
-    settings
+    let primary_modes = settings
         .profiles
         .items
         .iter()
@@ -387,84 +564,145 @@ pub fn extract_mode_definitions(settings: &ConfigBundle) -> Vec<ModeDefinition> 
             let mut mode = existing_map
                 .get(&profile.id.to_lowercase())
                 .cloned()
-                .unwrap_or_else(|| ModeDefinition {
+                .unwrap_or_else(|| ModeDefinition::Primary {
                     schema_version: MODE_SCHEMA_VERSION,
                     profile: profile.clone(),
                     prompt_fragments: HashMap::new(),
                     policies: ModePolicyCatalog::default(),
                 });
 
-            mode.schema_version = MODE_SCHEMA_VERSION;
-            mode.profile = profile.clone();
-            mode.prompt_fragments = profile
-                .prompt_refs
-                .iter()
-                .filter_map(|prompt_ref| {
-                    settings
-                        .prompts
-                        .fragments
-                        .get(prompt_ref)
-                        .map(|value| (prompt_ref.clone(), value.clone()))
-                })
-                .collect();
-            mode.policies.permission = collect_permission_policies(settings, profile);
-            mode.policies.delegation = collect_named_policy(
-                &settings.policies.catalog.delegation,
-                profile.execution.delegation_policy_ref.as_deref(),
-            );
-            mode.policies.review = collect_named_policy(
-                &settings.policies.catalog.review,
-                profile.execution.review_policy_ref.as_deref(),
-            );
-            mode.policies.completion = collect_named_policy(
-                &settings.policies.catalog.completion,
-                profile.execution.completion_policy_ref.as_deref(),
-            );
-            mode.policies.observability = collect_named_policy(
-                &settings.policies.catalog.observability,
-                profile.execution.observability_policy_ref.as_deref(),
-            );
-            mode.policies.limits = collect_named_policy(
-                &settings.policies.catalog.limits,
-                profile.execution.limit_policy_ref.as_deref(),
-            );
+            if let ModeDefinition::Primary {
+                schema_version,
+                profile: mode_profile,
+                prompt_fragments,
+                policies,
+            } = &mut mode
+            {
+                *schema_version = MODE_SCHEMA_VERSION;
+                *mode_profile = profile.clone();
+                *prompt_fragments = profile
+                    .prompt_refs
+                    .iter()
+                    .filter_map(|prompt_ref| {
+                        settings
+                            .prompts
+                            .fragments
+                            .get(prompt_ref)
+                            .map(|value| (prompt_ref.clone(), value.clone()))
+                    })
+                    .collect();
+                policies.permission = collect_permission_policies(settings, profile);
+                policies.delegation = collect_named_policy(
+                    &settings.policies.catalog.delegation,
+                    profile.execution.delegation_policy_ref.as_deref(),
+                );
+                policies.review = collect_named_policy(
+                    &settings.policies.catalog.review,
+                    profile.execution.review_policy_ref.as_deref(),
+                );
+                policies.completion = collect_named_policy(
+                    &settings.policies.catalog.completion,
+                    profile.execution.completion_policy_ref.as_deref(),
+                );
+                policies.observability = collect_named_policy(
+                    &settings.policies.catalog.observability,
+                    profile.execution.observability_policy_ref.as_deref(),
+                );
+                policies.limits = collect_named_policy(
+                    &settings.policies.catalog.limits,
+                    profile.execution.limit_policy_ref.as_deref(),
+                );
+            }
             mode
-        })
-        .collect()
+        });
+    let subagent_modes = settings
+        .profiles
+        .subagent_items
+        .iter()
+        .map(|subagent| {
+            let mut mode = existing_map
+                .get(&subagent.id.to_lowercase())
+                .cloned()
+                .unwrap_or_else(|| ModeDefinition::Subagent {
+                    schema_version: MODE_SCHEMA_VERSION,
+                    agent: subagent.clone(),
+                    prompt_fragments: HashMap::new(),
+                });
+
+            if let ModeDefinition::Subagent {
+                schema_version,
+                agent,
+                prompt_fragments,
+            } = &mut mode
+            {
+                *schema_version = MODE_SCHEMA_VERSION;
+                *agent = subagent.clone();
+                *prompt_fragments = subagent
+                    .prompt_refs
+                    .iter()
+                    .filter_map(|prompt_ref| {
+                        settings
+                            .prompts
+                            .fragments
+                            .get(prompt_ref)
+                            .map(|value| (prompt_ref.clone(), value.clone()))
+                    })
+                    .collect();
+            }
+
+            mode
+        });
+
+    primary_modes.chain(subagent_modes).collect()
 }
 
 pub fn strip_mode_data_from_settings(settings: &mut ConfigBundle, modes: &[ModeDefinition]) {
     let prompt_keys = modes
         .iter()
-        .flat_map(|mode| mode.prompt_fragments.keys().cloned())
+        .flat_map(|mode| mode.prompt_fragments().keys().cloned())
         .collect::<HashSet<_>>();
     settings
         .prompts
         .fragments
         .retain(|key, _| !prompt_keys.contains(key));
     settings.profiles.items.clear();
+    settings.profiles.subagent_items.clear();
 
     strip_policy_catalog(&mut settings.policies.catalog.permission, modes, |mode| {
-        mode.policies.permission.iter().map(|item| item.id.clone()).collect()
+        mode.policies()
+            .map(|policies| policies.permission.iter().map(|item| item.id.clone()).collect())
+            .unwrap_or_default()
     });
     strip_policy_catalog(&mut settings.policies.catalog.delegation, modes, |mode| {
-        mode.policies.delegation.iter().map(|item| item.id.clone()).collect()
+        mode.policies()
+            .map(|policies| policies.delegation.iter().map(|item| item.id.clone()).collect())
+            .unwrap_or_default()
     });
     strip_policy_catalog(&mut settings.policies.catalog.review, modes, |mode| {
-        mode.policies.review.iter().map(|item| item.id.clone()).collect()
+        mode.policies()
+            .map(|policies| policies.review.iter().map(|item| item.id.clone()).collect())
+            .unwrap_or_default()
     });
     strip_policy_catalog(&mut settings.policies.catalog.completion, modes, |mode| {
-        mode.policies.completion.iter().map(|item| item.id.clone()).collect()
+        mode.policies()
+            .map(|policies| policies.completion.iter().map(|item| item.id.clone()).collect())
+            .unwrap_or_default()
     });
     strip_policy_catalog(&mut settings.policies.catalog.observability, modes, |mode| {
-        mode.policies
-            .observability
-            .iter()
-            .map(|item| item.id.clone())
-            .collect()
+        mode.policies()
+            .map(|policies| {
+                policies
+                    .observability
+                    .iter()
+                    .map(|item| item.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     });
     strip_policy_catalog(&mut settings.policies.catalog.limits, modes, |mode| {
-        mode.policies.limits.iter().map(|item| item.id.clone()).collect()
+        mode.policies()
+            .map(|policies| policies.limits.iter().map(|item| item.id.clone()).collect())
+            .unwrap_or_default()
     });
 }
 
@@ -559,5 +797,57 @@ impl IdentifiedItem for ObservabilityPolicyDefinition {
 impl IdentifiedItem for LimitPolicyDefinition {
     fn item_id(&self) -> &str {
         &self.id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn load_mode_definitions_from_dir_reads_nested_yaml_files() {
+        let root = std::env::temp_dir().join(format!(
+            "rhythm-mode-nested-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let nested = root.join("orchestrator");
+        fs::create_dir_all(&nested).unwrap();
+
+        let yaml = r#"
+kind: subagent
+schema_version: 2
+agent:
+  id: nested-agent
+  label: Nested Agent
+  description: Loaded from a nested folder.
+  promptRefs:
+    - nested.prompt
+  model:
+    providerId: null
+    modelId: null
+    reasoning: null
+  permissions:
+    locked: true
+    defaultMode: full_auto
+    allowedTools:
+      - read
+    disallowedTools:
+      - write
+  maxTurns: 1
+prompt_fragments:
+  nested.prompt: |-
+    Nested prompt.
+"#;
+        fs::write(nested.join("nested-agent.yaml"), yaml).unwrap();
+
+        let loaded = load_mode_definitions_from_dir(&PathBuf::from(&root)).unwrap();
+        let ids = loaded.into_iter().map(|mode| mode.id().to_string()).collect::<Vec<_>>();
+        assert_eq!(ids, vec!["nested-agent"]);
+
+        let _ = fs::remove_dir_all(root);
     }
 }

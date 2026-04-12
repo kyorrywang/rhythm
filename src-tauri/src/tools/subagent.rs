@@ -1,5 +1,4 @@
 use super::{BaseTool, ToolExecutionContext, ToolResult};
-use crate::coordinator::get_builtin_agent;
 use crate::infrastructure::config;
 use crate::infrastructure::event_bus;
 use crate::llm;
@@ -62,7 +61,7 @@ impl BaseTool for SubagentTool {
                 },
                 "subagent_type": {
                     "type": "string",
-                    "description": "Optional built-in agent type (e.g. 'general-purpose', 'explorer', 'worker', 'verifier')"
+                    "description": "Optional configured subagent id (for example 'explorer', 'coder', or 'reviewer')"
                 }
             },
             "required": ["message", "title"]
@@ -120,7 +119,10 @@ impl BaseTool for SubagentTool {
         use crate::hooks::loader::load_hook_registry_for_cwd;
 
         let settings = config::load_settings();
-        let agent_def = args.subagent_type.as_deref().and_then(get_builtin_agent);
+        let agent_def = args
+            .subagent_type
+            .as_deref()
+            .and_then(|subagent_id| config::resolve_subagent_definition(&settings, subagent_id));
         let inherited_provider_id = ctx
             .metadata
             .get("provider_id")
@@ -128,7 +130,7 @@ impl BaseTool for SubagentTool {
             .map(str::to_string);
         let inherited_model = agent_def
             .as_ref()
-            .and_then(|a| a.model.clone())
+            .and_then(|a| a.model.model_id.clone())
             .or_else(|| {
                 ctx.metadata
                     .get("model")
@@ -147,24 +149,40 @@ impl BaseTool for SubagentTool {
                 provider_id: inherited_provider_id.clone(),
                 model_id: inherited_model.clone(),
                 reasoning: inherited_reasoning.clone(),
-                permission_mode: agent_def.as_ref().and_then(|a| a.permission_mode.clone()),
+                permission_mode: agent_def
+                    .as_ref()
+                    .and_then(|a| a.permissions.default_mode.clone()),
                 allowed_tools: agent_def
                     .as_ref()
-                    .and_then(|a| a.tools.as_ref().map(|tools| tools.to_vec())),
+                    .map(|a| a.permissions.allowed_tools.clone())
+                    .filter(|tools| !tools.is_empty()),
                 disallowed_tools: agent_def
                     .as_ref()
-                    .and_then(|a| a.disallowed_tools.as_ref().map(|tools| tools.to_vec())),
+                    .map(|a| a.permissions.disallowed_tools.clone())
+                    .filter(|tools| !tools.is_empty()),
             },
         ) {
             Ok(config) => config,
             Err(error) => return ToolResult::error(error),
         };
         let client = llm::create_client(&runtime_spec.llm);
+        let injected_subagent_prompt = agent_def
+            .as_ref()
+            .map(|subagent| config::render_prompt_fragments(&settings, &subagent.prompt_refs))
+            .filter(|prompt| !prompt.trim().is_empty());
+        let merged_additional_prompt = match (injected_subagent_prompt.as_deref(), args.system_prompt.as_deref()) {
+            (Some(subagent_prompt), Some(system_prompt)) if !system_prompt.trim().is_empty() => {
+                Some(format!("{subagent_prompt}\n\n{system_prompt}"))
+            }
+            (Some(subagent_prompt), _) => Some(subagent_prompt.to_string()),
+            (_, Some(system_prompt)) if !system_prompt.trim().is_empty() => Some(system_prompt.to_string()),
+            _ => None,
+        };
         let system_prompt = build_runtime_prompt_with_addition(
             &settings,
             &ctx.cwd,
             Some(&args.message),
-            args.system_prompt.as_deref(),
+            merged_additional_prompt.as_deref(),
             &runtime_spec,
         );
         let merged_mcp_configs = McpClientManager::merged_server_configs(&settings, &ctx.cwd);
@@ -175,18 +193,22 @@ impl BaseTool for SubagentTool {
             manager.connect_all().await;
             Some(std::sync::Arc::new(tokio::sync::Mutex::new(manager)))
         };
+        let allowed_tools = if runtime_spec.profile.permissions.locked {
+            Some(&runtime_spec.permission.allowed_tools[..])
+        } else if runtime_spec.permission.allowed_tools.is_empty() {
+            None
+        } else {
+            Some(&runtime_spec.permission.allowed_tools[..])
+        };
+        let denied_tools = if runtime_spec.permission.denied_tools.is_empty() {
+            None
+        } else {
+            Some(&runtime_spec.permission.denied_tools[..])
+        };
         let tool_registry = std::sync::Arc::new(crate::tools::ToolRegistry::create_for_agent(
             mcp_manager.clone(),
-            if runtime_spec.permission.allowed_tools.is_empty() {
-                None
-            } else {
-                Some(&runtime_spec.permission.allowed_tools)
-            },
-            if runtime_spec.permission.denied_tools.is_empty() {
-                None
-            } else {
-                Some(&runtime_spec.permission.denied_tools)
-            },
+            allowed_tools,
+            denied_tools,
         ));
         let permission_checker = std::sync::Arc::new(
             crate::permissions::checker::PermissionChecker::new(&runtime_spec.permission),

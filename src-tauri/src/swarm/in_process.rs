@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use super::types::{BackendType, SpawnResult, TeammateMessage, TeammateSpawnConfig};
 use crate::coordinator::{
-    format_task_notification, get_builtin_agent, TaskNotification, TaskNotificationStatus,
+    format_task_notification, TaskNotification, TaskNotificationStatus,
 };
 use crate::engine::{QueryContext, QueryEngine};
 use crate::hooks::executor::HookExecutor;
@@ -14,7 +14,6 @@ use crate::infrastructure::event_bus;
 use crate::llm;
 use crate::mcp::McpClientManager;
 use crate::permissions::PermissionChecker;
-use crate::prompts::build_runtime_prompt;
 use crate::shared::schema::EventPayload;
 use crate::swarm::agent_registry;
 use crate::tools::ToolRegistry;
@@ -59,7 +58,7 @@ impl InProcessBackend {
             let agent_def = config_clone
                 .subagent_type
                 .as_deref()
-                .and_then(get_builtin_agent);
+                .and_then(|subagent_id| config::resolve_subagent_definition(&settings, subagent_id));
             let runtime_spec = match config::resolve_runtime_spec(
                 &settings,
                 config::RuntimeIntent {
@@ -70,13 +69,15 @@ impl InProcessBackend {
                     permission_mode: config_clone
                         .permission_mode
                         .clone()
-                        .or_else(|| agent_def.as_ref().and_then(|a| a.permission_mode.clone())),
+                        .or_else(|| agent_def.as_ref().and_then(|a| a.permissions.default_mode.clone())),
                     allowed_tools: agent_def
                         .as_ref()
-                        .and_then(|a| a.tools.as_ref().map(|tools| tools.to_vec())),
+                        .map(|a| a.permissions.allowed_tools.clone())
+                        .filter(|tools| !tools.is_empty()),
                     disallowed_tools: agent_def
                         .as_ref()
-                        .and_then(|a| a.disallowed_tools.as_ref().map(|tools| tools.to_vec())),
+                        .map(|a| a.permissions.disallowed_tools.clone())
+                        .filter(|tools| !tools.is_empty()),
                 },
             ) {
                 Ok(spec) => spec,
@@ -85,11 +86,16 @@ impl InProcessBackend {
                     return;
                 }
             };
+            let additional_prompt = agent_def
+                .as_ref()
+                .map(|subagent| config::render_prompt_fragments(&settings, &subagent.prompt_refs))
+                .filter(|prompt| !prompt.trim().is_empty());
             let client = Arc::from(llm::create_client(&runtime_spec.llm));
-            let system_prompt = build_runtime_prompt(
+            let system_prompt = crate::prompts::build_runtime_prompt_with_addition(
                 &settings,
                 &cwd,
                 Some(&config_clone.prompt),
+                additional_prompt.as_deref(),
                 &runtime_spec,
             );
             let merged_mcp_configs = McpClientManager::merged_server_configs(&settings, &cwd);
@@ -100,18 +106,22 @@ impl InProcessBackend {
                 manager.connect_all().await;
                 Some(Arc::new(Mutex::new(manager)))
             };
+            let allowed_tools = if runtime_spec.profile.permissions.locked {
+                Some(&runtime_spec.permission.allowed_tools[..])
+            } else if runtime_spec.permission.allowed_tools.is_empty() {
+                None
+            } else {
+                Some(&runtime_spec.permission.allowed_tools[..])
+            };
+            let denied_tools = if runtime_spec.permission.denied_tools.is_empty() {
+                None
+            } else {
+                Some(&runtime_spec.permission.denied_tools[..])
+            };
             let tool_registry = Arc::new(ToolRegistry::create_for_agent(
                 mcp_manager.clone(),
-                if runtime_spec.permission.allowed_tools.is_empty() {
-                    None
-                } else {
-                    Some(&runtime_spec.permission.allowed_tools)
-                },
-                if runtime_spec.permission.denied_tools.is_empty() {
-                    None
-                } else {
-                    Some(&runtime_spec.permission.denied_tools)
-                },
+                allowed_tools,
+                denied_tools,
             ));
             let permission_checker = Arc::new(PermissionChecker::new(&runtime_spec.permission));
 

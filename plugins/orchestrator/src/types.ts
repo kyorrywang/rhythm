@@ -332,6 +332,7 @@ export interface OrchestratorAgentRun {
   runId: string;
   taskId: string;
   planId: string;
+  profileId?: string;
   kind: 'work' | 'review';
   stageId?: string;
   stageName?: string;
@@ -357,6 +358,7 @@ export interface OrchestratorCoordinatorRun {
   id: string;
   runId: string;
   sessionId: string;
+  profileId?: string;
   title: string;
   prompt: string;
   wakeReason?: OrchestratorWakeRunInput['reason'];

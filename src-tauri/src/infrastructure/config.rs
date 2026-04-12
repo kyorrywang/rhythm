@@ -357,6 +357,8 @@ pub struct ProfilesConfig {
     pub default_profile_id: String,
     #[serde(default)]
     pub items: Vec<RuntimeProfile>,
+    #[serde(default)]
+    pub subagent_items: Vec<SubagentDefinition>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -453,6 +455,8 @@ pub struct RuntimeProfileExecution {
     pub observability_policy_ref: Option<String>,
     #[serde(default)]
     pub limit_policy_ref: Option<String>,
+    #[serde(default)]
+    pub available_subagents: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -470,6 +474,22 @@ pub struct RuntimeProfile {
     pub permissions: RuntimeProfilePermissions,
     #[serde(default)]
     pub execution: RuntimeProfileExecution,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentDefinition {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    #[serde(default)]
+    pub prompt_refs: Vec<String>,
+    #[serde(default)]
+    pub model: RuntimeProfileModelConfig,
+    #[serde(default)]
+    pub permissions: RuntimeProfilePermissions,
+    #[serde(default)]
+    pub max_turns: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -537,6 +557,7 @@ pub struct RuntimeResolutionProvenance {
 #[derive(Debug, Clone)]
 pub struct ResolvedRuntimeSpec {
     pub profile: RuntimeProfile,
+    pub available_subagents: Vec<SubagentDefinition>,
     pub llm: LlmConfig,
     pub reasoning: Option<String>,
     pub permission: PermissionConfig,
@@ -612,6 +633,7 @@ impl Default for ConfigBundle {
             profiles: ProfilesConfig {
                 default_profile_id: default_profile_id(),
                 items: vec![],
+                subagent_items: vec![],
             },
         }
     }
@@ -641,6 +663,8 @@ struct LegacyConfigV1 {
     prompt_fragments: HashMap<String, String>,
     #[serde(default)]
     runtime_profiles: Vec<RuntimeProfile>,
+    #[serde(default)]
+    subagent_profiles: Vec<SubagentDefinition>,
     #[serde(default)]
     mcp_servers: HashMap<String, McpServerConfig>,
     #[serde(default)]
@@ -840,6 +864,9 @@ fn migrate_v1_to_v2(legacy: LegacyConfigV1) -> ConfigBundle {
     if !legacy.runtime_profiles.is_empty() {
         bundle.profiles.items = legacy.runtime_profiles;
     }
+    if !legacy.subagent_profiles.is_empty() {
+        bundle.profiles.subagent_items = legacy.subagent_profiles;
+    }
     bundle
 }
 
@@ -859,6 +886,7 @@ fn validate_config_bundle(bundle: &ConfigBundle) -> Result<(), Vec<String>> {
     }
 
     let mut seen_profile_ids = std::collections::HashSet::new();
+    let mut seen_subagent_ids = std::collections::HashSet::new();
     let permission_policy_ids = bundle
         .policies
         .catalog
@@ -974,6 +1002,36 @@ fn validate_config_bundle(bundle: &ConfigBundle) -> Result<(), Vec<String>> {
                 ));
             }
         }
+        for subagent_id in &profile.execution.available_subagents {
+            if !bundle
+                .profiles
+                .subagent_items
+                .iter()
+                .any(|subagent| subagent.id.eq_ignore_ascii_case(subagent_id))
+            {
+                errors.push(format!(
+                    "profile '{}' references missing subagent '{}'",
+                    profile.id, subagent_id
+                ));
+            }
+        }
+    }
+
+    for subagent in &bundle.profiles.subagent_items {
+        if subagent.id.trim().is_empty() {
+            errors.push("profiles.subagent_items contains an empty id".to_string());
+        }
+        if !seen_subagent_ids.insert(subagent.id.to_lowercase()) {
+            errors.push(format!("duplicate subagent id '{}'", subagent.id));
+        }
+        for prompt_ref in &subagent.prompt_refs {
+            if !bundle.prompts.fragments.contains_key(prompt_ref) {
+                errors.push(format!(
+                    "subagent '{}' references missing prompt fragment '{}'",
+                    subagent.id, prompt_ref
+                ));
+            }
+        }
     }
 
     if !bundle
@@ -1054,17 +1112,6 @@ fn read_runtime_env_overrides() -> RuntimeEnvironmentOverrides {
         let trimmed = subagent_type.trim();
         if !trimmed.is_empty() {
             overrides.subagent_type = Some(trimmed.to_string());
-            if let Some(agent_def) = crate::coordinator::get_builtin_agent(trimmed) {
-                if overrides.model_id.is_none() {
-                    overrides.model_id = agent_def.model;
-                }
-                if overrides.permission_mode.is_none() {
-                    overrides.permission_mode = agent_def.permission_mode;
-                }
-                if overrides.agent_turn_limit.is_none() {
-                    overrides.agent_turn_limit = agent_def.max_turns;
-                }
-            }
         }
     }
 
@@ -1208,10 +1255,54 @@ pub fn list_runtime_profiles(settings: &RhythmSettings) -> Vec<RuntimeProfile> {
     settings.profiles.items.clone()
 }
 
+pub fn list_subagents(settings: &RhythmSettings) -> Vec<SubagentDefinition> {
+    settings.profiles.subagent_items.clone()
+}
+
 fn fallback_mode_definition(profile_id: &str) -> Option<crate::modes::ModeDefinition> {
     crate::modes::default_mode_definitions()
         .into_iter()
-        .find(|mode| mode.profile.id.eq_ignore_ascii_case(profile_id))
+        .find(|mode| mode.profile().id.eq_ignore_ascii_case(profile_id))
+}
+
+pub fn resolve_subagent_definition(
+    settings: &RhythmSettings,
+    subagent_id: &str,
+) -> Option<SubagentDefinition> {
+    settings
+        .profiles
+        .subagent_items
+        .iter()
+        .find(|subagent| subagent.id.eq_ignore_ascii_case(subagent_id))
+        .cloned()
+        .or_else(|| {
+            crate::modes::default_mode_definitions()
+                .into_iter()
+                .filter_map(|definition| definition.subagent().cloned())
+                .find(|subagent| subagent.id.eq_ignore_ascii_case(subagent_id))
+        })
+}
+
+pub fn resolve_available_subagents(
+    settings: &RhythmSettings,
+    profile: &RuntimeProfile,
+) -> Vec<SubagentDefinition> {
+    profile
+        .execution
+        .available_subagents
+        .iter()
+        .filter_map(|subagent_id| resolve_subagent_definition(settings, subagent_id))
+        .collect()
+}
+
+pub fn render_prompt_fragments(settings: &RhythmSettings, prompt_refs: &[String]) -> String {
+    prompt_refs
+        .iter()
+        .filter_map(|prompt_ref| settings.prompts.fragments.get(prompt_ref))
+        .filter(|fragment| !fragment.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 pub fn resolve_runtime_profile(
@@ -1230,7 +1321,7 @@ pub fn resolve_runtime_profile(
         .find(|profile| profile.id.eq_ignore_ascii_case(requested))
         .cloned()
         .or_else(|| {
-            fallback_mode_definition(requested).map(|mode| mode.profile)
+            fallback_mode_definition(requested).map(|mode| mode.profile().clone())
         })
         .or_else(|| {
             settings
@@ -1242,7 +1333,7 @@ pub fn resolve_runtime_profile(
         })
         .unwrap_or_else(|| {
             fallback_mode_definition("chat")
-                .map(|mode| mode.profile)
+                .map(|mode| mode.profile().clone())
                 .unwrap_or(RuntimeProfile {
                     id: "chat".to_string(),
                     label: "Chat".to_string(),
@@ -1278,11 +1369,13 @@ fn resolve_permission_policy(
         .cloned()
         .or_else(|| {
             fallback_mode_definition(&profile.id).and_then(|mode| {
-                mode.policies.permission.into_iter().find(|policy| {
-                    policy.locked == profile.permissions.locked
-                        && profile.permissions.default_mode.as_ref() == Some(&policy.mode)
-                        && profile.permissions.allowed_tools == policy.allowed_tools
-                        && profile.permissions.disallowed_tools == policy.denied_tools
+                mode.policies().and_then(|policies| {
+                    policies.permission.iter().find(|policy| {
+                        policy.locked == profile.permissions.locked
+                            && profile.permissions.default_mode.as_ref() == Some(&policy.mode)
+                            && profile.permissions.allowed_tools == policy.allowed_tools
+                            && profile.permissions.disallowed_tools == policy.denied_tools
+                    }).cloned()
                 })
             })
         })
@@ -1312,10 +1405,13 @@ fn resolve_delegation_policy(
                     .delegation_policy_ref
                     .as_deref()
                     .and_then(|id| {
-                        mode.policies
-                            .delegation
-                            .into_iter()
-                            .find(|policy| policy.id.eq_ignore_ascii_case(id))
+                        mode.policies().and_then(|policies| {
+                            policies
+                                .delegation
+                                .iter()
+                                .find(|policy| policy.id.eq_ignore_ascii_case(id))
+                                .cloned()
+                        })
                     })
             })
         });
@@ -1356,10 +1452,13 @@ fn resolve_review_policy(
         .or_else(|| {
             fallback_mode_definition(&profile.id).and_then(|mode| {
                 profile.execution.review_policy_ref.as_deref().and_then(|id| {
-                    mode.policies
-                        .review
-                        .into_iter()
-                        .find(|policy| policy.id.eq_ignore_ascii_case(id))
+                    mode.policies().and_then(|policies| {
+                        policies
+                            .review
+                            .iter()
+                            .find(|policy| policy.id.eq_ignore_ascii_case(id))
+                            .cloned()
+                    })
                 })
             })
         });
@@ -1401,10 +1500,13 @@ fn resolve_completion_policy(
                     .completion_policy_ref
                     .as_deref()
                     .and_then(|id| {
-                        mode.policies
-                            .completion
-                            .into_iter()
-                            .find(|policy| policy.id.eq_ignore_ascii_case(id))
+                        mode.policies().and_then(|policies| {
+                            policies
+                                .completion
+                                .iter()
+                                .find(|policy| policy.id.eq_ignore_ascii_case(id))
+                                .cloned()
+                        })
                     })
             })
         });
@@ -1444,10 +1546,13 @@ fn resolve_observability_policy(
                     .observability_policy_ref
                     .as_deref()
                     .and_then(|id| {
-                        mode.policies
-                            .observability
-                            .into_iter()
-                            .find(|policy| policy.id.eq_ignore_ascii_case(id))
+                        mode.policies().and_then(|policies| {
+                            policies
+                                .observability
+                                .iter()
+                                .find(|policy| policy.id.eq_ignore_ascii_case(id))
+                                .cloned()
+                        })
                     })
             })
         });
@@ -1482,11 +1587,13 @@ fn resolve_limit_policy_agent_turn_limit(settings: &RhythmSettings, profile: &Ru
         .or_else(|| {
             fallback_mode_definition(&profile.id).and_then(|mode| {
                 profile.execution.limit_policy_ref.as_deref().and_then(|id| {
-                    mode.policies
-                        .limits
-                        .into_iter()
-                        .find(|policy| policy.id.eq_ignore_ascii_case(id))
-                        .and_then(|policy| policy.agent_turn_limit)
+                    mode.policies().and_then(|policies| {
+                        policies
+                            .limits
+                            .iter()
+                            .find(|policy| policy.id.eq_ignore_ascii_case(id))
+                            .and_then(|policy| policy.agent_turn_limit)
+                    })
                 })
             })
         })
@@ -1524,6 +1631,10 @@ pub fn resolve_runtime_spec(
     // 4. persisted config defaults
     let profile = resolve_runtime_profile(settings, intent.profile_id.as_deref());
     let env_overrides = read_runtime_env_overrides();
+    let env_subagent = env_overrides
+        .subagent_type
+        .as_deref()
+        .and_then(|subagent_id| resolve_subagent_definition(settings, subagent_id));
     let permission_policy = resolve_permission_policy(settings, &profile);
     let delegation = resolve_delegation_policy(settings, &profile);
     let review = resolve_review_policy(settings, &profile);
@@ -1553,10 +1664,12 @@ pub fn resolve_runtime_spec(
     let provider_id = intent
         .provider_id
         .as_deref()
+        .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.model.provider_id.as_deref()))
         .or(profile.model.provider_id.as_deref());
     let model_id = intent
         .model_id
         .as_deref()
+        .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.model.model_id.as_deref()))
         .or(profile.model.model_id.as_deref());
     let effective_model_id = model_id.or(env_overrides.model_id.as_deref());
     let llm = resolve_llm_config(settings, provider_id, effective_model_id)?;
@@ -1584,6 +1697,7 @@ pub fn resolve_runtime_spec(
                 .default_mode
                 .clone()
                 .or(intent.permission_mode.clone())
+                .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.permissions.default_mode.clone()))
                 .or(env_overrides.permission_mode.clone())
                 .unwrap_or_else(|| {
                     permission_policy
@@ -1595,6 +1709,7 @@ pub fn resolve_runtime_spec(
             intent
                 .permission_mode
                 .clone()
+                .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.permissions.default_mode.clone()))
                 .or(profile.permissions.default_mode.clone())
                 .or(env_overrides.permission_mode.clone())
                 .unwrap_or_else(|| {
@@ -1607,9 +1722,14 @@ pub fn resolve_runtime_spec(
         allowed_tools: if profile.permissions.locked {
             profile.permissions.allowed_tools.clone()
         } else {
+            let subagent_allowed_tools = env_subagent
+                .as_ref()
+                .map(|subagent| subagent.permissions.allowed_tools.clone())
+                .filter(|tools| !tools.is_empty());
             intent
                 .allowed_tools
                 .clone()
+                .or(subagent_allowed_tools)
                 .unwrap_or_else(|| {
                     permission_policy
                         .as_ref()
@@ -1620,9 +1740,14 @@ pub fn resolve_runtime_spec(
         denied_tools: if profile.permissions.locked {
             profile.permissions.disallowed_tools.clone()
         } else {
+            let subagent_denied_tools = env_subagent
+                .as_ref()
+                .map(|subagent| subagent.permissions.disallowed_tools.clone())
+                .filter(|tools| !tools.is_empty());
             intent
                 .disallowed_tools
                 .clone()
+                .or(subagent_denied_tools)
                 .unwrap_or_else(|| {
                     permission_policy
                         .as_ref()
@@ -1646,6 +1771,7 @@ pub fn resolve_runtime_spec(
     let reasoning = intent
         .reasoning
         .clone()
+        .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.model.reasoning.clone()))
         .or(profile.model.reasoning.clone())
         .or_else(|| Some(settings.models.defaults.reasoning.clone()));
     let reasoning_source = if intent.reasoning.is_some() {
@@ -1658,9 +1784,11 @@ pub fn resolve_runtime_spec(
     let agent_turn_limit = profile
         .execution
         .agent_turn_limit
+        .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.max_turns))
         .or(resolve_limit_policy_agent_turn_limit(settings, &profile))
         .or(env_overrides.agent_turn_limit)
         .or(settings.policies.runtime.agent_turn_limit);
+    let available_subagents = resolve_available_subagents(settings, &profile);
     let limit_policy_source = if profile.execution.agent_turn_limit.is_some() {
         "profile.execution.agent_turn_limit"
     } else if profile.execution.limit_policy_ref.is_some() {
@@ -1686,6 +1814,7 @@ pub fn resolve_runtime_spec(
         prompt_refs: profile.prompt_refs.clone(),
         reasoning,
         agent_turn_limit,
+        available_subagents,
         profile,
         llm,
         permission,

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PluginContext } from '@/plugin/sdk';
 import { launchAgentSession } from '../../plugins/orchestrator/src/agentSessionRuntime';
-import { applyOrchestratorDecision, completeOrchestratorTask, failOrchestratorTask, listReviewedArtifacts, overrideReviewDecision, recoverOrchestratorRun, retryOrchestratorTask, startOrchestratorRun, wakeRunById } from '../../plugins/orchestrator/src/runtime';
+import { applyOrchestratorDecision, completeOrchestratorTask, failOrchestratorTask, listReviewedArtifacts, overrideReviewDecision, pauseOrchestratorRun, recoverOrchestratorRun, resumeOrchestratorRun, retryOrchestratorTask, startOrchestratorRun, wakeRunById } from '../../plugins/orchestrator/src/runtime';
 import { getProjectState, getRun, listAgentRunsForRun, listArtifactsForRun, listCoordinatorRunsForRun, listTasksForRun, saveAgentRun, saveArtifact, saveReviewPolicy, saveRun, saveTask, updateTask } from '../../plugins/orchestrator/src/storage';
 import { createRunFromPlan } from '../../plugins/orchestrator/src/utils';
 import type { OrchestrationDecision, OrchestratorConfirmedPlan, OrchestratorReviewLog, OrchestratorRun } from '../../plugins/orchestrator/src/types';
@@ -35,6 +35,26 @@ vi.mock('../shared/state/useSessionStore', () => ({
 
 function unwrapRun(result: OrchestratorRun | { run: OrchestratorRun; reviewLog: OrchestratorReviewLog }) {
   return 'run' in result ? result.run : result;
+}
+
+function setAssistantSessionText(sessionId: string, content: string) {
+  mockSessionState.sessions.set(sessionId, {
+    id: sessionId,
+    messages: [
+      {
+        id: `${sessionId}-assistant`,
+        role: 'assistant',
+        content: null,
+        segments: [
+          {
+            type: 'text',
+            content,
+          },
+        ],
+        status: 'completed',
+      },
+    ],
+  });
 }
 
 describe('orchestrator runtime', () => {
@@ -374,87 +394,414 @@ describe('orchestrator runtime', () => {
     expect((await listCoordinatorRunsForRun(ctx, run.id))).toHaveLength(0);
   });
 
-  it('migrates persisted runs that are missing newer plan fields', async () => {
+  it('resumes a human-gated stage by clearing the task gate and waking the coordinator', async () => {
     const now = Date.now();
-    files.set('data/runs/run_legacy/run.json', JSON.stringify({
-      id: 'run_legacy',
-      planId: 'plan_legacy',
-      planTitle: 'Legacy Run',
-      goal: 'Load without crashing.',
-      status: 'running',
-      source: 'workbench',
-      activeTaskCount: 0,
+    const plan: OrchestratorConfirmedPlan = {
+      id: 'plan_resume_human_gate',
+      title: 'Resume Human Gate',
+      goal: 'Resume after explicit approval.',
+      overview: 'Human checkpoint should release the blocked stage.',
+      constraints: [],
+      successCriteria: [],
+      decompositionPrinciples: ['Human checkpoints must have an approval path.'],
+      humanCheckpoints: ['Human approves Stage 1.'],
+      reviewCheckpoints: [],
+      reviewPolicy: 'Wait for human approval first.',
+      confirmedAt: now,
+      revision: 1,
+      stages: [{
+        id: 'stage_gate_resume',
+        name: 'Stage Gate',
+        goal: 'Wait here first.',
+        deliverables: ['approved-result'],
+        targetFolder: 'orchestrator-output/stage-gate',
+        outputFiles: ['approved.md'],
+      }],
+    };
+    const run = createRunFromPlan(plan, 'workbench');
+    await saveRun(ctx, run);
+    await saveReviewPolicy(ctx, {
+      runId: run.id,
+      defaultRequiresReview: true,
+      allowHumanOverride: true,
+      stagePolicies: [{
+        stageId: 'stage_gate_resume',
+        stageName: 'Stage Gate',
+        requiresReview: true,
+        humanCheckpointRequired: true,
+      }],
       createdAt: now,
       updatedAt: now,
-      confirmedPlan: {
-        id: 'plan_legacy',
-        title: 'Legacy Run',
-        goal: 'Load without crashing.',
-        overview: 'Older persisted shape.',
-        constraints: ['keep going'],
-        successCriteria: ['works'],
-        reviewPolicy: 'Review every stage.',
-        stages: [],
-        confirmedAt: now,
-      },
-    }));
+    });
 
-    const run = await getRun(ctx, 'run_legacy');
-    expect(run).toBeTruthy();
-    expect(run?.schemaVersion).toBe(1);
-    expect(run?.confirmedPlan.decompositionPrinciples).toEqual(['先保持高层阶段清晰，再在运行中逐步细化为可执行任务。']);
-    expect(run?.confirmedPlan.humanCheckpoints).toEqual(['计划确认后再启动 run。']);
-    expect(run?.confirmedPlan.reviewCheckpoints).toEqual(['每个主要阶段完成后进入审核。']);
-    expect(run?.maxConcurrentTasks).toBe(2);
-    expect(run?.planRevision).toBe(1);
-    expect(run?.confirmedPlan.revision).toBe(1);
+    const started = await startOrchestratorRun(ctx, run);
+    expect(started.status).toBe('waiting_human');
+
+    const resumed = await resumeOrchestratorRun(ctx, { runId: run.id });
+    const tasks = await listTasksForRun(ctx, run.id);
+    const stageTask = tasks.find((task) => task.stageId === 'stage_gate_resume' && task.nodeType === 'container');
+    const coordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+
+    expect(resumed.status).toBe('running');
+    expect(stageTask?.status).toBe('ready');
+    expect(stageTask?.requiresHumanApproval).toBe(false);
+    expect(coordinatorRuns).toHaveLength(1);
   });
 
-  it('normalizes missing execution context fields without borrowing live composer state', async () => {
+  it('resumes a waiting-human rework task even when no agent run exists yet', async () => {
     const now = Date.now();
-    files.set('data/runs/run_execution_legacy/run.json', JSON.stringify({
-      id: 'run_execution_legacy',
-      planId: 'plan_execution_legacy',
-      planTitle: 'Legacy Execution Context',
-      goal: 'Preserve explicit execution context.',
-      status: 'running',
-      source: 'workbench',
-      activeTaskCount: 0,
-      createdAt: now,
-      updatedAt: now,
-      executionContext: {
-        workspacePath: 'C:/legacy-workspace',
-        capturedAt: now - 1000,
-      },
-      confirmedPlan: {
-        id: 'plan_execution_legacy',
-        title: 'Legacy Execution Context',
-        goal: 'Preserve explicit execution context.',
-        overview: 'Legacy run shape.',
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_resume_rework',
+        title: 'Resume Rework',
+        goal: 'Resume the approved rework task.',
+        overview: 'Rework approval should create a runnable agent session.',
         constraints: [],
         successCriteria: [],
-        reviewPolicy: 'Review every stage.',
-        stages: [],
+        decompositionPrinciples: ['Human approval should unblock rework directly.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: ['Review before proceeding.'],
+        reviewPolicy: 'Review and then rework if needed.',
         confirmedAt: now,
+        revision: 1,
+        stages: [{
+          id: 'stage_rework_resume',
+          name: 'Rework Stage',
+          goal: 'Produce the corrected file.',
+          deliverables: ['doc'],
+          targetFolder: 'orchestrator-output/rework-stage',
+          outputFiles: ['doc.md'],
+        }],
+      }, 'workbench'),
+      status: 'waiting_human' as const,
+      pendingHumanCheckpoint: 'Please apply the requested rework.',
+      pendingHumanAction: {
+        kind: 'rework_approval' as const,
+        summary: 'Please apply the requested rework.',
+        taskId: 'task_rework_child',
+        requestedAt: now,
       },
-    }));
-
-    mockSessionState.composerControls.providerId = 'anthropic';
-    mockSessionState.composerControls.modelName = 'other-model';
-    mockSessionState.composerControls.reasoning = 'high';
-
-    const run = await getRun(ctx, 'run_execution_legacy');
-    expect(run?.executionContext).toEqual({
-      providerId: 'openai',
-      model: 'gpt-5.4',
-      reasoning: 'medium',
-      workspacePath: 'C:/legacy-workspace',
-      toolPolicy: {
-        permissionMode: 'full_auto',
-      },
-      capturedAt: now - 1000,
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_rework_parent',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_rework_parent',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      assignedAgentType: 'orchestrator',
+      retryPolicy: 'manual',
+      stageId: 'stage_rework_resume',
+      planStageId: 'stage_rework_resume',
+      stageName: 'Rework Stage',
+      title: 'Rework Stage',
+      status: 'waiting_human',
+      reviewRequired: true,
+      targetFolder: 'orchestrator-output/rework-stage',
+      expectedFiles: ['doc.md'],
+      createdAt: now,
+      updatedAt: now,
     });
+    await saveTask(ctx, {
+      id: 'task_rework_child',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      parentTaskId: 'task_rework_parent',
+      rootTaskId: 'task_rework_parent',
+      depth: 1,
+      order: 1,
+      source: 'rework',
+      attemptCount: 0,
+      assignedAgentType: 'work',
+      retryPolicy: 'manual',
+      stageId: 'stage_rework_resume',
+      planStageId: 'stage_rework_resume',
+      stageName: 'Rework Stage',
+      agentId: 'stage_rework_resume:work',
+      agentName: 'Rework Agent',
+      title: 'Rework task',
+      status: 'waiting_human',
+      objective: 'Apply the review feedback.',
+      inputs: ['artifact_feedback'],
+      expectedOutputs: ['doc.md'],
+      reviewRequired: true,
+      blockedReason: 'Apply the review feedback.',
+      targetFolder: 'orchestrator-output/rework-stage',
+      expectedFiles: ['doc.md'],
+      summary: 'Apply the review feedback.',
+      failurePolicy: 'pause',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveArtifact(ctx, {
+      id: 'artifact_feedback',
+      runId: run.id,
+      agentRunId: 'agent_feedback',
+      taskId: 'task_rework_child',
+      stageId: 'stage_rework_resume',
+      stageName: 'Rework Stage',
+      name: 'Feedback artifact',
+      logicalKey: 'stage_rework_resume.feedback',
+      status: 'rejected',
+      version: 1,
+      kind: 'report',
+      format: 'markdown',
+      filePaths: ['orchestrator-output/rework-stage/doc.md'],
+      summary: 'Feedback to apply',
+      content: 'Fix the file.',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const resumed = await resumeOrchestratorRun(ctx, { runId: run.id });
+    const tasks = await listTasksForRun(ctx, run.id);
+    const reworkTask = tasks.find((task) => task.id === 'task_rework_child');
+    const agentRuns = await listAgentRunsForRun(ctx, run.id);
+
+    expect(resumed.status).toBe('running');
+    expect(reworkTask?.status).toBe('running');
+    expect(agentRuns).toHaveLength(1);
   });
+
+  it('settles pause_requested into paused when the active coordinator interrupt finishes', async () => {
+    const plan: OrchestratorConfirmedPlan = {
+      id: 'plan_pause_interrupt',
+      title: 'Pause Interrupt Plan',
+      goal: 'Pause cleanly after interrupting the coordinator.',
+      overview: 'Coordinator interruption should settle the run state.',
+      constraints: [],
+      successCriteria: [],
+      decompositionPrinciples: ['Pause should converge to a stable state.'],
+      humanCheckpoints: [],
+      reviewCheckpoints: [],
+      reviewPolicy: 'Review every stage.',
+      confirmedAt: Date.now(),
+      stages: [{
+        id: 'stage_pause_interrupt',
+        name: 'Stage 1',
+        goal: 'Prepare the first decision.',
+        deliverables: ['stage-1.md'],
+        targetFolder: 'orchestrator-output/stage-pause-interrupt',
+        outputFiles: ['stage-1.md'],
+      }],
+    };
+
+    const run = createRunFromPlan(plan, 'workbench');
+    await startOrchestratorRun(ctx, run);
+    const coordinatorLaunch = vi.mocked(launchAgentSession).mock.calls[0]?.[0];
+    expect(coordinatorLaunch).toBeTruthy();
+
+    const pauseRequested = await pauseOrchestratorRun(ctx, { runId: run.id });
+    expect(pauseRequested.status).toBe('pause_requested');
+
+    await coordinatorLaunch!.onInterrupted?.();
+
+    const pausedRun = await getRun(ctx, run.id);
+    const coordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+    expect(pausedRun?.status).toBe('paused');
+    expect(pausedRun?.activeTaskCount).toBe(0);
+    expect(coordinatorRuns[0]?.status).toBe('paused');
+  });
+
+  it('fails closed when the coordinator attempts tool usage instead of returning a decision', async () => {
+    const plan: OrchestratorConfirmedPlan = {
+      id: 'plan_coordinator_policy',
+      title: 'Coordinator Policy Plan',
+      goal: 'Fail if the coordinator tries to act like a worker.',
+      overview: 'Coordinator should return a decision, not use tools.',
+      constraints: [],
+      successCriteria: [],
+      decompositionPrinciples: ['Coordinator must stay inside orchestration mode.'],
+      humanCheckpoints: [],
+      reviewCheckpoints: [],
+      reviewPolicy: 'Review every stage.',
+      confirmedAt: Date.now(),
+      stages: [{
+        id: 'stage_coordinator_policy',
+        name: 'Stage 1',
+        goal: 'Prepare the first decision.',
+        deliverables: ['stage-1.md'],
+        targetFolder: 'orchestrator-output/stage-coordinator-policy',
+        outputFiles: ['stage-1.md'],
+      }],
+    };
+
+    const run = createRunFromPlan(plan, 'workbench');
+    await startOrchestratorRun(ctx, run);
+    const coordinatorLaunch = vi.mocked(launchAgentSession).mock.calls[0]?.[0];
+    expect(coordinatorLaunch).toBeTruthy();
+
+    await coordinatorLaunch!.onChunk?.({
+      type: 'tool_start',
+      sessionId: coordinatorLaunch!.sessionId,
+      toolId: 'tool_shell',
+      toolName: 'shell',
+      args: { command: 'echo bad' },
+    });
+    await coordinatorLaunch!.onInterrupted?.();
+
+    const failedRun = await getRun(ctx, run.id);
+    const coordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+    expect(failedRun?.status).toBe('paused');
+    expect(failedRun?.activeTaskCount).toBe(0);
+    expect(failedRun?.failureState?.summary).toContain('forbidden tool usage');
+    expect(coordinatorRuns[0]?.status).toBe('failed');
+    expect(coordinatorRuns[0]?.error).toContain('forbidden tool usage');
+  });
+
+  it('launches the coordinator with the dedicated orchestrator profile instead of chat defaults', async () => {
+    const plan: OrchestratorConfirmedPlan = {
+      id: 'plan_coordinator_profile',
+      title: 'Coordinator Profile Plan',
+      goal: 'Use the configured coordinator profile.',
+      overview: 'Coordinator launch should be profile-driven.',
+      constraints: [],
+      successCriteria: [],
+      decompositionPrinciples: ['Coordinator runtime should come from config.'],
+      humanCheckpoints: [],
+      reviewCheckpoints: [],
+      reviewPolicy: 'Review every stage.',
+      confirmedAt: Date.now(),
+      stages: [{
+        id: 'stage_coordinator_profile',
+        name: 'Stage 1',
+        goal: 'Prepare the first decision.',
+        deliverables: ['stage-1.md'],
+        targetFolder: 'orchestrator-output/stage-coordinator-profile',
+        outputFiles: ['stage-1.md'],
+      }],
+    };
+
+    const run = createRunFromPlan(plan, 'workbench');
+    await startOrchestratorRun(ctx, run);
+
+    const coordinatorLaunch = vi.mocked(launchAgentSession).mock.calls[0]?.[0];
+    expect(coordinatorLaunch?.profileId).toBe('orchestrator-coordinate');
+    expect(coordinatorLaunch?.allowedTools).toBeUndefined();
+  });
+
+  it('launches resumed rework with the dedicated work profile', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_rework_profile',
+        title: 'Rework Profile Plan',
+        goal: 'Resume rework with the configured work profile.',
+        overview: 'Rework relaunch should be profile-driven.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Work sessions should come from config.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: ['Review before proceeding.'],
+        reviewPolicy: 'Review and then rework if needed.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [{
+          id: 'stage_rework_profile',
+          name: 'Rework Stage',
+          goal: 'Produce the corrected file.',
+          deliverables: ['doc'],
+          targetFolder: 'orchestrator-output/rework-profile',
+          outputFiles: ['doc.md'],
+        }],
+      }, 'workbench'),
+      status: 'waiting_human' as const,
+      pendingHumanCheckpoint: 'Please apply the requested rework.',
+      pendingHumanAction: {
+        kind: 'rework_approval' as const,
+        summary: 'Please apply the requested rework.',
+        taskId: 'task_rework_profile_child',
+        requestedAt: now,
+      },
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_rework_profile_parent',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_rework_profile_parent',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      assignedAgentType: 'orchestrator',
+      retryPolicy: 'manual',
+      stageId: 'stage_rework_profile',
+      planStageId: 'stage_rework_profile',
+      stageName: 'Rework Stage',
+      title: 'Rework Stage',
+      status: 'waiting_human',
+      reviewRequired: true,
+      targetFolder: 'orchestrator-output/rework-profile',
+      expectedFiles: ['doc.md'],
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveTask(ctx, {
+      id: 'task_rework_profile_child',
+      runId: run.id,
+      nodeType: 'work',
+      kind: 'work',
+      parentTaskId: 'task_rework_profile_parent',
+      rootTaskId: 'task_rework_profile_parent',
+      depth: 1,
+      order: 1,
+      source: 'rework',
+      attemptCount: 0,
+      assignedAgentType: 'work',
+      retryPolicy: 'manual',
+      stageId: 'stage_rework_profile',
+      planStageId: 'stage_rework_profile',
+      stageName: 'Rework Stage',
+      agentId: 'stage_rework_profile:work',
+      agentName: 'Rework Agent',
+      title: 'Rework task',
+      status: 'waiting_human',
+      objective: 'Apply the review feedback.',
+      inputs: ['artifact_rework_profile_feedback'],
+      expectedOutputs: ['doc.md'],
+      reviewRequired: true,
+      blockedReason: 'Apply the review feedback.',
+      targetFolder: 'orchestrator-output/rework-profile',
+      expectedFiles: ['doc.md'],
+      summary: 'Apply the review feedback.',
+      failurePolicy: 'pause',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveArtifact(ctx, {
+      id: 'artifact_rework_profile_feedback',
+      runId: run.id,
+      agentRunId: 'agent_feedback',
+      taskId: 'task_rework_profile_child',
+      stageId: 'stage_rework_profile',
+      stageName: 'Rework Stage',
+      name: 'Feedback artifact',
+      logicalKey: 'stage_rework_profile.feedback',
+      status: 'rejected',
+      version: 1,
+      kind: 'report',
+      format: 'markdown',
+      filePaths: ['orchestrator-output/rework-profile/doc.md'],
+      summary: 'Feedback to apply',
+      content: 'Fix the file.',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await resumeOrchestratorRun(ctx, { runId: run.id });
+
+    const workLaunch = vi.mocked(launchAgentSession).mock.calls
+      .map((call) => call[0])
+      .find((call) => call.profileId === 'orchestrator-work');
+    expect(workLaunch?.profileId).toBe('orchestrator-work');
+    expect(workLaunch?.allowedTools).toBeUndefined();
+  });
+
 
   it('verifies workspace files before promoting a work result into an artifact', async () => {
     const now = Date.now();
@@ -1946,7 +2293,7 @@ describe('orchestrator runtime', () => {
     }]));
 
     await applyOrchestratorDecision(ctx, run.id, 'coordinator_audit', {
-      status: 'wait',
+      status: 'throttle',
       summary: 'Hold position until slots open.',
       currentStageId: 'stage_1',
       currentStageName: 'Stage 1',
@@ -3180,7 +3527,7 @@ describe('orchestrator runtime', () => {
     }]));
 
     await applyOrchestratorDecision(ctx, run.id, 'coordinator_audit', {
-      status: 'wait',
+      status: 'throttle',
       summary: 'Nothing legal to dispatch yet.',
       ruleHits: ['Current stage only', 'No draft outputs available'],
       risks: ['Dispatching now would be premature'],
@@ -3580,6 +3927,306 @@ describe('orchestrator runtime', () => {
       dispatches: [],
       taskOperations: [],
     })).rejects.toThrow('stale');
+  });
+
+  it('rejects a wait decision when a legal dispatch is already available', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_wait_illegal',
+        title: 'Illegal Wait Plan',
+        goal: 'Do not stall when work can be dispatched.',
+        overview: 'A wait decision is illegal when the next action is already known.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Known legal actions must not be ignored.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'Dispatch available work immediately.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [{
+          id: 'stage_wait_illegal',
+          name: 'Ready Stage',
+          goal: 'Produce the file.',
+          deliverables: ['doc'],
+          targetFolder: 'orchestrator-output/ready-stage',
+          outputFiles: ['doc.md'],
+        }],
+      }, 'workbench'),
+      status: 'running' as const,
+      currentStageId: 'stage_wait_illegal',
+      currentStageName: 'Ready Stage',
+      currentOrchestratorAgentRunId: 'coordinator_wait',
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_wait_parent',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_wait_parent',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      assignedAgentType: 'orchestrator',
+      retryPolicy: 'manual',
+      stageId: 'stage_wait_illegal',
+      planStageId: 'stage_wait_illegal',
+      stageName: 'Ready Stage',
+      title: 'Ready Stage',
+      status: 'ready',
+      reviewRequired: false,
+      targetFolder: 'orchestrator-output/ready-stage',
+      expectedFiles: ['doc.md'],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(applyOrchestratorDecision(ctx, run.id, 'coordinator_wait', {
+      status: 'wait',
+      summary: 'Wait even though work is ready.',
+      currentStageId: 'stage_wait_illegal',
+      currentStageName: 'Ready Stage',
+      dispatches: [],
+      taskOperations: [{
+        type: 'wait',
+        note: 'Do nothing.',
+      }],
+    })).rejects.toThrow('Wait is not legal');
+  });
+
+  it('skips recovery work when another persisted maintenance lease is still active', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_lease_guard',
+        title: 'Lease Guard',
+        goal: 'Avoid overlapping maintenance loops.',
+        overview: 'Recovery should back off when another lease is active.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['Only one maintainer may recover a run at a time.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'Dispatch when ready.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [{
+          id: 'stage_lease_guard',
+          name: 'Lease Stage',
+          goal: 'Produce the file.',
+          deliverables: ['doc'],
+          targetFolder: 'orchestrator-output/lease-stage',
+          outputFiles: ['doc.md'],
+        }],
+      }, 'workbench'),
+      status: 'running' as const,
+      maintenanceLease: {
+        ownerId: 'other-maintainer',
+        acquiredAt: now,
+        heartbeatAt: now,
+        expiresAt: now + 60_000,
+      },
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_lease_parent',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_lease_parent',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      assignedAgentType: 'orchestrator',
+      retryPolicy: 'manual',
+      stageId: 'stage_lease_guard',
+      planStageId: 'stage_lease_guard',
+      stageName: 'Lease Stage',
+      title: 'Lease Stage',
+      status: 'ready',
+      reviewRequired: false,
+      targetFolder: 'orchestrator-output/lease-stage',
+      expectedFiles: ['doc.md'],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const recovered = await recoverOrchestratorRun(ctx, run.id);
+    const coordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+
+    expect(recovered?.maintenanceLease?.ownerId).toBe('other-maintainer');
+    expect(coordinatorRuns).toHaveLength(0);
+    expect(vi.mocked(launchAgentSession)).not.toHaveBeenCalled();
+  });
+
+  it('allows recovery to reenter wake logic while holding the persisted maintenance lease', async () => {
+    const now = Date.now();
+    const run = {
+      ...createRunFromPlan({
+        id: 'plan_lease_reentrant_recover',
+        title: 'Lease Reentrant Recovery',
+        goal: 'Recover idle runs without self-blocking.',
+        overview: 'Recovery should be able to wake the coordinator while still holding the lease.',
+        constraints: [],
+        successCriteria: [],
+        decompositionPrinciples: ['The active maintainer may reenter maintenance paths for the same run.'],
+        humanCheckpoints: [],
+        reviewCheckpoints: [],
+        reviewPolicy: 'Dispatch when ready.',
+        confirmedAt: now,
+        revision: 1,
+        stages: [{
+          id: 'stage_lease_reentrant',
+          name: 'Lease Stage',
+          goal: 'Produce the file.',
+          deliverables: ['doc'],
+          targetFolder: 'orchestrator-output/lease-reentrant',
+          outputFiles: ['doc.md'],
+        }],
+      }, 'workbench'),
+      status: 'running' as const,
+      activeTaskCount: 0,
+    };
+    await saveRun(ctx, run);
+    await saveTask(ctx, {
+      id: 'task_lease_reentrant_parent',
+      runId: run.id,
+      nodeType: 'container',
+      rootTaskId: 'task_lease_reentrant_parent',
+      depth: 0,
+      order: 0,
+      source: 'plan_seed',
+      attemptCount: 0,
+      assignedAgentType: 'orchestrator',
+      retryPolicy: 'manual',
+      stageId: 'stage_lease_reentrant',
+      planStageId: 'stage_lease_reentrant',
+      stageName: 'Lease Stage',
+      title: 'Lease Stage',
+      status: 'ready',
+      reviewRequired: false,
+      targetFolder: 'orchestrator-output/lease-reentrant',
+      expectedFiles: ['doc.md'],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const recovered = await recoverOrchestratorRun(ctx, run.id);
+    const persistedRun = await getRun(ctx, run.id);
+    const coordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+
+    expect(recovered?.maintenanceLease?.ownerId).toMatch(/^lease_/);
+    expect(persistedRun?.maintenanceLease).toBeUndefined();
+    expect(coordinatorRuns).toHaveLength(1);
+    expect(vi.mocked(launchAgentSession)).toHaveBeenCalled();
+  });
+
+  it('salvages the last valid coordinator JSON object from duplicated output', async () => {
+    const now = Date.now();
+    const plan: OrchestratorConfirmedPlan = {
+      id: 'plan_coord_salvage',
+      title: 'Coordinator Salvage Plan',
+      goal: 'Continue despite duplicated coordinator JSON.',
+      overview: 'The coordinator may emit malformed duplicated JSON before a valid object.',
+      constraints: [],
+      successCriteria: [],
+      decompositionPrinciples: ['Recover the final valid decision object.'],
+      humanCheckpoints: [],
+      reviewCheckpoints: [],
+      reviewPolicy: 'No extra review.',
+      confirmedAt: now,
+      revision: 1,
+      stages: [{
+        id: 'stage_salvage',
+        name: 'Salvage Stage',
+        goal: 'Dispatch one work task.',
+        deliverables: ['doc'],
+        targetFolder: 'orchestrator-output/salvage',
+        outputFiles: ['doc.md'],
+      }],
+    };
+
+    const run = createRunFromPlan(plan, 'workbench');
+    await startOrchestratorRun(ctx, run);
+
+    const coordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+    expect(coordinatorRuns).toHaveLength(1);
+    const coordinatorRun = coordinatorRuns[0];
+    setAssistantSessionText(
+      coordinatorRun.sessionId,
+      `{"status":"dispatch","summary":"broken","dispatches":[{"parentTaskId":"oops","kind":"work","assignmentBrief":{"instructions":"bad {"status":"dispatch","summary":"Continue the stage.","ruleHits":["recover valid json"],"risks":[],"requiresHuman":false,"currentStageId":"stage_salvage","currentStageName":"Salvage Stage","currentAgentId":null,"currentAgentName":null,"taskOperations":[{"type":"activate_task","taskId":"task_fake"}],"dispatches":[{"parentTaskId":"task_fake","stageId":"stage_salvage","stageName":"Salvage Stage","kind":"work"}]}`,
+    );
+
+    const launchInput = vi.mocked(launchAgentSession).mock.calls[0]?.[0] as { onCompleted?: () => Promise<void> };
+    expect(launchInput?.onCompleted).toBeTruthy();
+
+    const tasksBefore = await listTasksForRun(ctx, run.id);
+    const parentTask = tasksBefore.find((task) => task.nodeType === 'container' && task.stageId === 'stage_salvage');
+    expect(parentTask).toBeTruthy();
+    setAssistantSessionText(
+      coordinatorRun.sessionId,
+      `{"status":"dispatch","summary":"broken","dispatches":[{"parentTaskId":"oops","kind":"work","assignmentBrief":{"instructions":"bad {"status":"dispatch","summary":"Continue the stage.","ruleHits":["recover valid json"],"risks":[],"requiresHuman":false,"currentStageId":"stage_salvage","currentStageName":"Salvage Stage","currentAgentId":null,"currentAgentName":null,"taskOperations":[{"type":"activate_task","taskId":"${parentTask!.id}"}],"dispatches":[{"parentTaskId":"${parentTask!.id}","stageId":"stage_salvage","stageName":"Salvage Stage","kind":"work"}]}`,
+    );
+
+    await launchInput.onCompleted?.();
+
+    const nextRun = await getRun(ctx, run.id);
+    const nextCoordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+    const agentRuns = await listAgentRunsForRun(ctx, run.id);
+
+    expect(nextRun?.failureState).toBeUndefined();
+    expect(nextCoordinatorRuns.find((item) => item.id === coordinatorRun.id)?.status).toBe('completed');
+    expect(agentRuns).toHaveLength(1);
+    expect(vi.mocked(launchAgentSession).mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('auto-retries coordinator runs that finish with unusable structured output', async () => {
+    const now = Date.now();
+    const plan: OrchestratorConfirmedPlan = {
+      id: 'plan_coord_retry',
+      title: 'Coordinator Retry Plan',
+      goal: 'Retry unusable coordinator output automatically.',
+      overview: 'Coordinator parse failures should not hang the run.',
+      constraints: [],
+      successCriteria: [],
+      decompositionPrinciples: ['Retry coordinator formatting failures automatically.'],
+      humanCheckpoints: [],
+      reviewCheckpoints: [],
+      reviewPolicy: 'No extra review.',
+      confirmedAt: now,
+      revision: 1,
+      stages: [{
+        id: 'stage_retry',
+        name: 'Retry Stage',
+        goal: 'Dispatch one work task.',
+        deliverables: ['doc'],
+        targetFolder: 'orchestrator-output/retry',
+        outputFiles: ['doc.md'],
+      }],
+    };
+
+    const run = createRunFromPlan(plan, 'workbench');
+    await startOrchestratorRun(ctx, run);
+
+    const coordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+    const coordinatorRun = coordinatorRuns[0];
+    setAssistantSessionText(coordinatorRun.sessionId, 'not valid json at all');
+
+    const launchInput = vi.mocked(launchAgentSession).mock.calls[0]?.[0] as { onCompleted?: () => Promise<void> };
+    await launchInput.onCompleted?.();
+
+    const nextRun = await getRun(ctx, run.id);
+    const nextCoordinatorRuns = await listCoordinatorRunsForRun(ctx, run.id);
+
+    expect(nextCoordinatorRuns.find((item) => item.id === coordinatorRun.id)?.status).toBe('failed');
+    expect(nextRun?.status).toBe('paused');
+    expect(nextRun?.failureState?.retryable).toBe(true);
+    expect(nextRun?.failureState?.requiresHuman).toBe(false);
+    expect(nextRun?.failureState?.agentRunId).toBe(coordinatorRun.id);
+    expect(typeof nextRun?.failureState?.autoRetryAt).toBe('number');
+    expect(nextRun?.engineHealthSummary).toContain('Retrying orchestrator automatically');
   });
 });
 
