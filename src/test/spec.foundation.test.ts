@@ -2,9 +2,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SPEC_AGENT_PROFILE_IDS } from '@/domains/spec/agents';
-import { getSpecChangePaths, makeSpecChangeSlug } from '@/domains/spec/changeFs';
-import { buildInitialSpecState, createSpecChangeScaffold } from '@/domains/spec/stateSync';
+import { SPEC_AGENT_PROFILE_IDS } from '@/domains/spec/infra/agents';
+import { getSpecChangePaths, makeSpecChangeSlug } from '@/domains/spec/infra/changeFs';
+import { buildInitialSpecState, createSpecChangeScaffold } from '@/domains/spec/infra/stateSync';
 
 describe('spec foundation', () => {
   it('creates stable change slugs and change paths', () => {
@@ -25,9 +25,9 @@ describe('spec foundation', () => {
     });
 
     expect(state.mode).toBe('spec');
-    expect(state.status).toBe('draft');
+    expect(state.change.status).toBe('draft');
     expect(state.execution.activeAgentProfileId).toBe(SPEC_AGENT_PROFILE_IDS.planner);
-    expect(state.tasks.total).toBe(0);
+    expect(state.metrics.tasks.total).toBe(0);
   });
 
   it('writes the initial spec scaffold to disk', async () => {
@@ -43,12 +43,12 @@ describe('spec foundation', () => {
     const changeMd = await fs.readFile(paths.changeFile, 'utf8');
     const planMd = await fs.readFile(paths.planFile, 'utf8');
     const tasksMd = await fs.readFile(paths.tasksFile, 'utf8');
-    const stateJson = JSON.parse(await fs.readFile(paths.stateFile, 'utf8')) as { slug: string; status: string };
+    const stateJson = JSON.parse(await fs.readFile(paths.stateFile, 'utf8')) as { change: { slug: string; status: string } };
 
     expect(changeMd).toContain('# Fix Session Recovery');
     expect(planMd).toContain('# Plan: Fix Session Recovery');
     expect(tasksMd).toContain('# Tasks: Fix Session Recovery');
-    expect(stateJson.slug).toBe(state.slug);
-    expect(stateJson.status).toBe('draft');
+    expect(stateJson.change.slug).toBe(state.change.slug);
+    expect(stateJson.change.status).toBe('draft');
   });
 });

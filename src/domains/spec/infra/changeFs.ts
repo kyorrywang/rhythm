@@ -12,6 +12,7 @@ export const SPEC_CHANGE_FILE_NAMES = {
   tasks: 'tasks.md',
   state: 'state.json',
   timeline: 'timeline.jsonl',
+  agentSessions: 'agent-sessions.json',
 } as const;
 
 export interface SpecChangePaths {
@@ -26,6 +27,7 @@ export interface SpecChangePaths {
   tasksFile: string;
   stateFile: string;
   timelineFile: string;
+  agentSessionsFile: string;
 }
 
 export function makeSpecChangeSlug(input: string) {
@@ -65,6 +67,7 @@ export function getSpecChangePaths(workspacePath: string, slug: string): SpecCha
     tasksFile: path.join(changeDir, SPEC_CHANGE_FILE_NAMES.tasks),
     stateFile: path.join(changeDir, SPEC_CHANGE_FILE_NAMES.state),
     timelineFile: path.join(changeDir, SPEC_CHANGE_FILE_NAMES.timeline),
+    agentSessionsFile: path.join(changeDir, SPEC_CHANGE_FILE_NAMES.agentSessions),
   };
 }
 

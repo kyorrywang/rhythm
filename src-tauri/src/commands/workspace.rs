@@ -42,6 +42,12 @@ pub struct WorkspaceTextFile {
 }
 
 #[derive(Debug, serde::Serialize)]
+pub struct WorkspaceWriteResult {
+    pub path: String,
+    pub bytes_written: usize,
+}
+
+#[derive(Debug, serde::Serialize)]
 pub struct WorkspaceShellResult {
     pub command: String,
     pub stdout: String,
@@ -162,6 +168,26 @@ pub async fn workspace_read_text_file(
             limit_bytes: MAX_TEXT_PREVIEW_BYTES,
         }),
     }
+}
+
+#[tauri::command]
+pub async fn workspace_write_text_file(
+    cwd: String,
+    path: String,
+    content: String,
+) -> Result<WorkspaceWriteResult, String> {
+    let cwd_path = resolve_workspace_path(Some(&cwd))?;
+    let target = crate::tools::context::resolve_and_validate_path(&cwd_path, &path)?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create parent directories for '{}': {}", path, e))?;
+    }
+    std::fs::write(&target, content.as_bytes())
+        .map_err(|e| format!("Cannot write file '{}': {}", path, e))?;
+    Ok(WorkspaceWriteResult {
+        path: relative_path(&cwd_path, &target),
+        bytes_written: content.as_bytes().len(),
+    })
 }
 
 #[tauri::command]

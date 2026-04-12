@@ -1,12 +1,5 @@
-export * from './application/runtime';
-export * from './domain/contracts';
-export * from './domain/naming';
-export * from './domain/stateMachine';
-export * from './domain/types';
-export * from './infra/agents';
-export * from './infra/agentSessionRuntime';
-export * from './infra/changeFs';
-export * from './infra/markdown';
-export * from './infra/stateSync';
-export * from './infra/storage';
-export * from './infra/utils';
+export * as specApplication from './application';
+export * as specDomain from './domain';
+export * as specInfra from './infra';
+export * as specIntegration from './integration';
+export * as specUi from './ui';

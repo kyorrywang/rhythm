@@ -8,6 +8,7 @@ import { CorePluginSettingsSection } from './settings/CorePluginSettingsSection'
 import { CoreSettingsOverview } from './settings/CoreSettingsOverview';
 import { CoreSettingsPanel } from './settings/CoreSettingsPanel';
 import { CoreSettingsSection } from './settings/CoreSettingsSection';
+import { SpecChangesPanel, SpecWorkbench } from '@/domains/spec/ui';
 
 export const corePlugin = definePlugin({
   activate(ctx) {
@@ -70,6 +71,13 @@ export const corePlugin = definePlugin({
       scope: 'global',
       opens: 'core.settings.panel',
     });
+    ctx.ui.activityBar.register({
+      id: 'core.spec.activity',
+      title: 'Spec',
+      icon: 'scroll-text',
+      scope: 'workspace',
+      opens: 'core.spec.panel',
+    });
     ctx.ui.leftPanel.register({
       id: 'core.sessions.panel',
       title: '会话',
@@ -87,6 +95,12 @@ export const corePlugin = definePlugin({
       title: '设置',
       icon: 'settings',
       component: CoreSettingsPanel,
+    });
+    ctx.ui.leftPanel.register({
+      id: 'core.spec.panel',
+      title: 'Spec',
+      icon: 'scroll-text',
+      component: SpecChangesPanel,
     });
     ctx.ui.workbench.register({
       id: 'core.plugins.overview',
@@ -112,6 +126,11 @@ export const corePlugin = definePlugin({
       id: 'core.plugin.settings.section',
       title: '插件设置',
       component: CorePluginSettingsSection,
+    });
+    ctx.ui.workbench.register({
+      id: 'core.spec.workbench',
+      title: 'Spec',
+      component: SpecWorkbench,
     });
   },
 });

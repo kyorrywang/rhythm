@@ -1,5 +1,5 @@
 import type { Message, MessageSegment, ServerEventChunk, Session, QueuedMessage, SessionQueueState } from '@/shared/types/schema';
-import { reduceSessionChunk } from '@/shared/state/sessionChunkReducer';
+import { reduceSessionChunk } from '@/core/sessions/sessionChunkReducer';
 import { persistSession } from '@/core/sessions/sessionPersistence';
 
 interface MessageSliceState {
@@ -260,7 +260,7 @@ export const createMessageSlice = (
     const sessionsArray = Array.from(sessions.values());
     const result = reduceSessionChunk(sessionsArray, sessionId, messageId, chunk);
     return {
-      sessions: new Map(result.sessions.map((s) => [s.id, s])),
+      sessions: new Map(result.sessions.map((s: Session) => [s.id, s])),
       activeSessionId: result.activeSessionId,
     };
   },

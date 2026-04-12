@@ -76,16 +76,21 @@ export function deriveRunStatusFromTasks(run: SpecRun, tasks: SpecTask[]): SpecR
 
 export function computeLegalOrchestrationActions(snapshot: SpecRuntimeSnapshot): SpecOrchestrationAction[] {
   const { activeRun, readyTasks, pendingHumanTasks, pendingReviews, liveTasks, state } = snapshot;
+  const blockingLiveTasks = liveTasks.filter((task) => task.status !== 'waiting_review');
   if (!activeRun) {
     return [];
   }
   if (activeRun.status === 'waiting_human' || pendingHumanTasks.length > 0) {
     return [{ type: 'request_human', reason: 'A task is waiting for human approval.', taskId: pendingHumanTasks[0]?.id }];
   }
-  if (activeRun.status === 'waiting_review' || pendingReviews.length > 0) {
-    return [{ type: 'wait', reason: 'A review decision is still pending.' }];
+  if ((activeRun.status === 'waiting_review' || pendingReviews.length > 0) && blockingLiveTasks.length === 0) {
+    return [{
+      type: 'dispatch_task',
+      taskId: pendingReviews[0]?.id,
+      profileId: 'spec-reviewer',
+    }];
   }
-  if (readyTasks.length > 0 && liveTasks.length === 0) {
+  if (readyTasks.length > 0 && blockingLiveTasks.length === 0 && pendingReviews.length === 0) {
     const nextTask = readyTasks[0];
     return [{
       type: 'dispatch_task',

@@ -54,6 +54,7 @@ pub fn run() {
             commands::workspace::workspace_info,
             commands::workspace::workspace_list_dir,
             commands::workspace::workspace_read_text_file,
+            commands::workspace::workspace_write_text_file,
             commands::workspace::workspace_shell_run,
             // Memory management
             commands::memory::list_memories,

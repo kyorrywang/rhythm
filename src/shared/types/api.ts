@@ -299,6 +299,11 @@ export interface BackendWorkspaceTextFile {
   limit_bytes: number;
 }
 
+export interface BackendWorkspaceWriteResult {
+  path: string;
+  bytes_written: number;
+}
+
 export interface BackendWorkspaceShellResult {
   command: string;
   stdout: string;
@@ -467,6 +472,10 @@ export interface TauriCommands {
   workspace_read_text_file: {
     request: { cwd: string; path: string };
     response: BackendWorkspaceTextFile;
+  };
+  workspace_write_text_file: {
+    request: { cwd: string; path: string; content: string };
+    response: BackendWorkspaceWriteResult;
   };
   workspace_shell_run: {
     request: { request: WorkspaceShellRunRequest };

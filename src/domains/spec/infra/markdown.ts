@@ -44,6 +44,27 @@ export const SPEC_FILE_CONTRACT: SpecFileContract = {
   },
 };
 
+export const SPEC_MARKDOWN_CONTRACTS = SPEC_FILE_CONTRACT.markdown;
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractSection(markdown: string, title: string) {
+  const pattern = new RegExp(`## ${escapeRegExp(title)}\\r?\\n\\r?\\n([\\s\\S]*?)(?=\\r?\\n## |$)`, 'i');
+  const match = markdown.match(pattern);
+  return match?.[1]?.trim() || '';
+}
+
+function parseListBlock(content: string) {
+  return content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.replace(/^- /, '').trim())
+    .filter((line) => line.length > 0 && line.toLowerCase() !== 'none');
+}
+
 export function renderSpecChangeMarkdown(input: SpecChangeScaffoldInput) {
   return `# ${input.title}
 
@@ -120,7 +141,7 @@ export function renderSpecTasksMarkdown(state: SpecState) {
   const currentTask = state.metrics.tasks.currentTaskTitle || 'No task is running yet.';
   const recentUpdates = [
     `- Change status: ${state.change.status}`,
-    `- Run status: ${state.runs.at(-1)?.status || 'not_started'}`,
+    `- Run status: ${state.runs[state.runs.length - 1]?.status || 'not_started'}`,
   ].join('\n');
 
   return `# Tasks: ${state.change.title}
@@ -152,4 +173,63 @@ ${renderList(
 
 ${recentUpdates}
 `;
+}
+
+export function parseSpecChangeMarkdown(markdown: string) {
+  return {
+    goal: extractSection(markdown, 'Goal'),
+    overview: extractSection(markdown, 'Overview'),
+    scope: parseListBlock(extractSection(markdown, 'Scope')),
+    nonGoals: parseListBlock(extractSection(markdown, 'Non-Goals')),
+    constraints: parseListBlock(extractSection(markdown, 'Constraints')),
+    risks: parseListBlock(extractSection(markdown, 'Risks')),
+    successCriteria: parseListBlock(extractSection(markdown, 'Success Criteria')),
+  };
+}
+
+export function parseSpecPlanMarkdown(markdown: string) {
+  const stagesBlock = extractSection(markdown, 'Stages');
+  const stages = stagesBlock
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- ['))
+    .map((line, index) => ({
+      id: `stage_${index + 1}`,
+      name: line.replace(/^- \[[ x]\]\s*/, '').replace(/^Stage \d+:\s*/, '').trim(),
+    }))
+    .filter((stage) => stage.name.length > 0);
+
+  return {
+    summary: extractSection(markdown, 'Summary'),
+    approach: extractSection(markdown, 'Approach'),
+    checkpoints: parseListBlock(extractSection(markdown, 'Checkpoints')),
+    reviewStrategy: parseListBlock(extractSection(markdown, 'Review Strategy')),
+    openQuestions: parseListBlock(extractSection(markdown, 'Open Questions')),
+    stages,
+  };
+}
+
+export function parseSpecTasksMarkdown(markdown: string) {
+  const checklist = extractSection(markdown, 'Checklist')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- ['))
+    .map((line) => {
+      const match = line.match(/^- \[([ x])\]\s*(.+)$/i);
+      return match
+        ? {
+            completed: match[1].toLowerCase() === 'x',
+            title: match[2].trim(),
+          }
+        : null;
+    })
+    .filter((item): item is { completed: boolean; title: string } => Boolean(item?.title));
+
+  return {
+    checklist,
+    current: extractSection(markdown, 'Current'),
+    blocked: parseListBlock(extractSection(markdown, 'Blocked')),
+    reviewFindings: parseListBlock(extractSection(markdown, 'Review Findings')),
+    recentUpdates: parseListBlock(extractSection(markdown, 'Recent Updates')),
+  };
 }

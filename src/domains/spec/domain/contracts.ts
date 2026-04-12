@@ -96,6 +96,19 @@ export interface SpecPlannerAssignment {
   risks: string[];
 }
 
+export interface SpecOrchestratorAssignment {
+  role: 'orchestrator';
+  changeId: string;
+  runId: string;
+  runStatus: SpecRun['status'];
+  changeStatus: SpecState['change']['status'];
+  currentTaskId: string | null;
+  legalActions: SpecOrchestrationAction[];
+  readyTaskIds: string[];
+  pendingReviewTaskIds: string[];
+  pendingHumanTaskIds: string[];
+}
+
 export interface SpecExecutorAssignment {
   role: 'executor';
   changeId: string;
@@ -114,6 +127,7 @@ export interface SpecReviewerAssignment {
 }
 
 export type SpecAgentAssignment =
+  | SpecOrchestratorAssignment
   | SpecPlannerAssignment
   | SpecExecutorAssignment
   | SpecReviewerAssignment;
@@ -151,6 +165,11 @@ export interface SpecPlannerResult {
   }>;
 }
 
+export interface SpecApplyPlannerResultInput {
+  state: SpecState;
+  result: SpecPlannerResult;
+}
+
 export interface SpecExecutorResult {
   kind: 'spec_executor_result';
   summary: string;
@@ -162,12 +181,26 @@ export interface SpecExecutorResult {
   }>;
 }
 
+export interface SpecApplyExecutorResultInput {
+  state: SpecState;
+  run: SpecRun;
+  task: SpecTask;
+  result: SpecExecutorResult;
+}
+
 export interface SpecReviewerResult {
   kind: 'spec_reviewer_result';
   summary: string;
   decision: 'accepted' | 'changes_requested' | 'blocked' | 'human_required';
   findings: SpecReviewFinding[];
   requiresRework: boolean;
+}
+
+export interface SpecApplyReviewerResultInput {
+  state: SpecState;
+  run: SpecRun;
+  task: SpecTask;
+  result: SpecReviewerResult;
 }
 
 export type SpecAgentResult = SpecPlannerResult | SpecExecutorResult | SpecReviewerResult;

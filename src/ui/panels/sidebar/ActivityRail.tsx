@@ -1,4 +1,4 @@
-import { Code2, FolderOpen, Globe, MessageSquare, Puzzle, Settings2, Workflow } from 'lucide-react';
+import { Code2, FolderOpen, Globe, MessageSquare, Puzzle, ScrollText, Settings2, Workflow } from 'lucide-react';
 import { cn } from '@/shared/utils/utils';
 import { themeRecipes } from '@/ui/theme/recipes';
 import { Button } from '@/ui/components/Button';
@@ -69,6 +69,7 @@ function iconForPluginActivity(icon: string | undefined, title: string) {
   if (normalized.includes('message') || normalized.includes('session') || normalized.includes('会话')) return <MessageSquare className={iconClassName} />;
   if (normalized.includes('folder') || normalized.includes('file')) return <FolderOpen className={iconClassName} />;
   if (normalized.includes('workflow') || normalized.includes('flow')) return <Workflow className={iconClassName} />;
+  if (normalized.includes('scroll') || normalized.includes('spec')) return <ScrollText className={iconClassName} />;
   if (normalized.includes('web') || normalized.includes('browser')) return <Globe className={iconClassName} />;
   if (normalized.includes('code') || normalized.includes('dev')) return <Code2 className={iconClassName} />;
   if (normalized.includes('settings')) return <Settings2 className={iconClassName} />;
@@ -88,6 +89,10 @@ function activityTooltip(item: ActivityBarContribution) {
 
   if (normalized.includes('workflow') || normalized.includes('flow')) {
     return 'WORKFLOW\nBuild and run workflow graphs';
+  }
+
+  if (normalized.includes('spec') || normalized.includes('scroll')) {
+    return 'SPEC\nCreate, edit, and run document-driven changes';
   }
 
   return `${item.title.toUpperCase()}\n${item.pluginId || 'plugin'}`;

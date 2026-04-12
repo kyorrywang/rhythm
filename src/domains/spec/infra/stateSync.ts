@@ -2,32 +2,17 @@ import fs from 'node:fs/promises';
 import { SPEC_AGENT_PROFILE_IDS } from './agents';
 import { getSpecChangePaths, makeSpecChangeSlug } from './changeFs';
 import type { SpecChangeScaffoldInput } from '../domain/contracts';
-import { renderSpecChangeMarkdown, renderSpecPlanMarkdown, renderSpecTasksMarkdown } from './markdown';
-import type { SpecPlan, SpecRun, SpecState, SpecTask } from '../domain/types';
+import { computeSpecTaskMetrics, refreshDerivedSpecState } from '../domain/derived';
+import {
+  renderSpecChangeMarkdown,
+  renderSpecPlanMarkdown,
+  renderSpecTasksMarkdown,
+} from './markdown';
+import { applyEditableSpecDocuments } from '../application/editor';
+import type { SpecPlan, SpecRun, SpecState } from '../domain/types';
 
 function createId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function computeTaskMetrics(tasks: SpecTask[]) {
-  const currentTask = tasks.find((task) => task.status === 'running') || null;
-  return {
-    total: tasks.length,
-    completed: tasks.filter((task) => task.status === 'completed').length,
-    running: tasks.filter((task) => task.status === 'running').length,
-    blocked: tasks.filter((task) => task.status === 'blocked').length,
-    waitingReview: tasks.filter((task) => task.status === 'waiting_review').length,
-    waitingHuman: tasks.filter((task) => task.status === 'waiting_human').length,
-    currentTaskTitle: currentTask?.title || null,
-  };
-}
-
-function computeArtifactMetrics(state: SpecState) {
-  return {
-    accepted: state.artifacts.filter((artifact) => artifact.status === 'accepted').length,
-    draft: state.artifacts.filter((artifact) => artifact.status === 'draft' || artifact.status === 'review_submitted').length,
-    rejected: state.artifacts.filter((artifact) => artifact.status === 'rejected').length,
-  };
 }
 
 export function buildInitialSpecState(input: SpecChangeScaffoldInput): SpecState {
@@ -86,7 +71,7 @@ export function buildInitialSpecState(input: SpecChangeScaffoldInput): SpecState
     reviews: [],
     runs: [initialRun],
     metrics: {
-      tasks: computeTaskMetrics([]),
+      tasks: computeSpecTaskMetrics([]),
       artifacts: { accepted: 0, draft: 0, rejected: 0 },
     },
     execution: {
@@ -95,29 +80,6 @@ export function buildInitialSpecState(input: SpecChangeScaffoldInput): SpecState
     },
     createdAt: now,
     updatedAt: now,
-  };
-}
-
-export function refreshDerivedSpecState(state: SpecState): SpecState {
-  const tasks = computeTaskMetrics(state.tasks);
-  const artifacts = computeArtifactMetrics(state);
-  const currentRun = state.runs.find((run) => run.id === state.change.currentRunId) || state.runs.at(-1) || null;
-  const currentTaskId = currentRun?.currentTaskId
-    || state.tasks.find((task) => task.title === tasks.currentTaskTitle)?.id
-    || null;
-
-  return {
-    ...state,
-    change: {
-      ...state.change,
-      currentTaskId,
-      updatedAt: Date.now(),
-    },
-    metrics: {
-      tasks,
-      artifacts,
-    },
-    updatedAt: Date.now(),
   };
 }
 
@@ -165,4 +127,14 @@ export async function createSpecChangeScaffold(workspacePath: string, input: Spe
   await fs.writeFile(paths.timelineFile, '', 'utf8');
 
   return { state, paths };
+}
+
+export async function syncSpecStateFromMarkdown(workspacePath: string, slug: string, state: SpecState) {
+  const paths = getSpecChangePaths(workspacePath, slug);
+  const [changeMd, planMd, tasksMd] = await Promise.all([
+    fs.readFile(paths.changeFile, 'utf8').catch(() => ''),
+    fs.readFile(paths.planFile, 'utf8').catch(() => ''),
+    fs.readFile(paths.tasksFile, 'utf8').catch(() => ''),
+  ]);
+  return applyEditableSpecDocuments(state, { change: changeMd, plan: planMd, tasks: tasksMd });
 }

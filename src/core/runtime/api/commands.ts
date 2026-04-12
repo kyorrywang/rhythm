@@ -7,6 +7,7 @@ import type {
   BackendWorkspaceDirList,
   BackendWorkspaceShellResult,
   BackendWorkspaceTextFile,
+  BackendWorkspaceWriteResult,
   BackendPluginSummary,
   BackendPluginInstallPreview,
   BackendPluginRuntimeInfo,
@@ -184,6 +185,10 @@ export function listWorkspaceDir(cwd: string, path: string): Promise<BackendWork
 
 export function readWorkspaceTextFile(cwd: string, path: string): Promise<BackendWorkspaceTextFile> {
   return client.invoke('workspace_read_text_file', { cwd, path } as never);
+}
+
+export function writeWorkspaceTextFile(cwd: string, path: string, content: string): Promise<BackendWorkspaceWriteResult> {
+  return client.invoke('workspace_write_text_file', { cwd, path, content } as never);
 }
 
 export function runWorkspaceShell(request: WorkspaceShellRunRequest): Promise<BackendWorkspaceShellResult> {
