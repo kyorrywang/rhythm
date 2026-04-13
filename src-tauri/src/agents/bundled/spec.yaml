@@ -1,6 +1,6 @@
 kind: primary
 schema_version: 2
-profile:
+agent:
   id: spec
   label: Spec
   mode: Spec
@@ -36,7 +36,7 @@ profile:
     completionPolicyRef: direct_answer
     observabilityPolicyRef: standard
     limitPolicyRef: default
-    availableSubagents: []
+    availableDelegateAgentIds: []
 prompt_fragments:
   base.spec_chat: |-
     You are the Spec assistant.

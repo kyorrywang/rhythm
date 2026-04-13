@@ -6,7 +6,7 @@ import { themeRecipes } from '@/ui/theme/recipes';
 import { Button, MenuContent, MenuItem, MenuPortal, MenuRoot, MenuSub, MenuSubmenuContent, MenuSubmenuTrigger, MenuTrigger, PopoverArrow, PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from '@/ui/components';
 import type { ComposerModelSelection, MainComposerProps, DockType } from '../types';
 import type { Attachment } from '@/shared/types/schema';
-import type { BackendRuntimeProfile } from '@/shared/types/api';
+import type { BackendAgent } from '@/shared/types/api';
 
 const MAX_TEXT_ATTACHMENT_SIZE = 256 * 1024;
 
@@ -45,19 +45,19 @@ const CANONICAL_MODE_IDS: Record<MainComposerProps['controls']['mode'], string> 
 };
 
 function resolveRuntimeProfileForMode(
-  runtimeProfiles: BackendRuntimeProfile[],
+  primaryAgents: BackendAgent[],
   mode: MainComposerProps['controls']['mode'],
 ) {
   const canonicalId = CANONICAL_MODE_IDS[mode];
-  return runtimeProfiles.find((profile) => profile.id.toLowerCase() === canonicalId)
-    || runtimeProfiles.find((profile) => profile.mode === mode)
+  return primaryAgents.find((profile) => profile.id.toLowerCase() === canonicalId)
+    || primaryAgents.find((profile) => profile.mode === mode)
     || null;
 }
 
-function getVisibleModeOptions(runtimeProfiles: BackendRuntimeProfile[]) {
-  const byMode = new Map<MainComposerProps['controls']['mode'], BackendRuntimeProfile>();
+function getVisibleModeOptions(primaryAgents: BackendAgent[]) {
+  const byMode = new Map<MainComposerProps['controls']['mode'], BackendAgent>();
 
-  for (const profile of runtimeProfiles) {
+  for (const profile of primaryAgents) {
     const mode = profile.mode as MainComposerProps['controls']['mode'];
     const existing = byMode.get(mode);
     if (!existing) {
@@ -74,7 +74,7 @@ function getVisibleModeOptions(runtimeProfiles: BackendRuntimeProfile[]) {
   const orderedModes: Array<MainComposerProps['controls']['mode']> = ['Chat', 'Coordinate', 'Spec'];
   return orderedModes
     .map((mode) => byMode.get(mode))
-    .filter((profile): profile is BackendRuntimeProfile => Boolean(profile))
+    .filter((profile): profile is BackendAgent => Boolean(profile))
     .map((profile) => ({
       value: profile.mode as MainComposerProps['controls']['mode'],
       label: profile.label,
@@ -199,11 +199,11 @@ export const MainComposer = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const [isCompactControls, setIsCompactControls] = useState(false);
-  const runtimeProfiles = useSettingsStore((state) => state.settings.runtimeProfiles ?? []);
-  const modeOptions = useMemo(() => getVisibleModeOptions(runtimeProfiles), [runtimeProfiles]);
+  const primaryAgents = useSettingsStore((state) => (state.settings.agents ?? []).filter((agent) => agent.kinds.includes('primary')));
+  const modeOptions = useMemo(() => getVisibleModeOptions(primaryAgents), [primaryAgents]);
   const activeProfile = useMemo(
-    () => resolveRuntimeProfileForMode(runtimeProfiles, controls.mode),
-    [runtimeProfiles, controls.mode],
+    () => resolveRuntimeProfileForMode(primaryAgents, controls.mode),
+    [primaryAgents, controls.mode],
   );
   const isLockedMode = Boolean(activeProfile?.permissions.locked);
 
@@ -445,8 +445,8 @@ const CompactControlsPopover = ({
 }) => {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const runtimeProfiles = useSettingsStore((state) => state.settings.runtimeProfiles ?? []);
-  const modeOptions = useMemo(() => getVisibleModeOptions(runtimeProfiles), [runtimeProfiles]);
+  const primaryAgents = useSettingsStore((state) => (state.settings.agents ?? []).filter((agent) => agent.kinds.includes('primary')));
+  const modeOptions = useMemo(() => getVisibleModeOptions(primaryAgents), [primaryAgents]);
 
   return (
     <MenuRoot

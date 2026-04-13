@@ -1,6 +1,6 @@
-// 简化的 Agent 配置 - 只有 1 个 spec-agent profile
+// 简化的 Agent 配置 - 只有 1 个 spec-agent
 export const SPEC_MODE_ID = 'spec';
-export const SPEC_AGENT_PROFILE_ID = 'spec-agent';
+export const SPEC_AGENT_ID = 'spec-agent';
 
 /**
  * 构建发送给 Spec Agent 的 prompt。

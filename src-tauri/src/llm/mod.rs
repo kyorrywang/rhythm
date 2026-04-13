@@ -116,7 +116,12 @@ pub fn apply_history_replay_policy(
                 blocks: message
                     .blocks
                     .into_iter()
-                    .filter(|block| !matches!(block, ChatMessageBlock::ToolResult { .. }))
+                    .filter(|block| {
+                        !matches!(
+                            block,
+                            ChatMessageBlock::ToolCall { .. } | ChatMessageBlock::ToolResult { .. }
+                        )
+                    })
                     .collect(),
             })
             .collect(),
@@ -152,6 +157,9 @@ pub fn apply_history_replay_policy(
                             .blocks
                             .into_iter()
                             .filter(|block| match block {
+                                ChatMessageBlock::ToolCall { id, .. } => {
+                                    allowed_ids.contains(id)
+                                }
                                 ChatMessageBlock::ToolResult { tool_call_id, .. } => {
                                     allowed_ids.contains(tool_call_id)
                                 }
@@ -236,12 +244,15 @@ mod tests {
         );
 
         assert_eq!(normalized.len(), 1);
-        assert_eq!(normalized[0].blocks.len(), 3);
+        assert_eq!(normalized[0].blocks.len(), 1);
         assert!(
             normalized[0]
                 .blocks
                 .iter()
-                .all(|block| !matches!(block, ChatMessageBlock::ToolResult { .. }))
+                .all(|block| !matches!(
+                    block,
+                    ChatMessageBlock::ToolCall { .. } | ChatMessageBlock::ToolResult { .. }
+                ))
         );
     }
 
@@ -253,10 +264,18 @@ mod tests {
         );
 
         assert_eq!(normalized.len(), 1);
-        assert_eq!(normalized[0].blocks.len(), 4);
+        assert_eq!(normalized[0].blocks.len(), 3);
+        assert!(normalized[0].blocks.iter().any(|block| matches!(
+            block,
+            ChatMessageBlock::ToolCall { id, .. } if id == "tool-1"
+        )));
         assert!(normalized[0].blocks.iter().any(|block| matches!(
             block,
             ChatMessageBlock::ToolResult { tool_call_id, .. } if tool_call_id == "tool-1"
+        )));
+        assert!(!normalized[0].blocks.iter().any(|block| matches!(
+            block,
+            ChatMessageBlock::ToolCall { id, .. } if id == "tool-2"
         )));
         assert!(!normalized[0].blocks.iter().any(|block| matches!(
             block,

@@ -11,7 +11,7 @@ import { Attachment, Message, ServerEventChunk, Session } from '@/shared/types/s
 import { attachSessionStream, chatStream, submitUserAnswer, approvePermission, interruptSession, llmComplete, listRuntimeSessions } from '@/core/runtime/api/commands';
 import { getMessageTextContent, isSessionRunning } from '@/core/sessions/sessionState';
 import { applySpecToolResult } from '@/domains/spec/integration/chatFlow';
-import type { BackendRuntimeProfile, BackendSettings } from '@/shared/types/api';
+import type { BackendAgent, BackendSettings } from '@/shared/types/api';
 
 const TITLE_SYSTEM_PROMPT = [
   'You generate concise chat titles.',
@@ -333,8 +333,8 @@ export const useLLMStream = () => {
     const reasoning = state.composerControls.reasoning;
     const permissionMode = state.composerControls.fullAuto ? 'full_auto' : 'default';
     const settings = useSettingsStore.getState().settings;
-    const runtimeProfiles = settings.runtimeProfiles ?? [];
-    const profile = resolveRuntimeProfileForComposerMode(runtimeProfiles, settings.defaultProfileId, state.composerControls.mode);
+    const primaryAgents = (settings.agents ?? []).filter((agent) => agent.kinds.includes('primary'));
+    const profile = resolveRuntimeProfileForComposerMode(primaryAgents, settings.defaultAgentId, state.composerControls.mode);
     if (state.composerControls.mode === 'Spec' && (!profile || profile.id.toLowerCase() !== 'spec')) {
       useToastStore.getState().addToast({
         type: 'error',
@@ -344,13 +344,13 @@ export const useLLMStream = () => {
     }
     const profileRequest = profile?.permissions.locked
       ? {
-          profileId: profile.id,
+          agentId: profile.id,
           permissionMode: profile.permissions.defaultMode as 'default' | 'plan' | 'full_auto' | undefined,
           allowedTools: profile.permissions.allowedTools,
           disallowedTools: profile.permissions.disallowedTools,
         }
       : {
-          profileId: profile?.id,
+          agentId: profile?.id,
           permissionMode,
           allowedTools: permissionStore.getState().config.allowedTools,
           disallowedTools: permissionStore.getState().config.deniedTools,
@@ -413,7 +413,7 @@ export const useLLMStream = () => {
         sessionId,
         prompt: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
         attachments,
-        profileId: profileRequest.profileId,
+        agentId: profileRequest.agentId,
         permissionMode: profileRequest.permissionMode as 'default' | 'plan' | 'full_auto' | undefined,
         allowedTools: profileRequest.allowedTools,
         disallowedTools: profileRequest.disallowedTools,
@@ -677,22 +677,22 @@ const CANONICAL_PROFILE_IDS: Record<'Chat' | 'Coordinate' | 'Spec', string> = {
 };
 
 function resolveRuntimeProfileForComposerMode(
-  runtimeProfiles: BackendRuntimeProfile[],
-  defaultProfileId: BackendSettings['defaultProfileId'],
+  primaryAgents: BackendAgent[],
+  defaultAgentId: BackendSettings['defaultAgentId'],
   mode: 'Chat' | 'Coordinate' | 'Spec',
 ) {
   const canonicalId = CANONICAL_PROFILE_IDS[mode];
-  const canonicalProfile = runtimeProfiles.find((item) => item.id.toLowerCase() === canonicalId);
+  const canonicalProfile = primaryAgents.find((item) => item.id.toLowerCase() === canonicalId);
   if (canonicalProfile) {
     return canonicalProfile;
   }
 
-  const exactModeProfiles = runtimeProfiles.filter((item) => item.mode === mode);
+  const exactModeProfiles = primaryAgents.filter((item) => item.mode === mode);
   if (exactModeProfiles.length === 1) {
     return exactModeProfiles[0];
   }
 
-  return runtimeProfiles.find((item) => item.id === defaultProfileId) || null;
+  return primaryAgents.find((item) => item.id === defaultAgentId) || null;
 }
 
 function getActiveWorkspacePath() {

@@ -52,7 +52,7 @@ export interface AppSettings {
   autoSaveSessions: boolean;
   providers: ProviderConfig[];
   systemPrompt: string;
-  defaultProfileId: string;
+  defaultAgentId: string;
   defaultReasoning: 'low' | 'medium' | 'high';
   permissionMode: 'default' | 'plan' | 'full_auto';
   allowedTools: string[];
@@ -65,7 +65,7 @@ export interface AppSettings {
   hooks: HookConfig[];
   mcpServers: MCPServerConfig[];
   enabledPlugins: string[];
-  runtimeProfiles: BackendSettings['runtimeProfiles'];
+  agents: BackendSettings['agents'];
   cronJobs: CronJobConfig[];
 }
 
@@ -75,7 +75,7 @@ const INITIAL_SETTINGS_SNAPSHOT: AppSettings = {
   autoSaveSessions: true,
   providers: [],
   systemPrompt: '',
-  defaultProfileId: 'chat',
+  defaultAgentId: 'chat',
   defaultReasoning: 'medium',
   permissionMode: 'default',
   allowedTools: [],
@@ -88,7 +88,7 @@ const INITIAL_SETTINGS_SNAPSHOT: AppSettings = {
   hooks: [],
   mcpServers: [],
   enabledPlugins: [],
-  runtimeProfiles: [],
+  agents: [],
   cronJobs: [],
 };
 
@@ -137,7 +137,7 @@ function normalizeSettings(input?: Partial<AppSettings> | null): AppSettings {
     hooks: input?.hooks || [],
     mcpServers: input?.mcpServers || [],
     enabledPlugins: input?.enabledPlugins || [],
-    runtimeProfiles: input?.runtimeProfiles || [],
+    agents: input?.agents || [],
     cronJobs: input?.cronJobs || [],
   };
 }
@@ -149,7 +149,7 @@ function mapBackendSettings(input: BackendSettings, cronJobs: BackendCronJobConf
     autoSaveSessions: input.autoSaveSessions ?? true,
     providers: input.providers || [],
     systemPrompt: input.systemPrompt ?? '',
-    defaultProfileId: input.defaultProfileId ?? INITIAL_SETTINGS_SNAPSHOT.defaultProfileId,
+    defaultAgentId: input.defaultAgentId ?? INITIAL_SETTINGS_SNAPSHOT.defaultAgentId,
     defaultReasoning: input.defaultReasoning ?? INITIAL_SETTINGS_SNAPSHOT.defaultReasoning,
     permissionMode: input.permissionMode ?? INITIAL_SETTINGS_SNAPSHOT.permissionMode,
     allowedTools: input.allowedTools || [],
@@ -162,7 +162,7 @@ function mapBackendSettings(input: BackendSettings, cronJobs: BackendCronJobConf
     hooks: input.hooks || [],
     mcpServers: input.mcpServers || [],
     enabledPlugins: input.enabledPlugins || [],
-    runtimeProfiles: input.runtimeProfiles || [],
+    agents: input.agents || [],
     cronJobs: cronJobs.map((job) => ({
       id: job.id,
       name: job.name,
@@ -182,7 +182,7 @@ function toBackendSettings(settings: AppSettings): BackendSettings {
     autoSaveSessions: normalized.autoSaveSessions,
     providers: normalized.providers,
     systemPrompt: normalized.systemPrompt,
-    defaultProfileId: normalized.defaultProfileId,
+    defaultAgentId: normalized.defaultAgentId,
     defaultReasoning: normalized.defaultReasoning,
     permissionMode: normalized.permissionMode,
     allowedTools: normalized.allowedTools,
@@ -195,7 +195,7 @@ function toBackendSettings(settings: AppSettings): BackendSettings {
     hooks: normalized.hooks,
     mcpServers: normalized.mcpServers,
     enabledPlugins: normalized.enabledPlugins,
-    runtimeProfiles: normalized.runtimeProfiles,
+    agents: normalized.agents,
   };
 }
 

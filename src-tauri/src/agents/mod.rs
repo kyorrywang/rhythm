@@ -1,12 +1,12 @@
 pub mod spec;
 
 use crate::infrastructure::config::{
-    CompletionPolicyDefinition, ConfigBundle, DelegationPolicyDefinition,
+    AgentConfigKind, AgentDefinitionConfig, CompletionPolicyDefinition, ConfigBundle, DelegationPolicyDefinition,
     LimitPolicyDefinition, ObservabilityPolicyDefinition, PermissionPolicyDefinition,
-    ResolvedRuntimeSpec, ReviewPolicyDefinition, RuntimeProfile, SubagentDefinition,
+    ResolvedAgentSpec, ReviewPolicyDefinition,
 };
 use crate::infrastructure::paths;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
@@ -28,65 +28,90 @@ pub struct AgentPolicyCatalog {
     pub limits: Vec<LimitPolicyDefinition>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum AgentDefinition {
-    Primary {
-        #[serde(default = "default_agent_schema_version")]
-        schema_version: u32,
-        profile: RuntimeProfile,
-        #[serde(default)]
-        prompt_fragments: HashMap<String, String>,
-        #[serde(default)]
-        policies: AgentPolicyCatalog,
-    },
-    Subagent {
-        #[serde(default = "default_agent_schema_version")]
-        schema_version: u32,
-        agent: SubagentDefinition,
-        #[serde(default)]
-        prompt_fragments: HashMap<String, String>,
-    },
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentKind {
+    Primary,
+    Subagent,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum AgentKindField {
+    Single(AgentKind),
+    Multiple(Vec<AgentKind>),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct RawAgentDefinition {
+    #[serde(default = "default_agent_schema_version")]
+    schema_version: u32,
+    kind: AgentKindField,
+    agent: AgentDefinitionConfig,
+    #[serde(default)]
+    prompt_fragments: HashMap<String, String>,
+    #[serde(default)]
+    policies: AgentPolicyCatalog,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct AgentDefinition {
+    pub schema_version: u32,
+    pub kinds: Vec<AgentKind>,
+    pub agent: AgentDefinitionConfig,
+    pub prompt_fragments: HashMap<String, String>,
+    pub policies: AgentPolicyCatalog,
+}
+
+impl<'de> Deserialize<'de> for AgentDefinition {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawAgentDefinition::deserialize(deserializer)?;
+        let kinds = match raw.kind {
+            AgentKindField::Single(kind) => vec![kind],
+            AgentKindField::Multiple(kinds) => kinds,
+        };
+
+        if kinds.is_empty() {
+            return Err(serde::de::Error::custom(
+                "agent definition kind must include at least one entry",
+            ));
+        }
+
+        Ok(Self {
+            schema_version: raw.schema_version,
+            kinds,
+            agent: raw.agent,
+            prompt_fragments: raw.prompt_fragments,
+            policies: raw.policies,
+        })
+    }
 }
 
 impl AgentDefinition {
     pub fn id(&self) -> &str {
-        match self {
-            Self::Primary { profile, .. } => &profile.id,
-            Self::Subagent { agent, .. } => &agent.id,
-        }
+        &self.agent.id
     }
 
-    pub fn profile(&self) -> Option<&RuntimeProfile> {
-        match self {
-            Self::Primary { profile, .. } => Some(profile),
-            Self::Subagent { .. } => None,
-        }
+    pub fn primary_agent(&self) -> Option<&AgentDefinitionConfig> {
+        self.kinds.contains(&AgentKind::Primary).then_some(&self.agent)
     }
 
-    pub fn subagent(&self) -> Option<&SubagentDefinition> {
-        match self {
-            Self::Primary { .. } => None,
-            Self::Subagent { agent, .. } => Some(agent),
-        }
+    pub fn delegated_agent(&self) -> Option<&AgentDefinitionConfig> {
+        self.kinds.contains(&AgentKind::Subagent).then_some(&self.agent)
     }
 
     pub fn prompt_fragments(&self) -> &HashMap<String, String> {
-        match self {
-            Self::Primary {
-                prompt_fragments, ..
-            } => prompt_fragments,
-            Self::Subagent {
-                prompt_fragments, ..
-            } => prompt_fragments,
-        }
+        &self.prompt_fragments
     }
 
     pub fn policies(&self) -> Option<&AgentPolicyCatalog> {
-        match self {
-            Self::Primary { policies, .. } => Some(policies),
-            Self::Subagent { .. } => None,
-        }
+        self.kinds
+            .contains(&AgentKind::Primary)
+            .then_some(&self.policies)
     }
 }
 
@@ -204,16 +229,19 @@ pub fn merge_agent_definitions_into_settings(
     definitions: &[AgentDefinition],
 ) {
     settings.prompts.fragments.clear();
-    settings.profiles.items.clear();
-    settings.profiles.subagent_items.clear();
+    settings.agents.items.clear();
 
     for definition in definitions {
-        match definition {
-            AgentDefinition::Primary { profile, .. } => settings.profiles.items.push(profile.clone()),
-            AgentDefinition::Subagent { agent, .. } => {
-                settings.profiles.subagent_items.push(agent.clone())
-            }
-        }
+        let mut agent = definition.agent.clone();
+        agent.kinds = definition
+            .kinds
+            .iter()
+            .map(|kind| match kind {
+                AgentKind::Primary => AgentConfigKind::Primary,
+                AgentKind::Subagent => AgentConfigKind::Subagent,
+            })
+            .collect();
+        settings.agents.items.push(agent);
 
         for (key, value) in definition.prompt_fragments() {
             settings.prompts.fragments.insert(key.clone(), value.clone());
@@ -245,8 +273,7 @@ pub fn strip_agent_data_from_settings(
         .prompts
         .fragments
         .retain(|key, _| !prompt_keys.contains(key));
-    settings.profiles.items.clear();
-    settings.profiles.subagent_items.clear();
+    settings.agents.items.clear();
 
     strip_policy_catalog(&mut settings.policies.catalog.permission, definitions, |definition| {
         definition
@@ -296,10 +323,10 @@ pub fn strip_agent_data_from_settings(
     });
 }
 
-pub fn explain_agent_snapshot(runtime_spec: &ResolvedRuntimeSpec) -> String {
+pub fn explain_agent_snapshot(runtime_spec: &ResolvedAgentSpec) -> String {
     format!(
         "{}:{}",
-        runtime_spec.profile.id,
+        runtime_spec.agent.id,
         runtime_spec.completion.strategy
     )
 }
@@ -401,7 +428,7 @@ fn strip_policy_catalog<T, F>(
 
 pub fn collect_permission_policies(
     settings: &ConfigBundle,
-    profile: &RuntimeProfile,
+    agent: &AgentDefinitionConfig,
 ) -> Vec<PermissionPolicyDefinition> {
     settings
         .policies
@@ -409,10 +436,10 @@ pub fn collect_permission_policies(
         .permission
         .iter()
         .filter(|policy| {
-            policy.locked == profile.permissions.locked
-                && profile.permissions.default_mode.as_ref() == Some(&policy.mode)
-                && profile.permissions.allowed_tools == policy.allowed_tools
-                && profile.permissions.disallowed_tools == policy.denied_tools
+            policy.locked == agent.permissions.locked
+                && agent.permissions.default_mode.as_ref() == Some(&policy.mode)
+                && agent.permissions.allowed_tools == policy.allowed_tools
+                && agent.permissions.disallowed_tools == policy.denied_tools
         })
         .cloned()
         .collect()
@@ -532,5 +559,50 @@ prompt_fragments:
         assert_eq!(loaded[0].id(), "nested-agent");
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn load_agent_definitions_supports_dual_identity_kind_arrays() {
+        let yaml = r#"
+kind:
+  - primary
+  - subagent
+schema_version: 2
+agent:
+  id: dual-agent
+  label: Dual Agent
+  mode: Coordinate
+  description: Dual identity agent.
+  promptRefs:
+    - dual.prompt
+  model:
+    providerId: null
+    modelId: null
+    reasoning: high
+  permissions:
+    locked: true
+    defaultMode: plan
+    allowedTools:
+      - read
+    disallowedTools:
+      - write
+  execution:
+    availableDelegateAgentIds:
+      - dynamic
+  maxTurns: 6
+prompt_fragments:
+  dual.prompt: Dual prompt body.
+policies:
+  completion:
+    - id: dual-completion
+      strategy: direct_answer
+"#;
+
+        let definition: AgentDefinition = serde_yaml::from_str(yaml).expect("dual identity agent should parse");
+
+        assert_eq!(definition.id(), "dual-agent");
+        assert!(definition.primary_agent().is_some());
+        assert!(definition.delegated_agent().is_some());
+        assert!(definition.policies().is_some());
     }
 }

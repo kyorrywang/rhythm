@@ -59,8 +59,8 @@ export function App() {
   useEffect(() => {
     const currentControls = useSessionStore.getState().composerControls;
     const selectedModel = resolveSelectedModel(settings, currentControls);
-    const runtimeProfiles = settings.runtimeProfiles ?? [];
-    const defaultProfile = runtimeProfiles.find((profile) => profile.id === settings.defaultProfileId);
+    const primaryAgents = (settings.agents ?? []).filter((agent) => agent.kinds.includes('primary'));
+    const defaultAgent = primaryAgents.find((agent) => agent.id === settings.defaultAgentId);
     const permissionMode = currentControls.fullAuto
       ? 'full_auto'
       : settings.permissionMode === 'plan'
@@ -68,7 +68,7 @@ export function App() {
         : 'default';
 
     setComposerControls({
-      mode: defaultProfile?.mode || currentControls.mode || 'Chat',
+      mode: defaultAgent?.mode || currentControls.mode || 'Chat',
       providerId: selectedModel.providerId,
       modelId: selectedModel.modelId,
       modelName: selectedModel.modelName,

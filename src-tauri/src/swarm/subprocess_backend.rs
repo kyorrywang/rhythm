@@ -56,8 +56,11 @@ impl SubprocessBackend {
                     .to_string(),
             );
         }
-        if let Some(subagent_type) = &config.subagent_type {
-            env_vars.insert("RHYTHM_SUBAGENT_TYPE".to_string(), subagent_type.clone());
+        if let Some(agent_definition_id) = &config.agent_definition_id {
+            env_vars.insert(
+                "RHYTHM_AGENT_DEFINITION_ID".to_string(),
+                agent_definition_id.clone(),
+            );
         }
         if let Some(wt) = &config.worktree_path {
             env_vars.insert("RHYTHM_WORKTREE_PATH".to_string(), wt.clone());

@@ -371,13 +371,11 @@ pub struct PromptsConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct ProfilesConfig {
-    #[serde(default = "default_profile_id")]
-    pub default_profile_id: String,
+pub struct AgentsConfig {
+    #[serde(default = "default_agent_id")]
+    pub default_agent_id: String,
     #[serde(default)]
-    pub items: Vec<RuntimeProfile>,
-    #[serde(default)]
-    pub subagent_items: Vec<SubagentDefinition>,
+    pub items: Vec<AgentDefinitionConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -435,12 +433,12 @@ pub struct ConfigBundle {
     #[serde(default)]
     pub prompts: PromptsConfig,
     #[serde(default)]
-    pub profiles: ProfilesConfig,
+    pub agents: AgentsConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct RuntimeProfileModelConfig {
+pub struct AgentModelConfig {
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     pub reasoning: Option<String>,
@@ -448,7 +446,7 @@ pub struct RuntimeProfileModelConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct RuntimeProfilePermissions {
+pub struct AgentPermissions {
     #[serde(default)]
     pub locked: bool,
     #[serde(default)]
@@ -461,9 +459,11 @@ pub struct RuntimeProfilePermissions {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct RuntimeProfileExecution {
+pub struct AgentExecutionConfig {
     #[serde(default)]
     pub agent_turn_limit: Option<usize>,
+    #[serde(default)]
+    pub max_delegation_depth: Option<u32>,
     #[serde(default)]
     pub delegation_policy_ref: Option<String>,
     #[serde(default)]
@@ -475,45 +475,67 @@ pub struct RuntimeProfileExecution {
     #[serde(default)]
     pub limit_policy_ref: Option<String>,
     #[serde(default)]
-    pub available_subagents: Vec<String>,
+    pub available_delegate_agent_ids: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct RuntimeProfile {
-    pub id: String,
-    pub label: String,
-    pub mode: String,
-    pub description: String,
-    #[serde(default)]
-    pub prompt_refs: Vec<String>,
-    #[serde(default)]
-    pub model: RuntimeProfileModelConfig,
-    #[serde(default)]
-    pub permissions: RuntimeProfilePermissions,
-    #[serde(default)]
-    pub execution: RuntimeProfileExecution,
+pub enum AgentConfigKind {
+    #[serde(rename = "primary")]
+    Primary,
+    #[serde(rename = "subagent")]
+    Subagent,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct SubagentDefinition {
+pub struct AgentDefinitionConfig {
     pub id: String,
     pub label: String,
+    #[serde(default)]
+    pub mode: String,
     pub description: String,
+    #[serde(default)]
+    pub kinds: Vec<AgentConfigKind>,
     #[serde(default)]
     pub prompt_refs: Vec<String>,
     #[serde(default)]
-    pub model: RuntimeProfileModelConfig,
+    pub model: AgentModelConfig,
     #[serde(default)]
-    pub permissions: RuntimeProfilePermissions,
+    pub permissions: AgentPermissions,
+    #[serde(default)]
+    pub execution: AgentExecutionConfig,
     #[serde(default)]
     pub max_turns: Option<usize>,
 }
 
+pub fn has_agent_kind(agent: &AgentDefinitionConfig, kind: AgentConfigKind) -> bool {
+    agent.kinds.contains(&kind)
+}
+
+fn primary_agents(settings: &RhythmSettings) -> Vec<AgentDefinitionConfig> {
+    settings
+        .agents
+        .items
+        .iter()
+        .filter(|agent| has_agent_kind(agent, AgentConfigKind::Primary))
+        .cloned()
+        .collect()
+}
+
+fn subagent_agents(settings: &RhythmSettings) -> Vec<AgentDefinitionConfig> {
+    settings
+        .agents
+        .items
+        .iter()
+        .filter(|agent| has_agent_kind(agent, AgentConfigKind::Subagent))
+        .cloned()
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeIntent {
-    pub profile_id: Option<String>,
+    pub agent_id: Option<String>,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     pub reasoning: Option<String>,
@@ -527,7 +549,7 @@ pub struct RuntimeEnvironmentOverrides {
     pub model_id: Option<String>,
     pub permission_mode: Option<PermissionMode>,
     pub agent_turn_limit: Option<usize>,
-    pub subagent_type: Option<String>,
+    pub agent_definition_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -560,7 +582,7 @@ pub struct ResolvedObservabilityPolicy {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeResolutionProvenance {
-    pub profile_id: String,
+    pub agent_id: String,
     pub provider_source: String,
     pub model_source: String,
     pub reasoning_source: String,
@@ -574,9 +596,9 @@ pub struct RuntimeResolutionProvenance {
 }
 
 #[derive(Debug, Clone)]
-pub struct ResolvedRuntimeSpec {
-    pub profile: RuntimeProfile,
-    pub available_subagents: Vec<SubagentDefinition>,
+pub struct ResolvedAgentSpec {
+    pub agent: AgentDefinitionConfig,
+    pub delegate_agents: Vec<AgentDefinitionConfig>,
     pub llm: LlmConfig,
     pub reasoning: Option<String>,
     pub permission: PermissionConfig,
@@ -602,7 +624,7 @@ fn default_theme_preset() -> String {
     "grand".to_string()
 }
 
-fn default_profile_id() -> String {
+fn default_agent_id() -> String {
     "chat".to_string()
 }
 
@@ -653,10 +675,9 @@ impl Default for ConfigBundle {
                 system_prompt: None,
                 fragments: HashMap::new(),
             },
-            profiles: ProfilesConfig {
-                default_profile_id: default_profile_id(),
+            agents: AgentsConfig {
+                default_agent_id: default_agent_id(),
                 items: vec![],
-                subagent_items: vec![],
             },
         }
     }
@@ -665,50 +686,10 @@ impl Default for ConfigBundle {
 pub type RhythmSettings = ConfigBundle;
 pub type Settings = ConfigBundle;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-struct LegacyConfigV1 {
-    #[serde(default = "default_theme")]
-    theme: String,
-    #[serde(default = "default_theme_preset")]
-    theme_preset: String,
-    #[serde(default = "default_true")]
-    auto_save_sessions: bool,
-    #[serde(default)]
-    providers: Vec<ProviderConfig>,
-    system_prompt: Option<String>,
-    #[serde(default)]
-    permission: PermissionConfig,
-    #[serde(default)]
-    memory: MemoryConfig,
-    #[serde(default)]
-    hooks: HooksConfig,
-    #[serde(default)]
-    prompt_fragments: HashMap<String, String>,
-    #[serde(default)]
-    runtime_profiles: Vec<RuntimeProfile>,
-    #[serde(default)]
-    subagent_profiles: Vec<SubagentDefinition>,
-    #[serde(default)]
-    mcp_servers: HashMap<String, McpServerConfig>,
-    #[serde(default)]
-    enabled_plugins: HashMap<String, bool>,
-    #[serde(default)]
-    plugin_permissions: HashMap<String, Vec<String>>,
-    #[serde(default = "default_profile_id")]
-    default_profile_id: String,
-    #[serde(default = "default_reasoning")]
-    default_reasoning: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    agent_turn_limit: Option<usize>,
-}
-
 pub fn load_config_bundle() -> ConfigBundle {
     let path = paths::get_settings_path();
 
     if !path.exists() {
-        if let Some(migrated) = migrate_legacy_config_if_present(&path) {
-            return migrated;
-        }
         return create_default_config(&path);
     }
 
@@ -789,42 +770,6 @@ fn create_default_config(path: &std::path::Path) -> ConfigBundle {
     bundle
 }
 
-fn migrate_legacy_config_if_present(settings_path: &std::path::Path) -> Option<ConfigBundle> {
-    let legacy_path = paths::get_legacy_config_path();
-    if !legacy_path.exists() {
-        return None;
-    }
-
-    let content = fs::read_to_string(&legacy_path).ok()?;
-    let raw_value = serde_json::from_str::<serde_json::Value>(&content).ok()?;
-    let (mut bundle, _) = upgrade_config_bundle(raw_value).ok()?;
-    normalize_config_bundle(&mut bundle);
-
-    let agent_definitions = crate::agents::default_agent_definitions();
-    crate::agents::merge_agent_definitions_into_settings(&mut bundle, &agent_definitions);
-
-    if save_config_bundle(&bundle).is_err() {
-        return None;
-    }
-
-    let _ = fs::remove_file(&legacy_path);
-    if let Some(parent) = legacy_path.parent() {
-        if parent
-            .file_name()
-            .and_then(|segment| segment.to_str())
-            == Some("config")
-        {
-            let _ = fs::remove_dir(parent);
-        }
-    }
-
-    if !settings_path.exists() {
-        let _ = save_config_bundle(&bundle);
-    }
-
-    Some(bundle)
-}
-
 fn cleanup_legacy_config_path() {
     let legacy_path = paths::get_legacy_config_path();
     if legacy_path.exists() {
@@ -846,14 +791,9 @@ fn upgrade_config_bundle(raw_value: serde_json::Value) -> Result<(ConfigBundle, 
         .get("schema_version")
         .and_then(|value| value.as_u64())
         .or_else(|| raw_value.get("schemaVersion").and_then(|value| value.as_u64()))
-        .unwrap_or(1);
+        .unwrap_or(default_schema_version() as u64);
 
     match version {
-        1 => {
-            let legacy: LegacyConfigV1 =
-                serde_json::from_value(raw_value).map_err(|e| format!("legacy v1 parse failed: {e}"))?;
-            Ok((migrate_v1_to_v2(legacy), true))
-        }
         2 => {
             let bundle: ConfigBundle =
                 serde_json::from_value(raw_value).map_err(|e| format!("config bundle parse failed: {e}"))?;
@@ -861,34 +801,6 @@ fn upgrade_config_bundle(raw_value: serde_json::Value) -> Result<(ConfigBundle, 
         }
         other => Err(format!("Unsupported config schema version: {}", other)),
     }
-}
-
-fn migrate_v1_to_v2(legacy: LegacyConfigV1) -> ConfigBundle {
-    let mut bundle = ConfigBundle::default();
-    bundle.core.theme = legacy.theme;
-    bundle.core.theme_preset = legacy.theme_preset;
-    bundle.core.auto_save_sessions = legacy.auto_save_sessions;
-    bundle.core.memory = legacy.memory;
-    bundle.core.hooks = legacy.hooks;
-    bundle.core.mcp_servers = legacy.mcp_servers;
-    bundle.core.plugins.enabled = legacy.enabled_plugins;
-    bundle.core.plugins.permissions = legacy.plugin_permissions;
-    bundle.models.providers = legacy.providers;
-    bundle.models.defaults.reasoning = legacy.default_reasoning;
-    bundle.policies.permissions = legacy.permission;
-    bundle.policies.runtime.agent_turn_limit = legacy.agent_turn_limit;
-    bundle.prompts.system_prompt = legacy.system_prompt;
-    if !legacy.prompt_fragments.is_empty() {
-        bundle.prompts.fragments = legacy.prompt_fragments;
-    }
-    bundle.profiles.default_profile_id = legacy.default_profile_id;
-    if !legacy.runtime_profiles.is_empty() {
-        bundle.profiles.items = legacy.runtime_profiles;
-    }
-    if !legacy.subagent_profiles.is_empty() {
-        bundle.profiles.subagent_items = legacy.subagent_profiles;
-    }
-    bundle
 }
 
 fn validate_config_bundle(bundle: &ConfigBundle) -> Result<(), Vec<String>> {
@@ -902,12 +814,14 @@ fn validate_config_bundle(bundle: &ConfigBundle) -> Result<(), Vec<String>> {
         ));
     }
 
-    if bundle.profiles.items.is_empty() {
-        errors.push("profiles.items must contain at least one profile".to_string());
+    let primary_agents = primary_agents(bundle);
+    let subagent_agents = subagent_agents(bundle);
+
+    if primary_agents.is_empty() {
+        errors.push("agents.items must contain at least one primary agent".to_string());
     }
 
-    let mut seen_profile_ids = std::collections::HashSet::new();
-    let mut seen_subagent_ids = std::collections::HashSet::new();
+    let mut seen_agent_ids = std::collections::HashSet::new();
     let permission_policy_ids = bundle
         .policies
         .catalog
@@ -968,102 +882,83 @@ fn validate_config_bundle(bundle: &ConfigBundle) -> Result<(), Vec<String>> {
     if limit_policy_ids.len() != bundle.policies.catalog.limits.len() {
         errors.push("duplicate limit policy id detected".to_string());
     }
-    for profile in &bundle.profiles.items {
-        if profile.id.trim().is_empty() {
-            errors.push("profiles.items contains an empty id".to_string());
+    for agent in &bundle.agents.items {
+        if agent.id.trim().is_empty() {
+            errors.push("agents.items contains an empty id".to_string());
         }
-        if !seen_profile_ids.insert(profile.id.to_lowercase()) {
-            errors.push(format!("duplicate profile id '{}'", profile.id));
+        if !seen_agent_ids.insert(agent.id.to_lowercase()) {
+            errors.push(format!("duplicate agent id '{}'", agent.id));
         }
-        for prompt_ref in &profile.prompt_refs {
+        for prompt_ref in &agent.prompt_refs {
             if !bundle.prompts.fragments.contains_key(prompt_ref) {
                 errors.push(format!(
-                    "profile '{}' references missing prompt fragment '{}'",
-                    profile.id, prompt_ref
+                    "agent '{}' references missing prompt fragment '{}'",
+                    agent.id, prompt_ref
                 ));
             }
         }
-        if let Some(policy_id) = &profile.execution.delegation_policy_ref {
-            if !delegation_policy_ids.contains(&policy_id.to_lowercase()) {
-                errors.push(format!(
-                    "profile '{}' references missing delegation policy '{}'",
-                    profile.id, policy_id
-                ));
+        if has_agent_kind(agent, AgentConfigKind::Primary) {
+            if let Some(policy_id) = &agent.execution.delegation_policy_ref {
+                if !delegation_policy_ids.contains(&policy_id.to_lowercase()) {
+                    errors.push(format!(
+                        "agent '{}' references missing delegation policy '{}'",
+                        agent.id, policy_id
+                    ));
+                }
             }
-        }
-        if let Some(policy_id) = &profile.execution.review_policy_ref {
-            if !review_policy_ids.contains(&policy_id.to_lowercase()) {
-                errors.push(format!(
-                    "profile '{}' references missing review policy '{}'",
-                    profile.id, policy_id
-                ));
+            if let Some(policy_id) = &agent.execution.review_policy_ref {
+                if !review_policy_ids.contains(&policy_id.to_lowercase()) {
+                    errors.push(format!(
+                        "agent '{}' references missing review policy '{}'",
+                        agent.id, policy_id
+                    ));
+                }
             }
-        }
-        if let Some(policy_id) = &profile.execution.completion_policy_ref {
-            if !completion_policy_ids.contains(&policy_id.to_lowercase()) {
-                errors.push(format!(
-                    "profile '{}' references missing completion policy '{}'",
-                    profile.id, policy_id
-                ));
+            if let Some(policy_id) = &agent.execution.completion_policy_ref {
+                if !completion_policy_ids.contains(&policy_id.to_lowercase()) {
+                    errors.push(format!(
+                        "agent '{}' references missing completion policy '{}'",
+                        agent.id, policy_id
+                    ));
+                }
             }
-        }
-        if let Some(policy_id) = &profile.execution.observability_policy_ref {
-            if !observability_policy_ids.contains(&policy_id.to_lowercase()) {
-                errors.push(format!(
-                    "profile '{}' references missing observability policy '{}'",
-                    profile.id, policy_id
-                ));
+            if let Some(policy_id) = &agent.execution.observability_policy_ref {
+                if !observability_policy_ids.contains(&policy_id.to_lowercase()) {
+                    errors.push(format!(
+                        "agent '{}' references missing observability policy '{}'",
+                        agent.id, policy_id
+                    ));
+                }
             }
-        }
-        if let Some(policy_id) = &profile.execution.limit_policy_ref {
-            if !limit_policy_ids.contains(&policy_id.to_lowercase()) {
-                errors.push(format!(
-                    "profile '{}' references missing limit policy '{}'",
-                    profile.id, policy_id
-                ));
+            if let Some(policy_id) = &agent.execution.limit_policy_ref {
+                if !limit_policy_ids.contains(&policy_id.to_lowercase()) {
+                    errors.push(format!(
+                        "agent '{}' references missing limit policy '{}'",
+                        agent.id, policy_id
+                    ));
+                }
             }
-        }
-        for subagent_id in &profile.execution.available_subagents {
-            if !bundle
-                .profiles
-                .subagent_items
-                .iter()
-                .any(|subagent| subagent.id.eq_ignore_ascii_case(subagent_id))
-            {
-                errors.push(format!(
-                    "profile '{}' references missing subagent '{}'",
-                    profile.id, subagent_id
-                ));
+            for delegate_agent_id in &agent.execution.available_delegate_agent_ids {
+                if !subagent_agents
+                    .iter()
+                    .any(|subagent| subagent.id.eq_ignore_ascii_case(delegate_agent_id))
+                {
+                    errors.push(format!(
+                        "agent '{}' references missing subagent '{}'",
+                        agent.id, delegate_agent_id
+                    ));
+                }
             }
         }
     }
 
-    for subagent in &bundle.profiles.subagent_items {
-        if subagent.id.trim().is_empty() {
-            errors.push("profiles.subagent_items contains an empty id".to_string());
-        }
-        if !seen_subagent_ids.insert(subagent.id.to_lowercase()) {
-            errors.push(format!("duplicate subagent id '{}'", subagent.id));
-        }
-        for prompt_ref in &subagent.prompt_refs {
-            if !bundle.prompts.fragments.contains_key(prompt_ref) {
-                errors.push(format!(
-                    "subagent '{}' references missing prompt fragment '{}'",
-                    subagent.id, prompt_ref
-                ));
-            }
-        }
-    }
-
-    if !bundle
-        .profiles
-        .items
+    if !primary_agents
         .iter()
-        .any(|profile| profile.id.eq_ignore_ascii_case(&bundle.profiles.default_profile_id))
+        .any(|agent| agent.id.eq_ignore_ascii_case(&bundle.agents.default_agent_id))
     {
         errors.push(format!(
-            "default profile '{}' does not exist",
-            bundle.profiles.default_profile_id
+            "default agent '{}' does not exist",
+            bundle.agents.default_agent_id
         ));
     }
 
@@ -1103,7 +998,7 @@ fn normalize_config_bundle(bundle: &mut ConfigBundle) -> bool {
     changed |= normalize_provider_settings(bundle);
     changed |= normalize_prompt_settings(bundle);
     changed |= normalize_policy_settings(bundle);
-    changed |= normalize_profile_settings(bundle);
+    changed |= normalize_agent_settings(bundle);
     changed
 }
 
@@ -1129,10 +1024,10 @@ fn read_runtime_env_overrides() -> RuntimeEnvironmentOverrides {
         }
     }
 
-    if let Ok(subagent_type) = std::env::var("RHYTHM_SUBAGENT_TYPE") {
-        let trimmed = subagent_type.trim();
+    if let Ok(agent_definition_id) = std::env::var("RHYTHM_AGENT_DEFINITION_ID") {
+        let trimmed = agent_definition_id.trim();
         if !trimmed.is_empty() {
-            overrides.subagent_type = Some(trimmed.to_string());
+            overrides.agent_definition_id = Some(trimmed.to_string());
         }
     }
 
@@ -1219,7 +1114,10 @@ pub fn resolve_llm_config(
         api_key: provider.api_key.clone(),
         model: model.name.clone(),
         max_tokens: settings.models.defaults.max_tokens,
-        capabilities: merge_model_capabilities(&provider.capabilities, &model.capabilities),
+        capabilities: apply_provider_capability_defaults(
+            &provider.provider,
+            merge_model_capabilities(&provider.capabilities, &model.capabilities),
+        ),
     })
 }
 
@@ -1262,60 +1160,76 @@ fn normalize_prompt_settings(settings: &mut ConfigBundle) -> bool {
     false
 }
 
-fn normalize_profile_settings(settings: &mut ConfigBundle) -> bool {
+fn normalize_agent_settings(settings: &mut ConfigBundle) -> bool {
     let mut changed = false;
-    if settings.profiles.default_profile_id.trim().is_empty() {
-        settings.profiles.default_profile_id = default_profile_id();
+    if settings.agents.default_agent_id.trim().is_empty() {
+        settings.agents.default_agent_id = default_agent_id();
         changed = true;
+    }
+
+    for agent in &mut settings.agents.items {
+        if agent.kinds.is_empty() {
+            agent.kinds.push(AgentConfigKind::Primary);
+            changed = true;
+        }
     }
 
     changed
 }
 
-pub fn list_runtime_profiles(settings: &RhythmSettings) -> Vec<RuntimeProfile> {
-    settings.profiles.items.clone()
+pub fn list_primary_agents(settings: &RhythmSettings) -> Vec<AgentDefinitionConfig> {
+    primary_agents(settings)
 }
 
-pub fn list_subagents(settings: &RhythmSettings) -> Vec<SubagentDefinition> {
-    settings.profiles.subagent_items.clone()
+pub fn list_subagent_agents(settings: &RhythmSettings) -> Vec<AgentDefinitionConfig> {
+    subagent_agents(settings)
 }
 
-fn fallback_agent_definition(profile_id: &str) -> Option<crate::agents::AgentDefinition> {
+fn fallback_agent_definition(agent_id: &str) -> Option<crate::agents::AgentDefinition> {
     crate::agents::default_agent_definitions()
         .into_iter()
-        .find(|definition| {
-            definition
-                .profile()
-                .map(|profile| profile.id.eq_ignore_ascii_case(profile_id))
-                .unwrap_or(false)
+        .find(|definition| definition.id().eq_ignore_ascii_case(agent_id))
+}
+
+fn fallback_primary_agent(agent_id: &str) -> Option<AgentDefinitionConfig> {
+    fallback_agent_definition(agent_id).and_then(|definition| {
+        definition.primary_agent().cloned().map(|mut agent| {
+            agent.kinds = vec![AgentConfigKind::Primary];
+            agent
+        })
+    })
+}
+
+fn fallback_subagent_agent(agent_id: &str) -> Option<AgentDefinitionConfig> {
+    crate::agents::default_agent_definitions()
+        .into_iter()
+        .find(|definition| definition.id().eq_ignore_ascii_case(agent_id))
+        .and_then(|definition| {
+            definition.delegated_agent().cloned().map(|mut agent| {
+                agent.kinds = vec![AgentConfigKind::Subagent];
+                agent
+            })
         })
 }
 
 pub fn resolve_subagent_definition(
     settings: &RhythmSettings,
     subagent_id: &str,
-) -> Option<SubagentDefinition> {
-    settings
-        .profiles
-        .subagent_items
+) -> Option<AgentDefinitionConfig> {
+    subagent_agents(settings)
         .iter()
         .find(|subagent| subagent.id.eq_ignore_ascii_case(subagent_id))
         .cloned()
-        .or_else(|| {
-            crate::agents::default_agent_definitions()
-                .into_iter()
-                .filter_map(|definition| definition.subagent().cloned())
-                .find(|subagent| subagent.id.eq_ignore_ascii_case(subagent_id))
-        })
+        .or_else(|| fallback_subagent_agent(subagent_id))
 }
 
-pub fn resolve_available_subagents(
+pub fn resolve_delegate_agents(
     settings: &RhythmSettings,
-    profile: &RuntimeProfile,
-) -> Vec<SubagentDefinition> {
-    profile
+    agent: &AgentDefinitionConfig,
+) -> Vec<AgentDefinitionConfig> {
+    agent
         .execution
-        .available_subagents
+        .available_delegate_agent_ids
         .iter()
         .filter_map(|subagent_id| resolve_subagent_definition(settings, subagent_id))
         .collect()
@@ -1331,52 +1245,50 @@ pub fn render_prompt_fragments(settings: &RhythmSettings, prompt_refs: &[String]
         .join("\n\n")
 }
 
-pub fn resolve_runtime_profile(
+pub fn resolve_agent_definition(
     settings: &RhythmSettings,
-    profile_id: Option<&str>,
-) -> RuntimeProfile {
-    let requested = profile_id
+    agent_id: Option<&str>,
+) -> AgentDefinitionConfig {
+    let requested = agent_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(&settings.profiles.default_profile_id);
+        .unwrap_or(&settings.agents.default_agent_id);
 
     settings
-        .profiles
+        .agents
         .items
         .iter()
-        .find(|profile| profile.id.eq_ignore_ascii_case(requested))
+        .find(|agent| agent.id.eq_ignore_ascii_case(requested))
         .cloned()
-        .or_else(|| {
-            fallback_agent_definition(requested)
-                .and_then(|definition| definition.profile().cloned())
-        })
+        .or_else(|| fallback_agent_definition(requested).map(|definition| definition.agent.clone()))
         .or_else(|| {
             settings
-                .profiles
+                .agents
                 .items
                 .iter()
-                .find(|profile| profile.id.eq_ignore_ascii_case("chat"))
+                .find(|agent| agent.id.eq_ignore_ascii_case("chat"))
                 .cloned()
         })
         .unwrap_or_else(|| {
-            fallback_agent_definition("chat")
-                .and_then(|definition| definition.profile().cloned())
-                .unwrap_or(RuntimeProfile {
+            fallback_primary_agent("chat")
+                .unwrap_or(AgentDefinitionConfig {
                     id: "chat".to_string(),
                     label: "Chat".to_string(),
                     mode: "Chat".to_string(),
                     description: "Chat".to_string(),
+                    kinds: vec![AgentConfigKind::Primary],
                     prompt_refs: vec![],
-                    model: RuntimeProfileModelConfig::default(),
-                    permissions: RuntimeProfilePermissions::default(),
-                    execution: RuntimeProfileExecution::default(),
+                    model: AgentModelConfig::default(),
+                    permissions: AgentPermissions::default(),
+                    execution: AgentExecutionConfig::default(),
+                    max_turns: None,
                 })
         })
 }
 
 fn resolve_permission_policy(
     settings: &RhythmSettings,
-    profile: &RuntimeProfile,
+    agent: &AgentDefinitionConfig,
 ) -> Option<PermissionPolicyDefinition> {
     settings
         .policies
@@ -1384,24 +1296,24 @@ fn resolve_permission_policy(
         .permission
         .iter()
         .find(|policy| {
-            profile.permissions.locked == policy.locked
-                && profile
+            agent.permissions.locked == policy.locked
+                && agent
                     .permissions
                     .default_mode
                     .as_ref()
                     == Some(&policy.mode)
-                && profile.permissions.allowed_tools == policy.allowed_tools
-                && profile.permissions.disallowed_tools == policy.denied_tools
+                && agent.permissions.allowed_tools == policy.allowed_tools
+                && agent.permissions.disallowed_tools == policy.denied_tools
         })
         .cloned()
         .or_else(|| {
-            fallback_agent_definition(&profile.id).and_then(|definition| {
+            fallback_agent_definition(&agent.id).and_then(|definition| {
                 definition.policies().and_then(|policies| {
                     policies.permission.iter().find(|policy| {
-                        policy.locked == profile.permissions.locked
-                            && profile.permissions.default_mode.as_ref() == Some(&policy.mode)
-                            && profile.permissions.allowed_tools == policy.allowed_tools
-                            && profile.permissions.disallowed_tools == policy.denied_tools
+                        policy.locked == agent.permissions.locked
+                            && agent.permissions.default_mode.as_ref() == Some(&policy.mode)
+                            && agent.permissions.allowed_tools == policy.allowed_tools
+                            && agent.permissions.disallowed_tools == policy.denied_tools
                     }).cloned()
                 })
             })
@@ -1410,9 +1322,9 @@ fn resolve_permission_policy(
 
 fn resolve_delegation_policy(
     settings: &RhythmSettings,
-    profile: &RuntimeProfile,
+    agent: &AgentDefinitionConfig,
 ) -> ResolvedDelegationPolicy {
-    let policy = profile
+    let policy = agent
         .execution
         .delegation_policy_ref
         .as_deref()
@@ -1426,8 +1338,8 @@ fn resolve_delegation_policy(
         })
         .cloned()
         .or_else(|| {
-            fallback_agent_definition(&profile.id).and_then(|definition| {
-                profile
+            fallback_agent_definition(&agent.id).and_then(|definition| {
+                agent
                     .execution
                     .delegation_policy_ref
                     .as_deref()
@@ -1461,9 +1373,9 @@ fn resolve_delegation_policy(
 
 fn resolve_review_policy(
     settings: &RhythmSettings,
-    profile: &RuntimeProfile,
+    agent: &AgentDefinitionConfig,
 ) -> ResolvedReviewPolicy {
-    let policy = profile
+    let policy = agent
         .execution
         .review_policy_ref
         .as_deref()
@@ -1477,8 +1389,8 @@ fn resolve_review_policy(
         })
         .cloned()
         .or_else(|| {
-            fallback_agent_definition(&profile.id).and_then(|definition| {
-                profile.execution.review_policy_ref.as_deref().and_then(|id| {
+            fallback_agent_definition(&agent.id).and_then(|definition| {
+                agent.execution.review_policy_ref.as_deref().and_then(|id| {
                     definition.policies().and_then(|policies| {
                         policies
                             .review
@@ -1505,9 +1417,9 @@ fn resolve_review_policy(
 
 fn resolve_completion_policy(
     settings: &RhythmSettings,
-    profile: &RuntimeProfile,
+    agent: &AgentDefinitionConfig,
 ) -> ResolvedCompletionPolicy {
-    let policy = profile
+    let policy = agent
         .execution
         .completion_policy_ref
         .as_deref()
@@ -1521,8 +1433,8 @@ fn resolve_completion_policy(
         })
         .cloned()
         .or_else(|| {
-            fallback_agent_definition(&profile.id).and_then(|definition| {
-                profile
+            fallback_agent_definition(&agent.id).and_then(|definition| {
+                agent
                     .execution
                     .completion_policy_ref
                     .as_deref()
@@ -1551,9 +1463,9 @@ fn resolve_completion_policy(
 
 fn resolve_observability_policy(
     settings: &RhythmSettings,
-    profile: &RuntimeProfile,
+    agent: &AgentDefinitionConfig,
 ) -> ResolvedObservabilityPolicy {
-    let policy = profile
+    let policy = agent
         .execution
         .observability_policy_ref
         .as_deref()
@@ -1567,8 +1479,8 @@ fn resolve_observability_policy(
         })
         .cloned()
         .or_else(|| {
-            fallback_agent_definition(&profile.id).and_then(|definition| {
-                profile
+            fallback_agent_definition(&agent.id).and_then(|definition| {
+                agent
                     .execution
                     .observability_policy_ref
                     .as_deref()
@@ -1597,8 +1509,8 @@ fn resolve_observability_policy(
     }
 }
 
-fn resolve_limit_policy_agent_turn_limit(settings: &RhythmSettings, profile: &RuntimeProfile) -> Option<usize> {
-    profile
+fn resolve_limit_policy_agent_turn_limit(settings: &RhythmSettings, agent: &AgentDefinitionConfig) -> Option<usize> {
+    agent
         .execution
         .limit_policy_ref
         .as_deref()
@@ -1612,8 +1524,8 @@ fn resolve_limit_policy_agent_turn_limit(settings: &RhythmSettings, profile: &Ru
         })
         .and_then(|policy| policy.agent_turn_limit)
         .or_else(|| {
-            fallback_agent_definition(&profile.id).and_then(|definition| {
-                profile.execution.limit_policy_ref.as_deref().and_then(|id| {
+            fallback_agent_definition(&agent.id).and_then(|definition| {
+                agent.execution.limit_policy_ref.as_deref().and_then(|id| {
                     definition.policies().and_then(|policies| {
                         policies
                             .limits
@@ -1627,7 +1539,7 @@ fn resolve_limit_policy_agent_turn_limit(settings: &RhythmSettings, profile: &Ru
 }
 
 pub fn should_delegate_task(
-    runtime_spec: &ResolvedRuntimeSpec,
+    runtime_spec: &ResolvedAgentSpec,
     prompt: &str,
     _attachment_count: usize,
 ) -> bool {
@@ -1650,40 +1562,40 @@ pub fn should_delegate_task(
 pub fn resolve_runtime_spec(
     settings: &RhythmSettings,
     intent: RuntimeIntent,
-) -> Result<ResolvedRuntimeSpec, String> {
+) -> Result<ResolvedAgentSpec, String> {
     // Effective runtime precedence is:
     // 1. session intent overrides
-    // 2. profile defaults / locked profile rules
+    // 2. agent defaults / locked agent rules
     // 3. environment runtime overrides
     // 4. persisted config defaults
-    let profile = resolve_runtime_profile(settings, intent.profile_id.as_deref());
     let env_overrides = read_runtime_env_overrides();
-    let env_subagent = env_overrides
-        .subagent_type
+    let requested_agent_id = intent
+        .agent_id
         .as_deref()
-        .and_then(|subagent_id| resolve_subagent_definition(settings, subagent_id));
-    let permission_policy = resolve_permission_policy(settings, &profile);
-    let delegation = resolve_delegation_policy(settings, &profile);
-    let review = resolve_review_policy(settings, &profile);
-    let completion = resolve_completion_policy(settings, &profile);
-    let observability = resolve_observability_policy(settings, &profile);
-    let resolved_profile_id = profile.id.clone();
-    let delegation_policy_source = profile
+        .or(env_overrides.agent_definition_id.as_deref());
+    let agent = resolve_agent_definition(settings, requested_agent_id);
+    let permission_policy = resolve_permission_policy(settings, &agent);
+    let delegation = resolve_delegation_policy(settings, &agent);
+    let review = resolve_review_policy(settings, &agent);
+    let completion = resolve_completion_policy(settings, &agent);
+    let observability = resolve_observability_policy(settings, &agent);
+    let resolved_agent_id = agent.id.clone();
+    let delegation_policy_source = agent
         .execution
         .delegation_policy_ref
         .clone()
         .unwrap_or_else(|| "inline_default".to_string());
-    let review_policy_source = profile
+    let review_policy_source = agent
         .execution
         .review_policy_ref
         .clone()
         .unwrap_or_else(|| "inline_default".to_string());
-    let completion_policy_source = profile
+    let completion_policy_source = agent
         .execution
         .completion_policy_ref
         .clone()
         .unwrap_or_else(|| "inline_default".to_string());
-    let observability_policy_source = profile
+    let observability_policy_source = agent
         .execution
         .observability_policy_ref
         .clone()
@@ -1691,26 +1603,24 @@ pub fn resolve_runtime_spec(
     let provider_id = intent
         .provider_id
         .as_deref()
-        .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.model.provider_id.as_deref()))
-        .or(profile.model.provider_id.as_deref());
+        .or(agent.model.provider_id.as_deref());
     let model_id = intent
         .model_id
         .as_deref()
-        .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.model.model_id.as_deref()))
-        .or(profile.model.model_id.as_deref());
+        .or(agent.model.model_id.as_deref());
     let effective_model_id = model_id.or(env_overrides.model_id.as_deref());
     let llm = resolve_llm_config(settings, provider_id, effective_model_id)?;
     let provider_source = if intent.provider_id.is_some() {
         "intent.provider_id"
-    } else if profile.model.provider_id.is_some() {
-        "profile.model.provider_id"
+    } else if agent.model.provider_id.is_some() {
+        "agent.model.provider_id"
     } else {
         "models.providers.default"
     };
     let model_source = if intent.model_id.is_some() {
         "intent.model_id"
-    } else if profile.model.model_id.is_some() {
-        "profile.model.model_id"
+    } else if agent.model.model_id.is_some() {
+        "agent.model.model_id"
     } else if env_overrides.model_id.is_some() {
         "env.RHYTHM_MODEL_OVERRIDE"
     } else {
@@ -1718,13 +1628,12 @@ pub fn resolve_runtime_spec(
     };
 
     let permission = PermissionConfig {
-        mode: if profile.permissions.locked {
-            profile
+        mode: if agent.permissions.locked {
+            agent
                 .permissions
                 .default_mode
                 .clone()
                 .or(intent.permission_mode.clone())
-                .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.permissions.default_mode.clone()))
                 .or(env_overrides.permission_mode.clone())
                 .unwrap_or_else(|| {
                     permission_policy
@@ -1736,8 +1645,7 @@ pub fn resolve_runtime_spec(
             intent
                 .permission_mode
                 .clone()
-                .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.permissions.default_mode.clone()))
-                .or(profile.permissions.default_mode.clone())
+                .or(agent.permissions.default_mode.clone())
                 .or(env_overrides.permission_mode.clone())
                 .unwrap_or_else(|| {
                     permission_policy
@@ -1746,17 +1654,12 @@ pub fn resolve_runtime_spec(
                         .unwrap_or_else(|| settings.policies.permissions.mode.clone())
                 })
         },
-        allowed_tools: if profile.permissions.locked {
-            profile.permissions.allowed_tools.clone()
+        allowed_tools: if agent.permissions.locked {
+            agent.permissions.allowed_tools.clone()
         } else {
-            let subagent_allowed_tools = env_subagent
-                .as_ref()
-                .map(|subagent| subagent.permissions.allowed_tools.clone())
-                .filter(|tools| !tools.is_empty());
             intent
                 .allowed_tools
                 .clone()
-                .or(subagent_allowed_tools)
                 .unwrap_or_else(|| {
                     permission_policy
                         .as_ref()
@@ -1764,17 +1667,12 @@ pub fn resolve_runtime_spec(
                         .unwrap_or_else(|| settings.policies.permissions.allowed_tools.clone())
                 })
         },
-        denied_tools: if profile.permissions.locked {
-            profile.permissions.disallowed_tools.clone()
+        denied_tools: if agent.permissions.locked {
+            agent.permissions.disallowed_tools.clone()
         } else {
-            let subagent_denied_tools = env_subagent
-                .as_ref()
-                .map(|subagent| subagent.permissions.disallowed_tools.clone())
-                .filter(|tools| !tools.is_empty());
             intent
                 .disallowed_tools
                 .clone()
-                .or(subagent_denied_tools)
                 .unwrap_or_else(|| {
                     permission_policy
                         .as_ref()
@@ -1792,41 +1690,39 @@ pub fn resolve_runtime_spec(
     if env_overrides.permission_mode.is_some() {
         env_applied.push("RHYTHM_PERMISSION_MODE_OVERRIDE".to_string());
     }
-    if env_overrides.subagent_type.is_some() {
-        env_applied.push("RHYTHM_SUBAGENT_TYPE".to_string());
+    if env_overrides.agent_definition_id.is_some() {
+        env_applied.push("RHYTHM_AGENT_DEFINITION_ID".to_string());
     }
     let reasoning = intent
         .reasoning
         .clone()
-        .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.model.reasoning.clone()))
-        .or(profile.model.reasoning.clone())
+        .or(agent.model.reasoning.clone())
         .or_else(|| Some(settings.models.defaults.reasoning.clone()));
     let reasoning_source = if intent.reasoning.is_some() {
         "intent.reasoning"
-    } else if profile.model.reasoning.is_some() {
-        "profile.model.reasoning"
+    } else if agent.model.reasoning.is_some() {
+        "agent.model.reasoning"
     } else {
         "models.defaults.reasoning"
     };
-    let agent_turn_limit = profile
+    let agent_turn_limit = agent
         .execution
         .agent_turn_limit
-        .or_else(|| env_subagent.as_ref().and_then(|subagent| subagent.max_turns))
-        .or(resolve_limit_policy_agent_turn_limit(settings, &profile))
+        .or(resolve_limit_policy_agent_turn_limit(settings, &agent))
         .or(env_overrides.agent_turn_limit)
         .or(settings.policies.runtime.agent_turn_limit);
-    let available_subagents = resolve_available_subagents(settings, &profile);
-    let limit_policy_source = if profile.execution.agent_turn_limit.is_some() {
-        "profile.execution.agent_turn_limit"
-    } else if profile.execution.limit_policy_ref.is_some() {
-        "profile.execution.limit_policy_ref"
+    let delegate_agents = resolve_delegate_agents(settings, &agent);
+    let limit_policy_source = if agent.execution.agent_turn_limit.is_some() {
+        "agent.execution.agent_turn_limit"
+    } else if agent.execution.limit_policy_ref.is_some() {
+        "agent.execution.limit_policy_ref"
     } else if env_overrides.agent_turn_limit.is_some() {
-        "env.RHYTHM_SUBAGENT_TYPE"
+        "env.RHYTHM_AGENT_TURN_LIMIT"
     } else {
         "policies.runtime.agent_turn_limit"
     };
-    let permission_policy_source = if profile.permissions.locked {
-        "profile.permissions.locked"
+    let permission_policy_source = if agent.permissions.locked {
+        "agent.permissions.locked"
     } else if intent.permission_mode.is_some() || intent.allowed_tools.is_some() || intent.disallowed_tools.is_some() {
         "intent.permission_override"
     } else if env_overrides.permission_mode.is_some() {
@@ -1837,12 +1733,12 @@ pub fn resolve_runtime_spec(
         "policies.permissions"
     };
 
-    Ok(ResolvedRuntimeSpec {
-        prompt_refs: profile.prompt_refs.clone(),
+    Ok(ResolvedAgentSpec {
+        prompt_refs: agent.prompt_refs.clone(),
         reasoning,
         agent_turn_limit,
-        available_subagents,
-        profile,
+        delegate_agents,
+        agent,
         llm,
         permission,
         delegation,
@@ -1850,7 +1746,7 @@ pub fn resolve_runtime_spec(
         completion,
         observability,
         provenance: RuntimeResolutionProvenance {
-            profile_id: resolved_profile_id,
+            agent_id: resolved_agent_id,
             provider_source: provider_source.to_string(),
             model_source: model_source.to_string(),
             reasoning_source: reasoning_source.to_string(),
@@ -1879,7 +1775,7 @@ mod tests {
     fn clear_runtime_override_env() {
         std::env::remove_var("RHYTHM_MODEL_OVERRIDE");
         std::env::remove_var("RHYTHM_PERMISSION_MODE_OVERRIDE");
-        std::env::remove_var("RHYTHM_SUBAGENT_TYPE");
+        std::env::remove_var("RHYTHM_AGENT_DEFINITION_ID");
     }
 
     #[test]
@@ -1925,27 +1821,29 @@ mod tests {
             }],
         }];
         settings.policies.permissions.mode = PermissionMode::Default;
-        settings.profiles.items = vec![RuntimeProfile {
+        settings.agents.items = vec![AgentDefinitionConfig {
             id: "chat".to_string(),
             label: "Chat".to_string(),
             mode: "Chat".to_string(),
             description: "test".to_string(),
+            kinds: vec![AgentConfigKind::Primary],
             prompt_refs: vec![],
-            model: RuntimeProfileModelConfig::default(),
-            permissions: RuntimeProfilePermissions {
+            model: AgentModelConfig::default(),
+            permissions: AgentPermissions {
                 locked: false,
                 default_mode: None,
                 allowed_tools: vec![],
                 disallowed_tools: vec![],
             },
-            execution: RuntimeProfileExecution::default(),
+            execution: AgentExecutionConfig::default(),
+            max_turns: None,
         }];
         normalize_config_bundle(&mut settings);
 
         let resolved = resolve_runtime_spec(
             &settings,
             RuntimeIntent {
-                profile_id: Some("chat".to_string()),
+                agent_id: Some("chat".to_string()),
                 provider_id: Some("test".to_string()),
                 model_id: None,
                 reasoning: None,
@@ -1968,74 +1866,33 @@ mod tests {
     }
 
     #[test]
-    fn upgrade_config_bundle_migrates_v1_shape_to_v2_bundle() {
+    fn upgrade_config_bundle_rejects_legacy_v1_shape() {
         let raw = serde_json::json!({
             "schema_version": 1,
-            "theme": "dark",
-            "theme_preset": "grand",
-            "auto_save_sessions": false,
-            "providers": [],
-            "system_prompt": "legacy prompt",
-            "default_profile_id": "coordinate",
-            "default_reasoning": "high",
-            "permission": {
-                "mode": "plan",
-                "allowed_tools": ["read"],
-                "denied_tools": ["shell"],
-                "path_rules": [],
-                "denied_commands": []
-            },
-            "memory": {
-                "enabled": true,
-                "max_files": 3,
-                "max_entrypoint_lines": 100
-            },
-            "hooks": {
-                "pre_tool_use": [],
-                "post_tool_use": [],
-                "session_start": [],
-                "session_end": []
-            },
-            "prompt_fragments": {
-                "base.assistant": "legacy"
-            },
-            "runtime_profiles": [],
-            "mcp_servers": {},
-            "enabled_plugins": {
-                "workflow": true
-            },
-            "plugin_permissions": {
-                "workflow": ["read"]
-            }
+            "theme": "dark"
         });
 
-        let (bundle, migrated) = upgrade_config_bundle(raw).expect("v1 migration should succeed");
-
-        assert!(migrated);
-        assert_eq!(bundle.schema_version, 2);
-        assert_eq!(bundle.core.theme, "dark");
-        assert_eq!(bundle.prompts.system_prompt.as_deref(), Some("legacy prompt"));
-        assert_eq!(bundle.profiles.default_profile_id, "coordinate");
-        assert_eq!(bundle.models.defaults.reasoning, "high");
-        assert_eq!(bundle.policies.permissions.mode, PermissionMode::Plan);
-        assert_eq!(bundle.core.plugins.enabled.get("workflow"), Some(&true));
+        let error = upgrade_config_bundle(raw).expect_err("legacy v1 shape should be rejected");
+        assert!(error.contains("Unsupported config schema version"));
     }
 
     #[test]
     fn validate_config_bundle_rejects_missing_prompt_refs() {
         let mut bundle = ConfigBundle::default();
         bundle.prompts.fragments.clear();
-        bundle.profiles.items = vec![RuntimeProfile {
+        bundle.agents.items = vec![AgentDefinitionConfig {
             id: "custom".to_string(),
             label: "Custom".to_string(),
             mode: "Chat".to_string(),
             description: "broken".to_string(),
+            kinds: vec![AgentConfigKind::Primary],
             prompt_refs: vec!["missing.fragment".to_string()],
-            model: RuntimeProfileModelConfig::default(),
-            permissions: RuntimeProfilePermissions::default(),
-            execution: RuntimeProfileExecution::default(),
+            model: AgentModelConfig::default(),
+            permissions: AgentPermissions::default(),
+            execution: AgentExecutionConfig::default(),
+            max_turns: None,
         }];
-        bundle.profiles.default_profile_id = "custom".to_string();
+        bundle.agents.default_agent_id = "custom".to_string();
 
         let errors = validate_config_bundle(&bundle).expect_err("bundle should be invalid");
         assert!(errors.iter().any(|error| error.contains("missing prompt fragment")));
@@ -2067,7 +1924,7 @@ mod tests {
         let coordinate = resolve_runtime_spec(
             &settings,
             RuntimeIntent {
-                profile_id: Some("coordinate".to_string()),
+                agent_id: Some("coordinate".to_string()),
                 provider_id: Some("test".to_string()),
                 model_id: None,
                 reasoning: None,
@@ -2080,7 +1937,7 @@ mod tests {
         let chat = resolve_runtime_spec(
             &settings,
             RuntimeIntent {
-                profile_id: Some("chat".to_string()),
+                agent_id: Some("chat".to_string()),
                 provider_id: Some("test".to_string()),
                 model_id: None,
                 reasoning: None,
@@ -2122,7 +1979,7 @@ mod tests {
         let resolved = resolve_runtime_spec(
             &settings,
             RuntimeIntent {
-                profile_id: Some("coordinate".to_string()),
+                agent_id: Some("coordinate".to_string()),
                 provider_id: Some("test".to_string()),
                 model_id: None,
                 reasoning: None,
@@ -2137,9 +1994,84 @@ mod tests {
         assert!(!resolved.delegation.root_may_execute);
         assert_eq!(resolved.completion.id.as_deref(), Some("direct_answer"));
         assert_eq!(resolved.observability.id.as_deref(), Some("standard"));
-        assert_eq!(resolved.provenance.profile_id, "coordinate");
+        assert_eq!(resolved.provenance.agent_id, "coordinate");
         assert_eq!(resolved.provenance.delegation_policy_source, "coordinate_delegate_only");
         clear_runtime_override_env();
+    }
+
+    #[test]
+    fn resolve_llm_config_defaults_anthropic_history_tool_policy_for_legacy_settings() {
+        let mut settings = ConfigBundle::default();
+        settings.models.providers = vec![ProviderConfig {
+            id: "legacy-anthropic".to_string(),
+            name: "Legacy Anthropic".to_string(),
+            provider: "anthropic".to_string(),
+            base_url: "https://example.com".to_string(),
+            api_key: "key".to_string(),
+            capabilities: ProviderCapabilities {
+                anthropic_extended_thinking: Some(false),
+                anthropic_beta_headers: Some(false),
+                history_tool_results: None,
+                history_tool_result_tools: None,
+            },
+            models: vec![ProviderModelConfig {
+                id: "legacy-model".to_string(),
+                name: "legacy-model".to_string(),
+                enabled: true,
+                note: None,
+                capabilities: ModelCapabilities {
+                    anthropic_extended_thinking: Some(false),
+                    anthropic_beta_headers: Some(false),
+                    history_tool_results: None,
+                    history_tool_result_tools: None,
+                },
+            }],
+        }];
+
+        let resolved = resolve_llm_config(&settings, Some("legacy-anthropic"), None)
+            .expect("llm config should resolve");
+
+        assert_eq!(
+            resolved.capabilities.history_tool_results,
+            Some(HistoryToolResultsMode::Drop)
+        );
+    }
+
+    #[test]
+    fn resolve_llm_config_preserves_explicit_history_tool_policy() {
+        let mut settings = ConfigBundle::default();
+        settings.models.providers = vec![ProviderConfig {
+            id: "explicit-anthropic".to_string(),
+            name: "Explicit Anthropic".to_string(),
+            provider: "anthropic".to_string(),
+            base_url: "https://example.com".to_string(),
+            api_key: "key".to_string(),
+            capabilities: ProviderCapabilities {
+                anthropic_extended_thinking: Some(false),
+                anthropic_beta_headers: Some(false),
+                history_tool_results: Some(HistoryToolResultsMode::AllowList),
+                history_tool_result_tools: Some(vec!["list_dir".to_string()]),
+            },
+            models: vec![ProviderModelConfig {
+                id: "explicit-model".to_string(),
+                name: "explicit-model".to_string(),
+                enabled: true,
+                note: None,
+                capabilities: ModelCapabilities::default(),
+            }],
+        }];
+
+        let resolved = resolve_llm_config(&settings, Some("explicit-anthropic"), None)
+            .expect("llm config should resolve");
+
+        assert_eq!(
+            resolved.capabilities.history_tool_results,
+            Some(HistoryToolResultsMode::AllowList)
+        );
+        assert_eq!(
+            resolved.capabilities.history_tool_result_tools,
+            Some(vec!["list_dir".to_string()])
+        );
     }
 }
 
@@ -2160,6 +2092,19 @@ fn merge_model_capabilities(
             .clone()
             .or(provider.history_tool_result_tools.clone()),
     }
+}
+
+fn apply_provider_capability_defaults(
+    provider_kind: &str,
+    mut capabilities: ModelCapabilities,
+) -> ModelCapabilities {
+    if provider_kind.eq_ignore_ascii_case("anthropic") {
+        if capabilities.history_tool_results.is_none() {
+            capabilities.history_tool_results = Some(HistoryToolResultsMode::Drop);
+        }
+    }
+
+    capabilities
 }
 
 fn default_provider(settings: &RhythmSettings) -> Option<&ProviderConfig> {
@@ -2184,3 +2129,4 @@ impl ProviderConfig {
             && self.models.iter().any(|model| model.enabled)
     }
 }
+

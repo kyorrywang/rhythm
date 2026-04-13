@@ -33,6 +33,8 @@ pub struct QueryContext {
     pub system_prompt: String,
     /// Optional hard cap on agent turns. None means unlimited.
     pub agent_turn_limit: Option<usize>,
+    /// Configured agent definition id for the current run.
+    pub definition_id: String,
     /// Resolved delegation contract for this run.
     pub delegation: ResolvedDelegationPolicy,
     /// Resolved completion contract for this run.

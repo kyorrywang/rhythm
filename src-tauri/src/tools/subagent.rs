@@ -27,8 +27,7 @@ struct SubagentArgs {
     title: String,
     #[serde(default)]
     system_prompt: Option<String>,
-    #[serde(default)]
-    subagent_type: Option<String>,
+    agent_id: String,
 }
 
 #[async_trait]
@@ -59,12 +58,12 @@ impl BaseTool for SubagentTool {
                     "type": "string",
                     "description": "Optional custom system prompt for the subagent"
                 },
-                "subagent_type": {
+                "agent_id": {
                     "type": "string",
-                    "description": "Optional configured subagent id (for example 'explorer', 'dynamic', or 'spec-agent')"
+                    "description": "The configured agent id to delegate to (for example 'dynamic' or 'coordinate')"
                 }
             },
-            "required": ["message", "title"]
+            "required": ["message", "title", "agent_id"]
         })
     }
 
@@ -79,9 +78,66 @@ impl BaseTool for SubagentTool {
         };
 
         let current_depth = agent_registry::get_agent_depth(&ctx.agent_id).unwrap_or(0);
-        if current_depth >= 1 {
-            return ToolResult::error("Nested subagent spawning is currently disabled");
+        let current_definition_id = ctx
+            .metadata
+            .get("agent_id")
+            .and_then(|value| value.as_str())
+            .unwrap_or("chat");
+
+        let settings = config::load_settings();
+        let requested_target_id = args.agent_id.trim();
+        if requested_target_id.is_empty() {
+            return ToolResult::error("agent_id must be a non-empty agent id");
         }
+        let parent_runtime_spec = match config::resolve_runtime_spec(
+            &settings,
+            config::RuntimeIntent {
+                agent_id: Some(current_definition_id.to_string()),
+                provider_id: None,
+                model_id: None,
+                reasoning: None,
+                permission_mode: None,
+                allowed_tools: None,
+                disallowed_tools: None,
+            },
+        ) {
+            Ok(spec) => spec,
+            Err(error) => return ToolResult::error(error),
+        };
+
+        let allowed_targets = parent_runtime_spec
+            .delegate_agents
+            .iter()
+            .map(|agent| agent.id.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        if !allowed_targets
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(requested_target_id))
+        {
+            return ToolResult::error(format!(
+                "Agent '{}' may not delegate to '{}'",
+                current_definition_id, requested_target_id
+            ));
+        }
+
+        if let Some(max_depth) = parent_runtime_spec.agent.execution.max_delegation_depth {
+            if current_depth >= max_depth {
+                return ToolResult::error(format!(
+                    "Delegation depth limit ({max_depth}) reached for '{}'",
+                    current_definition_id
+                ));
+            }
+        }
+
+        let agent_def = match resolve_delegation_target(&settings, requested_target_id) {
+            Some(target) => target,
+            None => {
+                return ToolResult::error(format!(
+                    "Unknown agent '{}' requested for delegation",
+                    requested_target_id
+                ))
+            }
+        };
 
         let sub_session_id = format!(
             "{}-sub-{}",
@@ -105,8 +161,11 @@ impl BaseTool for SubagentTool {
             },
         );
 
-        let sub_agent_id =
-            agent_registry::register_agent(sub_session_id.clone(), Some(ctx.agent_id.clone()), 1);
+        let sub_agent_id = agent_registry::register_agent(
+            sub_session_id.clone(),
+            Some(ctx.agent_id.clone()),
+            current_depth + 1,
+        );
 
         event_bus::register_child(&ctx.agent_id, &sub_agent_id);
 
@@ -118,19 +177,15 @@ impl BaseTool for SubagentTool {
         use crate::hooks::executor::HookExecutor;
         use crate::hooks::loader::load_hook_registry_for_cwd;
 
-        let settings = config::load_settings();
-        let agent_def = args
-            .subagent_type
-            .as_deref()
-            .and_then(|subagent_id| config::resolve_subagent_definition(&settings, subagent_id));
         let inherited_provider_id = ctx
             .metadata
             .get("provider_id")
             .and_then(|value| value.as_str())
             .map(str::to_string);
         let inherited_model = agent_def
-            .as_ref()
-            .and_then(|a| a.model.model_id.clone())
+            .model
+            .model_id
+            .clone()
             .or_else(|| {
                 ctx.metadata
                     .get("model")
@@ -145,20 +200,14 @@ impl BaseTool for SubagentTool {
         let runtime_spec = match config::resolve_runtime_spec(
             &settings,
             config::RuntimeIntent {
-                profile_id: Some("chat".to_string()),
+                agent_id: Some(requested_target_id.to_string()),
                 provider_id: inherited_provider_id.clone(),
                 model_id: inherited_model.clone(),
                 reasoning: inherited_reasoning.clone(),
-                permission_mode: agent_def
-                    .as_ref()
-                    .and_then(|a| a.permissions.default_mode.clone()),
-                allowed_tools: agent_def
-                    .as_ref()
-                    .map(|a| a.permissions.allowed_tools.clone())
+                permission_mode: agent_def.permissions.default_mode.clone(),
+                allowed_tools: Some(agent_def.permissions.allowed_tools.clone())
                     .filter(|tools| !tools.is_empty()),
-                disallowed_tools: agent_def
-                    .as_ref()
-                    .map(|a| a.permissions.disallowed_tools.clone())
+                disallowed_tools: Some(agent_def.permissions.disallowed_tools.clone())
                     .filter(|tools| !tools.is_empty()),
             },
         ) {
@@ -166,9 +215,7 @@ impl BaseTool for SubagentTool {
             Err(error) => return ToolResult::error(error),
         };
         let client = llm::create_client(&runtime_spec.llm);
-        let injected_subagent_prompt = agent_def
-            .as_ref()
-            .map(|subagent| config::render_prompt_fragments(&settings, &subagent.prompt_refs))
+        let injected_subagent_prompt = Some(config::render_prompt_fragments(&settings, &agent_def.prompt_refs))
             .filter(|prompt| !prompt.trim().is_empty());
         let merged_additional_prompt = match (injected_subagent_prompt.as_deref(), args.system_prompt.as_deref()) {
             (Some(subagent_prompt), Some(system_prompt)) if !system_prompt.trim().is_empty() => {
@@ -193,7 +240,7 @@ impl BaseTool for SubagentTool {
             manager.connect_all().await;
             Some(std::sync::Arc::new(tokio::sync::Mutex::new(manager)))
         };
-        let allowed_tools = if runtime_spec.profile.permissions.locked {
+        let allowed_tools = if runtime_spec.agent.permissions.locked {
             Some(&runtime_spec.permission.allowed_tools[..])
         } else if runtime_spec.permission.allowed_tools.is_empty() {
             None
@@ -228,10 +275,8 @@ impl BaseTool for SubagentTool {
             model: runtime_spec.llm.model.clone(),
             reasoning: runtime_spec.reasoning.clone(),
             system_prompt,
-            agent_turn_limit: agent_def
-                .as_ref()
-                .and_then(|a| a.max_turns)
-                .or(runtime_spec.agent_turn_limit),
+            agent_turn_limit: agent_def.max_turns.or(runtime_spec.agent_turn_limit),
+            definition_id: requested_target_id.to_string(),
             delegation: runtime_spec.delegation.clone(),
             completion: runtime_spec.completion.clone(),
             requires_delegation_for_completion: false,
@@ -279,6 +324,13 @@ impl BaseTool for SubagentTool {
     }
 }
 
+fn resolve_delegation_target(
+    settings: &config::RhythmSettings,
+    target_id: &str,
+) -> Option<config::AgentDefinitionConfig> {
+    config::resolve_subagent_definition(settings, target_id)
+}
+
 async fn wait_for_subagent_interrupt(parent_session_id: &str, sub_session_id: &str) {
     loop {
         if crate::runtime::interrupts::is_interrupted(parent_session_id).await
@@ -287,5 +339,51 @@ async fn wait_for_subagent_interrupt(parent_session_id: &str, sub_session_id: &s
             return;
         }
         sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infrastructure::config::{AgentConfigKind, AgentDefinitionConfig, AgentExecutionConfig, AgentModelConfig, AgentPermissions};
+
+    #[test]
+    fn resolve_delegation_target_returns_subagent_agent() {
+        let mut settings = config::RhythmSettings::default();
+        settings.agents.items.push(AgentDefinitionConfig {
+            id: "coordinate".to_string(),
+            label: "Coordinate".to_string(),
+            mode: String::new(),
+            description: "coord".to_string(),
+            kinds: vec![AgentConfigKind::Subagent],
+            prompt_refs: vec![],
+            model: AgentModelConfig::default(),
+            permissions: AgentPermissions::default(),
+            execution: AgentExecutionConfig::default(),
+            max_turns: None,
+        });
+
+        let agent = resolve_delegation_target(&settings, "coordinate").expect("coordinate target");
+
+        assert_eq!(agent.id, "coordinate");
+    }
+
+    #[test]
+    fn resolve_delegation_target_returns_none_for_unknown_agent() {
+        let mut settings = config::RhythmSettings::default();
+        settings.agents.items.push(AgentDefinitionConfig {
+            id: "dynamic".to_string(),
+            label: "Dynamic".to_string(),
+            mode: String::new(),
+            description: "dynamic".to_string(),
+            kinds: vec![AgentConfigKind::Subagent],
+            prompt_refs: vec![],
+            model: AgentModelConfig::default(),
+            permissions: AgentPermissions::default(),
+            execution: AgentExecutionConfig::default(),
+            max_turns: None,
+        });
+
+        assert!(resolve_delegation_target(&settings, "missing").is_none());
     }
 }

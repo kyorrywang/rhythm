@@ -92,12 +92,12 @@ export function SpecWorkbench({ payload }: WorkbenchProps<{ slug: string }>) {
         }
       };
 
-      // 4. 发起 chat_stream，使用 spec profile
+      // 4. 发起 chat_stream，使用 spec agent
       await invoke('chat_stream', {
         sessionId: specSessionId,
         prompt,
         cwd: workspace.path,
-        profileId: 'spec',
+        agentId: 'spec',
         permissionMode: 'full_auto',
         onEvent: channel,
       });

@@ -41,7 +41,7 @@ export function chatStream(
     prompt: request.prompt,
     attachments: request.attachments,
     cwd: request.cwd,
-    profileId: request.profileId,
+    agentId: request.agentId,
     permissionMode: request.permissionMode,
     allowedTools: request.allowedTools,
     disallowedTools: request.disallowedTools,

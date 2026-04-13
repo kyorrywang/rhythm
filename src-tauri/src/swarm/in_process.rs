@@ -56,13 +56,13 @@ impl InProcessBackend {
             let settings = config::load_settings();
             let cwd = std::path::PathBuf::from(&config_clone.cwd);
             let agent_def = config_clone
-                .subagent_type
+                .agent_definition_id
                 .as_deref()
-                .and_then(|subagent_id| config::resolve_subagent_definition(&settings, subagent_id));
+                .map(|agent_id| config::resolve_agent_definition(&settings, Some(agent_id)));
             let runtime_spec = match config::resolve_runtime_spec(
                 &settings,
                 config::RuntimeIntent {
-                    profile_id: Some("chat".to_string()),
+                    agent_id: config_clone.agent_definition_id.clone().or(Some("chat".to_string())),
                     provider_id: None,
                     model_id: config_clone.model.clone(),
                     reasoning: None,
@@ -88,7 +88,7 @@ impl InProcessBackend {
             };
             let additional_prompt = agent_def
                 .as_ref()
-                .map(|subagent| config::render_prompt_fragments(&settings, &subagent.prompt_refs))
+                .map(|agent| config::render_prompt_fragments(&settings, &agent.prompt_refs))
                 .filter(|prompt| !prompt.trim().is_empty());
             let client = Arc::from(llm::create_client(&runtime_spec.llm));
             let system_prompt = crate::prompts::build_runtime_prompt_with_addition(
@@ -106,7 +106,7 @@ impl InProcessBackend {
                 manager.connect_all().await;
                 Some(Arc::new(Mutex::new(manager)))
             };
-            let allowed_tools = if runtime_spec.profile.permissions.locked {
+            let allowed_tools = if runtime_spec.agent.permissions.locked {
                 Some(&runtime_spec.permission.allowed_tools[..])
             } else if runtime_spec.permission.allowed_tools.is_empty() {
                 None
@@ -151,6 +151,10 @@ impl InProcessBackend {
                     .as_ref()
                     .and_then(|a| a.max_turns)
                     .or(runtime_spec.agent_turn_limit),
+                definition_id: config_clone
+                    .agent_definition_id
+                    .clone()
+                    .unwrap_or_else(|| runtime_spec.agent.id.clone()),
                 delegation: runtime_spec.delegation.clone(),
                 completion: runtime_spec.completion.clone(),
                 requires_delegation_for_completion: false,

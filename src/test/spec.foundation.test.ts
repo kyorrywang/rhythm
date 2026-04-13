@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SPEC_AGENT_PROFILE_ID } from '@/domains/spec/infra/agents';
+import { SPEC_AGENT_ID } from '@/domains/spec/infra/agents';
 import { getSpecRelativePaths, makeSpecChangeSlug } from '@/domains/spec/infra/changeFs';
 import { createSpecDraftState } from '@/domains/spec/application/editor';
 
@@ -26,7 +26,7 @@ describe('spec foundation', () => {
     expect(state.progress.done).toBe(0);
   });
 
-  it('has correct agent profile ID', () => {
-    expect(SPEC_AGENT_PROFILE_ID).toBe('spec-agent');
+  it('has correct agent id', () => {
+    expect(SPEC_AGENT_ID).toBe('spec-agent');
   });
 });

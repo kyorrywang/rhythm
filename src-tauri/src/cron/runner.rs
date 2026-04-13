@@ -120,7 +120,7 @@ impl CronRunner {
         let runtime_spec = match config::resolve_runtime_spec(
             &settings,
             config::RuntimeIntent {
-                profile_id: Some("chat".to_string()),
+                agent_id: Some("chat".to_string()),
                 provider_id: None,
                 model_id: None,
                 reasoning: None,
@@ -167,6 +167,7 @@ impl CronRunner {
             reasoning: None,
             system_prompt,
             agent_turn_limit: runtime_spec.agent_turn_limit,
+            definition_id: runtime_spec.agent.id.clone(),
             delegation: runtime_spec.delegation.clone(),
             completion: runtime_spec.completion.clone(),
             requires_delegation_for_completion: false,

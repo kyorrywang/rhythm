@@ -5,7 +5,7 @@ export interface ChatStreamRequest {
   prompt: string;
   attachments?: Attachment[];
   cwd?: string;
-  profileId?: string;
+  agentId?: string;
   permissionMode?: "default" | "plan" | "full_auto";
   allowedTools?: string[];
   disallowedTools?: string[];
@@ -14,27 +14,29 @@ export interface ChatStreamRequest {
   reasoning?: "low" | "medium" | "high";
 }
 
-export interface BackendRuntimeProfilePermissions {
+export interface BackendAgentPermissions {
   locked: boolean;
   defaultMode?: "default" | "plan" | "full_auto";
   allowedTools: string[];
   disallowedTools: string[];
 }
 
-export interface BackendRuntimeProfile {
+export interface BackendAgent {
   id: string;
   label: string;
   mode: "Chat" | "Coordinate" | "Spec";
   description: string;
+  kinds: Array<"primary" | "subagent">;
   promptRefs?: string[];
   model?: {
     providerId?: string;
     modelId?: string;
     reasoning?: "low" | "medium" | "high" | string;
   };
-  permissions: BackendRuntimeProfilePermissions;
+  permissions: BackendAgentPermissions;
   execution?: {
     agentTurnLimit?: number;
+    maxDelegationDepth?: number;
     delegationPolicyRef?: string;
     reviewPolicyRef?: string;
     completionPolicyRef?: string;
@@ -328,7 +330,7 @@ export interface BackendSettings {
   autoSaveSessions?: boolean;
   providers?: BackendProviderConfig[];
   systemPrompt: string;
-  defaultProfileId: string;
+  defaultAgentId: string;
   defaultReasoning: "low" | "medium" | "high";
   permissionMode: "default" | "plan" | "full_auto";
   allowedTools: string[];
@@ -341,7 +343,7 @@ export interface BackendSettings {
   hooks: BackendHookConfig[];
   mcpServers: BackendMcpServerConfig[];
   enabledPlugins: string[];
-  runtimeProfiles: BackendRuntimeProfile[];
+  agents: BackendAgent[];
 }
 
 export interface TauriCommands {

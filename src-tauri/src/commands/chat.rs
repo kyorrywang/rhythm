@@ -26,9 +26,9 @@ const CHAT_TRANSIENT_RETRY_DELAY_MS: u64 = 2_000;
 const CHAT_MAX_TRANSIENT_RETRIES: u32 = 2;
 
 fn effective_allowed_tools(
-    runtime_spec: &config::ResolvedRuntimeSpec,
+    runtime_spec: &config::ResolvedAgentSpec,
 ) -> Option<&[String]> {
-    if runtime_spec.profile.permissions.locked {
+    if runtime_spec.agent.permissions.locked {
         return Some(&runtime_spec.permission.allowed_tools);
     }
     if runtime_spec.permission.allowed_tools.is_empty() {
@@ -39,7 +39,7 @@ fn effective_allowed_tools(
 }
 
 fn effective_disallowed_tools(
-    runtime_spec: &config::ResolvedRuntimeSpec,
+    runtime_spec: &config::ResolvedAgentSpec,
 ) -> Option<&[String]> {
     if runtime_spec.permission.denied_tools.is_empty() {
         None
@@ -84,7 +84,7 @@ pub async fn chat_stream(
     prompt: String,
     attachments: Option<Vec<ChatAttachment>>,
     cwd: Option<String>,
-    profile_id: Option<String>,
+    agent_id: Option<String>,
     permission_mode: Option<String>,
     allowed_tools: Option<Vec<String>>,
     disallowed_tools: Option<Vec<String>>,
@@ -97,7 +97,7 @@ pub async fn chat_stream(
     let runtime_spec = config::resolve_runtime_spec(
         &settings,
         config::RuntimeIntent {
-            profile_id: profile_id.clone(),
+            agent_id: agent_id.clone(),
             provider_id: provider_id.clone(),
             model_id: model.clone(),
             reasoning: reasoning.clone(),
@@ -203,6 +203,7 @@ pub async fn chat_stream(
                 reasoning: runtime_spec.reasoning.clone(),
                 system_prompt: system_prompt.clone(),
                 agent_turn_limit: runtime_spec.agent_turn_limit,
+                definition_id: runtime_spec.agent.id.clone(),
                 delegation: runtime_spec.delegation.clone(),
                 completion: runtime_spec.completion.clone(),
                 requires_delegation_for_completion,

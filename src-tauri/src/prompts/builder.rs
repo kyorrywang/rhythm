@@ -1,6 +1,6 @@
 use super::environment::{format_environment_section, get_environment_info};
 use super::rhythm_md::load_rhythm_md;
-use crate::infrastructure::config::{ResolvedRuntimeSpec, RhythmSettings};
+use crate::infrastructure::config::{ResolvedAgentSpec, RhythmSettings};
 use std::path::Path;
 
 const BASE_SYSTEM_PROMPT: &str = "\
@@ -25,7 +25,7 @@ pub fn build_runtime_prompt(
     settings: &RhythmSettings,
     cwd: &Path,
     latest_user_prompt: Option<&str>,
-    runtime_spec: &ResolvedRuntimeSpec,
+    runtime_spec: &ResolvedAgentSpec,
 ) -> String {
     build_runtime_prompt_with_addition(
         settings,
@@ -41,7 +41,7 @@ pub fn build_runtime_prompt_with_addition(
     cwd: &Path,
     latest_user_prompt: Option<&str>,
     extra_prompt: Option<&str>,
-    runtime_spec: &ResolvedRuntimeSpec,
+    runtime_spec: &ResolvedAgentSpec,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -122,25 +122,25 @@ pub fn build_runtime_prompt_with_addition(
         sections.push(format!("# User Custom Instructions\n\n{}", custom));
     }
 
-    let profile_prompt = runtime_spec
+    let agent_prompt = runtime_spec
         .prompt_refs
         .iter()
         .filter_map(|prompt_ref| settings.prompts.fragments.get(prompt_ref))
         .filter(|fragment| !fragment.trim().is_empty())
         .cloned()
         .collect::<Vec<_>>();
-    if !profile_prompt.is_empty() {
-        sections.push(profile_prompt.join("\n\n"));
+    if !agent_prompt.is_empty() {
+        sections.push(agent_prompt.join("\n\n"));
     }
 
-    if !runtime_spec.available_subagents.is_empty() {
+    if !runtime_spec.delegate_agents.is_empty() {
         let mut lines = vec![
-            "# Available Subagents".to_string(),
-            "The following subagents are available in this session. Use them like specialized capabilities when helpful.".to_string(),
+            "# Available Delegate Agents".to_string(),
+            "The following delegate agents are available in this session. Use them when helpful.".to_string(),
             String::new(),
         ];
-        for subagent in &runtime_spec.available_subagents {
-            lines.push(format!("- **{}**: {}", subagent.id, subagent.description));
+        for agent in &runtime_spec.delegate_agents {
+            lines.push(format!("- **{}**: {}", agent.id, agent.description));
         }
         sections.push(lines.join("\n"));
     }

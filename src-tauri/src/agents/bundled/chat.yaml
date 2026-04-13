@@ -1,6 +1,6 @@
 kind: primary
 schema_version: 2
-profile:
+agent:
   id: chat
   label: Chat
   mode: Chat
@@ -23,12 +23,12 @@ profile:
     completionPolicyRef: direct_answer
     observabilityPolicyRef: standard
     limitPolicyRef: default
-    availableSubagents:
+    availableDelegateAgentIds:
       - explorer
       - dynamic
 prompt_fragments:
   base.assistant: |-
-    You are operating in the Chat profile.
+    You are operating in the Chat agent.
 
     Default behaviour:
     1. Answer the user directly when you can.

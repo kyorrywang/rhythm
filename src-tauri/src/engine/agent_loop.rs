@@ -488,6 +488,7 @@ mod tests {
             reasoning: None,
             system_prompt: String::new(),
             agent_turn_limit: Some(4),
+            definition_id: "coordinate".to_string(),
             delegation: ResolvedDelegationPolicy {
                 id: Some("coordinate_delegate_first".to_string()),
                 enabled: true,
@@ -783,6 +784,10 @@ async fn execute_single_tool(
                     .clone()
                     .map(Value::String)
                     .unwrap_or(Value::Null),
+            ),
+            (
+                "agent_id".to_string(),
+                Value::String(context.definition_id.clone()),
             ),
         ]),
     };

@@ -14,7 +14,8 @@ agent:
     locked: false
     defaultMode: full_auto
     allowedTools: []
-    disallowedTools: []
+    disallowedTools:
+      - spawn_subagent
   maxTurns: null
 prompt_fragments:
   subagent.dynamic: |-

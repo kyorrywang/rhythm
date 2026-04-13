@@ -18,8 +18,8 @@ pub struct TeammateSpawnConfig {
     pub parent_session_id: String,
     /// Optional model override.
     pub model: Option<String>,
-    /// Optional agent-type routing key (e.g. "worker", "explorer").
-    pub subagent_type: Option<String>,
+    /// Optional delegated agent definition id.
+    pub agent_definition_id: Option<String>,
     /// Optional permission mode override for this worker.
     pub permission_mode: Option<PermissionMode>,
     /// Optional permission grants (tool names or glob patterns).

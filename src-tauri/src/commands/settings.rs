@@ -85,12 +85,11 @@ pub struct FrontendSettings {
     pub mcp_servers: Vec<FrontendMcpServerConfig>,
     #[serde(rename = "enabledPlugins")]
     pub enabled_plugins: Vec<String>,
-    #[serde(rename = "defaultProfileId")]
-    pub default_profile_id: String,
+    #[serde(rename = "defaultAgentId")]
+    pub default_agent_id: String,
     #[serde(rename = "defaultReasoning")]
     pub default_reasoning: String,
-    #[serde(rename = "runtimeProfiles")]
-    pub runtime_profiles: Vec<config::RuntimeProfile>,
+    pub agents: Vec<config::AgentDefinitionConfig>,
 }
 
 #[tauri::command]
@@ -104,6 +103,7 @@ pub async fn save_settings(settings: FrontendSettings) -> Result<(), String> {
 }
 
 fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
+    let agents = settings.agents.items.clone();
     FrontendSettings {
         theme: settings.core.theme,
         theme_preset: settings.core.theme_preset,
@@ -193,9 +193,9 @@ fn map_to_frontend(settings: RhythmSettings) -> FrontendSettings {
             .iter()
             .filter_map(|(name, enabled)| enabled.then_some(name.clone()))
             .collect(),
-        default_profile_id: settings.profiles.default_profile_id,
+        default_agent_id: settings.agents.default_agent_id,
         default_reasoning: settings.models.defaults.reasoning,
-        runtime_profiles: settings.profiles.items,
+        agents,
     }
 }
 
@@ -239,7 +239,7 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
     } else {
         Some(settings.system_prompt)
     };
-    bundle.profiles.default_profile_id = settings.default_profile_id;
+    bundle.agents.default_agent_id = settings.default_agent_id;
     bundle.models.defaults.reasoning = settings.default_reasoning;
     bundle.policies.permissions = config::PermissionConfig {
             mode: crate::permissions::modes::PermissionMode::from_str(&settings.permission_mode),
@@ -267,7 +267,7 @@ fn map_from_frontend(settings: FrontendSettings) -> RhythmSettings {
         max_entrypoint_lines: settings.memory_max_entrypoint_lines,
     };
     bundle.core.hooks = inflate_hooks(settings.hooks);
-    bundle.profiles.items = settings.runtime_profiles;
+    bundle.agents.items = settings.agents;
     bundle.core.mcp_servers = settings
         .mcp_servers
         .into_iter()
