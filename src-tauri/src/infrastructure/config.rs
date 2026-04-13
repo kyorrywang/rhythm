@@ -100,7 +100,7 @@ impl Default for LlmConfig {
             capabilities: ModelCapabilities {
                 anthropic_extended_thinking: Some(true),
                 anthropic_beta_headers: Some(true),
-                history_tool_results: Some(HistoryToolResultsMode::Drop),
+                history_tool_results: Some(HistoryToolResultsMode::Preserve),
                 history_tool_result_tools: None,
             },
         }
@@ -648,7 +648,7 @@ impl Default for ConfigBundle {
                     capabilities: ProviderCapabilities {
                         anthropic_extended_thinking: Some(true),
                         anthropic_beta_headers: Some(true),
-                        history_tool_results: Some(HistoryToolResultsMode::Drop),
+                        history_tool_results: Some(HistoryToolResultsMode::Preserve),
                         history_tool_result_tools: None,
                     },
                     models: vec![ProviderModelConfig {
@@ -2000,7 +2000,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_llm_config_defaults_anthropic_history_tool_policy_for_legacy_settings() {
+    fn resolve_llm_config_defaults_history_tool_policy_to_preserve() {
         let mut settings = ConfigBundle::default();
         settings.models.providers = vec![ProviderConfig {
             id: "legacy-anthropic".to_string(),
@@ -2033,7 +2033,7 @@ mod tests {
 
         assert_eq!(
             resolved.capabilities.history_tool_results,
-            Some(HistoryToolResultsMode::Drop)
+            Some(HistoryToolResultsMode::Preserve)
         );
     }
 
@@ -2073,6 +2073,40 @@ mod tests {
             Some(vec!["list_dir".to_string()])
         );
     }
+
+    #[test]
+    fn resolve_llm_config_canonicalizes_drop_to_preserve() {
+        let mut settings = ConfigBundle::default();
+        settings.models.providers = vec![ProviderConfig {
+            id: "drop-config".to_string(),
+            name: "Drop Config".to_string(),
+            provider: "anthropic".to_string(),
+            base_url: "https://example.com".to_string(),
+            api_key: "key".to_string(),
+            capabilities: ProviderCapabilities {
+                anthropic_extended_thinking: Some(false),
+                anthropic_beta_headers: Some(false),
+                history_tool_results: Some(HistoryToolResultsMode::Drop),
+                history_tool_result_tools: Some(vec!["plan_tasks".to_string()]),
+            },
+            models: vec![ProviderModelConfig {
+                id: "drop-model".to_string(),
+                name: "drop-model".to_string(),
+                enabled: true,
+                note: None,
+                capabilities: ModelCapabilities::default(),
+            }],
+        }];
+
+        let resolved = resolve_llm_config(&settings, Some("drop-config"), None)
+            .expect("llm config should resolve");
+
+        assert_eq!(
+            resolved.capabilities.history_tool_results,
+            Some(HistoryToolResultsMode::Preserve)
+        );
+        assert_eq!(resolved.capabilities.history_tool_result_tools, None);
+    }
 }
 
 fn merge_model_capabilities(
@@ -2095,13 +2129,16 @@ fn merge_model_capabilities(
 }
 
 fn apply_provider_capability_defaults(
-    provider_kind: &str,
+    _provider_kind: &str,
     mut capabilities: ModelCapabilities,
 ) -> ModelCapabilities {
-    if provider_kind.eq_ignore_ascii_case("anthropic") {
-        if capabilities.history_tool_results.is_none() {
-            capabilities.history_tool_results = Some(HistoryToolResultsMode::Drop);
-        }
+    capabilities.history_tool_results = Some(match capabilities.history_tool_results {
+        Some(HistoryToolResultsMode::AllowList) => HistoryToolResultsMode::AllowList,
+        _ => HistoryToolResultsMode::Preserve,
+    });
+
+    if capabilities.history_tool_results != Some(HistoryToolResultsMode::AllowList) {
+        capabilities.history_tool_result_tools = None;
     }
 
     capabilities

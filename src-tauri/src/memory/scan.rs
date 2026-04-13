@@ -1,5 +1,6 @@
 use super::paths::get_project_memory_dir;
 use super::types::MemoryHeader;
+use crate::shared::text::truncate_chars;
 use std::path::Path;
 
 /// Scan all `.md` files in the memory directory (excluding MEMORY.md).
@@ -99,7 +100,7 @@ fn parse_memory_file(path: &std::path::Path, content: &str) -> (String, String, 
         for line in body.lines().take(10) {
             let t = line.trim();
             if !t.is_empty() && !t.starts_with('#') {
-                description = t[..t.len().min(200)].to_string();
+                description = truncate_chars(t, 200).to_string();
                 break;
             }
         }
@@ -111,7 +112,7 @@ fn parse_memory_file(path: &std::path::Path, content: &str) -> (String, String, 
         .take(20)
         .collect::<Vec<_>>()
         .join("\n");
-    let body_preview = body_preview_raw[..body_preview_raw.len().min(300)].to_string();
+    let body_preview = truncate_chars(&body_preview_raw, 300).to_string();
 
     (title, description, body_preview)
 }

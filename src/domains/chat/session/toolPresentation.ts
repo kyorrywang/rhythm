@@ -11,9 +11,30 @@ type ToolPresenter = (tool: ToolCall) => ToolPresentation;
 const joinLogs = (tool: ToolCall) => (tool.logs && tool.logs.length > 0 ? tool.logs.join('\n') : '');
 const toolArgs = (tool: ToolCall): Record<string, unknown> =>
   tool.arguments && typeof tool.arguments === 'object' ? (tool.arguments as Record<string, unknown>) : {};
+const normalizeSubagentKind = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, '_');
+const SUBAGENT_KIND_LABELS: Record<string, string> = {
+  dynamic: 'Dynamic 智能体',
+  coordinate: 'Coordinate 智能体',
+  explorer: 'Explorer 智能体',
+};
+const findStringArg = (args: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return '';
+};
 const stringArg = (tool: ToolCall, key: string) => {
   const value = toolArgs(tool)[key];
   return typeof value === 'string' ? value : '';
+};
+export const getSubagentDisplayTitle = (tool: ToolCall) => {
+  const args = toolArgs(tool);
+  const rawKind = findStringArg(args, ['agentType', 'agent_type', 'subagentType', 'subagent_type', 'type', 'mode']);
+  const normalizedKind = rawKind ? normalizeSubagentKind(rawKind) : 'dynamic';
+  return SUBAGENT_KIND_LABELS[normalizedKind] || `${rawKind || 'Dynamic'} 智能体`;
 };
 const previewText = (value: string, maxLength = 1200) => {
   if (!value) return '';
@@ -98,7 +119,7 @@ const presenters: Record<string, ToolPresenter> = {
     const title = String(args.title || args.message || '启动子代理');
     const shortTitle = title.length > 20 ? title.slice(0, 20) + '...' : title;
     return {
-      title: 'Dynamic 智能体',
+      title: getSubagentDisplayTitle(tool),
       summary: shortTitle,
       details: detailsForTool(tool),
     };

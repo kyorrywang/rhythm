@@ -7,7 +7,7 @@ import {
   ChevronRight,
   Sparkles,
 } from 'lucide-react';
-import { getToolPresentation } from '@/domains/chat/session/toolPresentation';
+import { getSubagentDisplayTitle, getToolPresentation } from '@/domains/chat/session/toolPresentation';
 import { createPluginContext } from '@/core/plugin/host/createPluginContext';
 import type { MessageActionContribution, ToolResultActionContribution } from '@/core/plugin/sdk';
 import { usePluginHostStore } from '@/core/plugin/host/usePluginHostStore';
@@ -161,7 +161,7 @@ const ToolBlock = ({ tool, sessionId }: { tool: ToolCall; sessionId: string }) =
 
     return (
       <SegmentCard
-        title="Dynamic智能体"
+        title={getSubagentDisplayTitle(tool)}
         summary={subagentSummary}
         running={isRunning}
         timerStart={tool.startedAt}

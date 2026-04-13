@@ -500,7 +500,7 @@ fn rebuild_history_from_snapshot(
     let mut messages: Vec<ChatMessage> = snapshot
         .messages
         .into_iter()
-        .filter_map(snapshot_message_to_chat_message)
+        .flat_map(snapshot_message_to_chat_messages)
         .collect();
 
     trim_pending_current_turn(&mut messages, prompt, attachments);
@@ -563,13 +563,14 @@ fn user_message_matches_turn(
         && blocks_match_attachments(&message.blocks, attachments)
 }
 
-fn snapshot_message_to_chat_message(message: MessageSnapshot) -> Option<ChatMessage> {
+fn snapshot_message_to_chat_messages(message: MessageSnapshot) -> Vec<ChatMessage> {
     let role = message.role;
-    let mut blocks = Vec::new();
+    let mut message_blocks = Vec::new();
+    let mut tool_result_blocks = Vec::new();
 
     if let Some(content) = message.content {
         if !content.trim().is_empty() {
-            blocks.push(ChatMessageBlock::Text { text: content });
+            message_blocks.push(ChatMessageBlock::Text { text: content });
         }
     }
 
@@ -577,13 +578,13 @@ fn snapshot_message_to_chat_message(message: MessageSnapshot) -> Option<ChatMess
         if attachment.kind == "image" {
             if let Some(data_url) = attachment.data_url.or(attachment.preview_url) {
                 if let Some((media_type, data)) = parse_data_url(&data_url) {
-                    blocks.push(ChatMessageBlock::Image { media_type, data });
+                    message_blocks.push(ChatMessageBlock::Image { media_type, data });
                     continue;
                 }
             }
         }
 
-        blocks.push(ChatMessageBlock::File {
+        message_blocks.push(ChatMessageBlock::File {
             name: attachment.name,
             mime_type: attachment.mime_type,
             size: attachment.size.max(0) as u64,
@@ -595,17 +596,17 @@ fn snapshot_message_to_chat_message(message: MessageSnapshot) -> Option<ChatMess
         match segment {
             MessageSegmentSnapshot::Text { content } => {
                 if !content.trim().is_empty() {
-                    blocks.push(ChatMessageBlock::Text { text: content });
+                    message_blocks.push(ChatMessageBlock::Text { text: content });
                 }
             }
             MessageSegmentSnapshot::Tool { tool } => {
-                blocks.push(ChatMessageBlock::ToolCall {
+                message_blocks.push(ChatMessageBlock::ToolCall {
                     id: tool.id.clone(),
                     name: tool.name,
                     arguments: tool.arguments,
                 });
                 if let Some(result) = tool.result {
-                    blocks.push(ChatMessageBlock::ToolResult {
+                    tool_result_blocks.push(ChatMessageBlock::ToolResult {
                         tool_call_id: tool.id,
                         content: result,
                         is_error: tool.status == "error",
@@ -616,11 +617,23 @@ fn snapshot_message_to_chat_message(message: MessageSnapshot) -> Option<ChatMess
         }
     }
 
-    if blocks.is_empty() {
-        return None;
+    let mut rebuilt = Vec::new();
+
+    if !message_blocks.is_empty() {
+        rebuilt.push(ChatMessage {
+            role,
+            blocks: message_blocks,
+        });
     }
 
-    Some(ChatMessage { role, blocks })
+    if !tool_result_blocks.is_empty() {
+        rebuilt.push(ChatMessage {
+            role: "user".to_string(),
+            blocks: tool_result_blocks,
+        });
+    }
+
+    rebuilt
 }
 
 fn extract_text_from_blocks(blocks: &[ChatMessageBlock]) -> String {
@@ -681,6 +694,56 @@ fn current_time_millis() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infrastructure::session_repository::{MessageSegmentSnapshot, MessageSnapshot, ToolCallSnapshot};
+    use serde_json::json;
+
+    #[test]
+    fn snapshot_tool_segments_rebuild_into_assistant_then_user_tool_result_messages() {
+        let rebuilt = snapshot_message_to_chat_messages(MessageSnapshot {
+            id: "m1".to_string(),
+            role: "assistant".to_string(),
+            content: None,
+            attachments: None,
+            mode: None,
+            model: None,
+            created_at: 1,
+            segments: Some(vec![MessageSegmentSnapshot::Tool {
+                tool: ToolCallSnapshot {
+                    id: "tool-1".to_string(),
+                    name: "plan_tasks".to_string(),
+                    arguments: json!({ "workspace": "demo", "tasks": [] }),
+                    raw_arguments: Some("{\"workspace\":\"demo\",\"tasks\":[]}".to_string()),
+                    is_preparing: Some(false),
+                    result: Some("{\"workspace_path\":\"demo\"}".to_string()),
+                    status: "completed".to_string(),
+                    logs: None,
+                    started_at: Some(1),
+                    ended_at: Some(2),
+                    sub_session_id: None,
+                },
+            }]),
+            status: None,
+            started_at: Some(1),
+            ended_at: Some(2),
+        });
+
+        assert_eq!(rebuilt.len(), 2);
+        assert_eq!(rebuilt[0].role, "assistant");
+        assert!(matches!(
+            rebuilt[0].blocks.first(),
+            Some(ChatMessageBlock::ToolCall { id, .. }) if id == "tool-1"
+        ));
+        assert_eq!(rebuilt[1].role, "user");
+        assert!(matches!(
+            rebuilt[1].blocks.first(),
+            Some(ChatMessageBlock::ToolResult { tool_call_id, .. }) if tool_call_id == "tool-1"
+        ));
+    }
 }
 
 /// Called by the frontend when the user answers an ask_user question.

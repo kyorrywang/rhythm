@@ -14,6 +14,7 @@ use crate::llm;
 use crate::mcp::McpClientManager;
 use crate::permissions::PermissionChecker;
 use crate::prompts::build_runtime_prompt;
+use crate::shared::text::truncate_with_suffix;
 use crate::tools::ToolRegistry;
 
 pub struct CronRunner {
@@ -63,11 +64,7 @@ impl CronRunner {
             reg.update_after_run(&job_id, now, status.clone());
         }
 
-        let output_short = if output.len() > 500 {
-            format!("{}...(truncated)", &output[..500])
-        } else {
-            output.clone()
-        };
+        let output_short = truncate_with_suffix(&output, 500, "...(truncated)");
 
         let job_id_clone = job_id.clone();
         event_bus::emit(

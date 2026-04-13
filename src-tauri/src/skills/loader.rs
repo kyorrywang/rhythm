@@ -2,6 +2,7 @@ use super::registry::SkillRegistry;
 use super::types::{SkillDefinition, SkillSource};
 use crate::infrastructure::config::RhythmSettings;
 use crate::infrastructure::paths::get_user_skills_dir;
+use crate::shared::text::truncate_chars;
 use std::path::Path;
 
 // ─── Bundled skills (embedded at compile time) ────────────────────────────────
@@ -48,7 +49,7 @@ fn parse_skill(default_name: &str, content: &str, source: SkillSource) -> SkillD
                     name = trimmed.trim_start_matches('#').trim().to_string();
                 }
             } else if found_heading && !trimmed.is_empty() && description.is_empty() {
-                description = trimmed[..trimmed.len().min(200)].to_string();
+                description = truncate_chars(trimmed, 200).to_string();
             }
         }
     }

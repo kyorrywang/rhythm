@@ -1,6 +1,7 @@
 use super::environment::{format_environment_section, get_environment_info};
 use super::rhythm_md::load_rhythm_md;
 use crate::infrastructure::config::{ResolvedAgentSpec, RhythmSettings};
+use crate::shared::text::truncate_chars;
 use std::path::Path;
 
 const BASE_SYSTEM_PROMPT: &str = "\
@@ -60,8 +61,8 @@ pub fn build_runtime_prompt_with_addition(
 
     // Layer 4: RHYTHM.md project instructions
     if let Some(rhythm_md) = load_rhythm_md(cwd) {
-        let truncated = rhythm_md.len() > 12000;
-        let content = &rhythm_md[..rhythm_md.len().min(12000)];
+        let content = truncate_chars(&rhythm_md, 12000);
+        let truncated = content.len() != rhythm_md.len();
         let suffix = if truncated {
             "\n\n...(content truncated)"
         } else {
@@ -92,8 +93,8 @@ pub fn build_runtime_prompt_with_addition(
                     for header in relevant {
                         if let Ok(content) = std::fs::read_to_string(&header.path) {
                             let trimmed = content.trim();
-                            let truncated = trimmed.len() > 8000;
-                            let body = &trimmed[..trimmed.len().min(8000)];
+                            let body = truncate_chars(trimmed, 8000);
+                            let truncated = body.len() != trimmed.len();
                             let suffix = if truncated {
                                 "\n...(content truncated)"
                             } else {

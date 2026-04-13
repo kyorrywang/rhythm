@@ -3,6 +3,7 @@ use super::{
     LlmResponseStream, LlmToolDefinition,
 };
 use crate::infrastructure::config::LlmConfig;
+use crate::shared::text::truncate_chars;
 use async_trait::async_trait;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -27,11 +28,7 @@ impl OpenAiClient {
 fn summarize_http_error(prefix: &str, status: reqwest::StatusCode, body: &str) -> String {
     let compact_body = body.replace('\n', " ");
     let trimmed = compact_body.trim();
-    let excerpt = if trimmed.len() > 400 {
-        &trimmed[..400]
-    } else {
-        trimmed
-    };
+    let excerpt = truncate_chars(trimmed, 400);
     if excerpt.is_empty() {
         format!("{prefix}: http {}", status.as_u16())
     } else {

@@ -14,6 +14,7 @@ use crate::llm::{ChatMessage, ChatMessageBlock, LlmResponse, LlmToolCall, LlmToo
 use crate::runtime::{interrupts, permissions};
 use crate::shared::error::RhythmError;
 use crate::shared::schema::EventPayload;
+use crate::shared::text::truncate_with_suffix;
 use crate::tools::context::resolve_permission_path;
 use crate::tools::{ToolExecutionContext, ToolResult};
 
@@ -360,11 +361,7 @@ fn parse_tool_arguments(tool_call: &LlmToolCall) -> Result<Value, String> {
     let raw = tool_call.arguments.trim();
     let normalized = if raw.is_empty() { "{}" } else { raw };
     serde_json::from_str(normalized).map_err(|error| {
-        let preview = if normalized.len() > 400 {
-            format!("{}...", &normalized[..400])
-        } else {
-            normalized.to_string()
-        };
+        let preview = truncate_with_suffix(normalized, 400, "...");
         format!(
             "Tool '{}' received invalid JSON arguments: {}. Raw arguments: {}",
             tool_call.name, error, preview

@@ -7,6 +7,7 @@ use crate::prompts::build_runtime_prompt_with_addition;
 use crate::runtime::session_tree;
 use crate::shared::schema::EventPayload;
 use crate::swarm::agent_registry;
+use crate::tools::plan_tasks::{PlanManifest, TaskStatus};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
@@ -28,6 +29,16 @@ struct SubagentArgs {
     #[serde(default)]
     system_prompt: Option<String>,
     agent_id: String,
+    /// When spawning a task declared in a plan, supply the task's id from plan.json.
+    /// The engine will verify that all dependencies of this task are Done before
+    /// allowing the spawn. If any dependency is still Pending or Failed, the spawn
+    /// is rejected with an actionable error.
+    #[serde(default)]
+    plan_task_id: Option<String>,
+    /// Absolute path to the workspace directory that contains plan.json
+    /// (the workspace_path returned by plan_tasks). Required when plan_task_id is set.
+    #[serde(default)]
+    workspace_path: Option<String>,
 }
 
 #[async_trait]
@@ -38,7 +49,10 @@ impl BaseTool for SubagentTool {
 
     fn description(&self) -> String {
         "Spawn a subagent with a clean context to achieve a complex subtask. \
-         The subagent has access to all tools but no parent conversation history."
+         When the task is part of a plan declared via plan_tasks, you MUST supply \
+         plan_task_id and workspace_path — the engine will enforce that all declared \
+         dependencies are Done before allowing the spawn. Attempting to spawn a task \
+         whose dependencies are still pending will result in a hard rejection."
             .to_string()
     }
 
@@ -61,6 +75,14 @@ impl BaseTool for SubagentTool {
                 "agent_id": {
                     "type": "string",
                     "description": "The configured agent id to delegate to (for example 'dynamic' or 'coordinate')"
+                },
+                "plan_task_id": {
+                    "type": "string",
+                    "description": "The id of this task as declared in plan_tasks. When provided together with workspace_path, the engine validates that all depends_on tasks are Done before allowing the spawn. REQUIRED when spawning tasks that are part of a plan."
+                },
+                "workspace_path": {
+                    "type": "string",
+                    "description": "Absolute path to the plan workspace directory (the workspace_path returned by plan_tasks). Required when plan_task_id is set."
                 }
             },
             "required": ["message", "title", "agent_id"]
@@ -76,6 +98,69 @@ impl BaseTool for SubagentTool {
             Ok(a) => a,
             Err(e) => return ToolResult::error(e.to_string()),
         };
+
+        // ── Plan dependency enforcement ───────────────────────────────────────
+        // If this spawn is part of a plan, hard-reject it when any dependency is
+        // not yet Done. This prevents the coordinator from skipping wave order.
+        if let Some(task_id) = &args.plan_task_id {
+            match &args.workspace_path {
+                None => {
+                    return ToolResult::error(
+                        "plan_task_id was supplied but workspace_path is missing. \
+                         Both fields are required for plan-aware spawning."
+                            .to_string(),
+                    )
+                }
+                Some(ws_path) => {
+                    let workspace = std::path::Path::new(ws_path);
+                    match PlanManifest::load(workspace) {
+                        Err(e) => {
+                            return ToolResult::error(format!(
+                                "Cannot validate plan dependencies: {}",
+                                e
+                            ))
+                        }
+                        Ok(manifest) => {
+                            match manifest.tasks.iter().find(|t| &t.id == task_id) {
+                                None => {
+                                    return ToolResult::error(format!(
+                                        "Task '{}' not found in plan at '{}'. \
+                                         Make sure the task id matches one declared in plan_tasks.",
+                                        task_id, ws_path
+                                    ))
+                                }
+                                Some(task) => {
+                                    let blocked: Vec<&str> = task
+                                        .depends_on
+                                        .iter()
+                                        .filter(|dep_id| {
+                                            manifest
+                                                .tasks
+                                                .iter()
+                                                .find(|t| &t.id == *dep_id)
+                                                .map(|t| t.status != TaskStatus::Done)
+                                                .unwrap_or(true)
+                                        })
+                                        .map(|s| s.as_str())
+                                        .collect();
+
+                                    if !blocked.is_empty() {
+                                        return ToolResult::error(format!(
+                                            "Cannot spawn task '{}': the following dependencies \
+                                             are not yet Done: [{}]. \
+                                             Call complete_task for each one first, then the \
+                                             engine will tell you which tasks are now ready.",
+                                            task_id,
+                                            blocked.join(", ")
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         let current_depth = agent_registry::get_agent_depth(&ctx.agent_id).unwrap_or(0);
         let current_definition_id = ctx

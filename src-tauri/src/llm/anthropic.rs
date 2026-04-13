@@ -3,6 +3,7 @@ use super::{
     LlmResponseStream, LlmToolDefinition,
 };
 use crate::infrastructure::config::LlmConfig;
+use crate::shared::text::truncate_chars;
 use async_trait::async_trait;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -42,11 +43,7 @@ impl AnthropicClient {
 fn summarize_http_error(prefix: &str, status: reqwest::StatusCode, body: &str) -> String {
     let compact_body = body.replace('\n', " ");
     let trimmed = compact_body.trim();
-    let excerpt = if trimmed.len() > 400 {
-        &trimmed[..400]
-    } else {
-        trimmed
-    };
+    let excerpt = truncate_chars(trimmed, 400);
     if excerpt.is_empty() {
         format!("{prefix}: http {}", status.as_u16())
     } else {
@@ -106,6 +103,13 @@ enum AnthropicContent {
         id: String,
         name: String,
         input: Value,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        is_error: bool,
     },
 }
 
@@ -303,15 +307,16 @@ fn map_messages(messages: Vec<ChatMessage>) -> Vec<AnthropicMessage> {
     let mut mapped = Vec::new();
 
     for message in messages {
-        let mut content = Vec::new();
+        let mut tool_results = Vec::new();
+        let mut other_content = Vec::new();
 
         for block in message.blocks {
             match block {
                 ChatMessageBlock::Text { text } => {
-                    content.push(AnthropicContent::Text { text });
+                    other_content.push(AnthropicContent::Text { text });
                 }
                 ChatMessageBlock::Image { media_type, data } => {
-                    content.push(AnthropicContent::Image {
+                    other_content.push(AnthropicContent::Image {
                         source: AnthropicImageSource {
                             source_type: "base64".to_string(),
                             media_type,
@@ -325,7 +330,7 @@ fn map_messages(messages: Vec<ChatMessage>) -> Vec<AnthropicMessage> {
                     size,
                     text,
                 } => {
-                    content.push(AnthropicContent::Text {
+                    other_content.push(AnthropicContent::Text {
                         text: format_file_block(&name, &mime_type, size, text.as_deref()),
                     });
                 }
@@ -334,17 +339,31 @@ fn map_messages(messages: Vec<ChatMessage>) -> Vec<AnthropicMessage> {
                     name,
                     arguments,
                 } => {
-                    content.push(AnthropicContent::ToolUse {
+                    other_content.push(AnthropicContent::ToolUse {
                         id,
                         name,
                         input: arguments,
                     });
                 }
                 ChatMessageBlock::ToolResult {
-                    ..
-                } => {}
+                    tool_call_id,
+                    content,
+                    is_error,
+                } => {
+                    tool_results.push(AnthropicContent::ToolResult {
+                        tool_use_id: tool_call_id,
+                        content,
+                        is_error,
+                    });
+                }
             }
         }
+
+        let content = if message.role == "user" && !tool_results.is_empty() {
+            tool_results.into_iter().chain(other_content.into_iter()).collect()
+        } else {
+            other_content
+        };
 
         if !content.is_empty() {
             mapped.push(AnthropicMessage {
@@ -464,5 +483,51 @@ impl LlmClient for AnthropicClient {
             .flatten();
 
         Ok(Box::pin(stream))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::{ChatMessage, ChatMessageBlock};
+    use serde_json::json;
+
+    #[test]
+    fn map_messages_includes_tool_results_for_user_messages() {
+        let mapped = map_messages(vec![
+            ChatMessage {
+                role: "assistant".to_string(),
+                blocks: vec![ChatMessageBlock::ToolCall {
+                    id: "toolu_1".to_string(),
+                    name: "plan_tasks".to_string(),
+                    arguments: json!({ "workspace": "demo", "tasks": [] }),
+                }],
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                blocks: vec![
+                    ChatMessageBlock::ToolResult {
+                        tool_call_id: "toolu_1".to_string(),
+                        content: "ok".to_string(),
+                        is_error: false,
+                    },
+                    ChatMessageBlock::Text {
+                        text: "continue".to_string(),
+                    },
+                ],
+            },
+        ]);
+
+        assert_eq!(mapped.len(), 2);
+        assert_eq!(mapped[1].role, "user");
+        assert!(matches!(
+            mapped[1].content.first(),
+            Some(AnthropicContent::ToolResult { tool_use_id, content, is_error })
+                if tool_use_id == "toolu_1" && content == "ok" && !is_error
+        ));
+        assert!(matches!(
+            mapped[1].content.get(1),
+            Some(AnthropicContent::Text { text }) if text == "continue"
+        ));
     }
 }
