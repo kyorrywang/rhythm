@@ -199,7 +199,11 @@ export const MainComposer = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const [isCompactControls, setIsCompactControls] = useState(false);
-  const primaryAgents = useSettingsStore((state) => (state.settings.agents ?? []).filter((agent) => agent.kinds.includes('primary')));
+  const agents = useSettingsStore((state) => state.settings.agents ?? []);
+  const primaryAgents = useMemo(
+    () => agents.filter((agent) => agent.kinds.includes('primary')),
+    [agents],
+  );
   const modeOptions = useMemo(() => getVisibleModeOptions(primaryAgents), [primaryAgents]);
   const activeProfile = useMemo(
     () => resolveRuntimeProfileForMode(primaryAgents, controls.mode),
@@ -445,7 +449,11 @@ const CompactControlsPopover = ({
 }) => {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const primaryAgents = useSettingsStore((state) => (state.settings.agents ?? []).filter((agent) => agent.kinds.includes('primary')));
+  const agents = useSettingsStore((state) => state.settings.agents ?? []);
+  const primaryAgents = useMemo(
+    () => agents.filter((agent) => agent.kinds.includes('primary')),
+    [agents],
+  );
   const modeOptions = useMemo(() => getVisibleModeOptions(primaryAgents), [primaryAgents]);
 
   return (

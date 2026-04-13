@@ -10,6 +10,7 @@ pub mod delete_file;
 pub mod edit_file;
 pub mod list_dir;
 pub mod plan;
+pub mod plan_tasks;
 pub mod read_file;
 pub mod shell;
 pub mod skill;
@@ -146,6 +147,7 @@ impl ToolRegistry {
         registry.register(Box::new(delete_file::DeleteFileTool));
         registry.register(Box::new(list_dir::ListDirTool));
         registry.register(Box::new(ask::AskTool));
+        registry.register(Box::new(plan_tasks::PlanTasksTool));
         registry.register(Box::new(plan::PlanTool));
         registry.register(Box::new(subagent::SubagentTool));
         registry.register(Box::new(skill::SkillTool));

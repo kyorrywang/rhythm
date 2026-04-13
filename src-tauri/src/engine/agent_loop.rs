@@ -1,6 +1,6 @@
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 use tokio::time::{sleep, Duration};
@@ -356,15 +356,38 @@ struct ToolExecutionBatch {
     tool_results: Vec<ChatMessageBlock>,
 }
 
+fn parse_tool_arguments(tool_call: &LlmToolCall) -> Result<Value, String> {
+    let raw = tool_call.arguments.trim();
+    let normalized = if raw.is_empty() { "{}" } else { raw };
+    serde_json::from_str(normalized).map_err(|error| {
+        let preview = if normalized.len() > 400 {
+            format!("{}...", &normalized[..400])
+        } else {
+            normalized.to_string()
+        };
+        format!(
+            "Tool '{}' received invalid JSON arguments: {}. Raw arguments: {}",
+            tool_call.name, error, preview
+        )
+    })
+}
+
+fn tool_call_arguments_for_history(tool_call: &LlmToolCall) -> Value {
+    match parse_tool_arguments(tool_call) {
+        Ok(args) => args,
+        Err(_) if tool_call.arguments.trim().is_empty() => json!({}),
+        Err(_) => json!({ "_raw": tool_call.arguments }),
+    }
+}
+
 async fn execute_tools(context: &QueryContext, tool_calls: Vec<LlmToolCall>) -> ToolExecutionBatch {
     let tool_call_blocks: Vec<ChatMessageBlock> = tool_calls
         .iter()
         .map(|tc| {
-            let args: Value = serde_json::from_str(&tc.arguments).unwrap_or(Value::Null);
             ChatMessageBlock::ToolCall {
                 id: tc.id.clone(),
                 name: tc.name.clone(),
-                arguments: args,
+                arguments: tool_call_arguments_for_history(tc),
             }
         })
         .collect();
@@ -388,7 +411,45 @@ async fn execute_tools(context: &QueryContext, tool_calls: Vec<LlmToolCall>) -> 
             tool_results.extend(batch_results);
         } else {
             let tool_call = &tool_calls[index];
-            let args: Value = serde_json::from_str(&tool_call.arguments).unwrap_or(Value::Null);
+            let args = match parse_tool_arguments(tool_call) {
+                Ok(args) => args,
+                Err(error) => {
+                    let history_args = tool_call_arguments_for_history(tool_call);
+                    event_bus::emit(
+                        &context.agent_id,
+                        &context.session_id,
+                        EventPayload::ToolStart {
+                            tool_id: tool_call.id.clone(),
+                            tool_name: tool_call.name.clone(),
+                            args: history_args,
+                        },
+                    );
+                    event_bus::emit(
+                        &context.agent_id,
+                        &context.session_id,
+                        EventPayload::ToolResult {
+                            tool_id: tool_call.id.clone(),
+                            result: error.clone(),
+                            is_error: true,
+                        },
+                    );
+                    event_bus::emit(
+                        &context.agent_id,
+                        &context.session_id,
+                        EventPayload::ToolEnd {
+                            tool_id: tool_call.id.clone(),
+                            exit_code: 1,
+                        },
+                    );
+                    tool_results.push(ChatMessageBlock::ToolResult {
+                        tool_call_id: tool_call.id.clone(),
+                        content: error,
+                        is_error: true,
+                    });
+                    index += 1;
+                    continue;
+                }
+            };
 
             event_bus::emit(
                 &context.agent_id,
@@ -448,12 +509,13 @@ async fn execute_tools(context: &QueryContext, tool_calls: Vec<LlmToolCall>) -> 
 mod tests {
     use super::*;
     use crate::infrastructure::config::{ResolvedCompletionPolicy, ResolvedDelegationPolicy};
-    use crate::llm::{ChatMessage, LlmClient, LlmResponse, LlmResponseStream};
     use crate::infrastructure::config::PermissionConfig;
+    use crate::llm::{ChatMessage, LlmClient, LlmResponse, LlmResponseStream};
     use crate::permissions::PermissionChecker;
     use crate::tools::ToolRegistry;
     use async_trait::async_trait;
     use futures::stream;
+    use serde_json::json;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -536,6 +598,34 @@ mod tests {
 
         assert_eq!(result.expect("query should succeed"), "inline answer");
     }
+
+    #[test]
+    fn rejects_invalid_tool_arguments_instead_of_coercing_to_null() {
+        let tool_call = LlmToolCall {
+            id: "tool-1".to_string(),
+            name: "plan_tasks".to_string(),
+            arguments: "{".to_string(),
+        };
+
+        let error = parse_tool_arguments(&tool_call).unwrap_err();
+
+        assert!(error.contains("invalid JSON arguments"));
+        assert!(error.contains("plan_tasks"));
+    }
+
+    #[test]
+    fn preserves_raw_invalid_arguments_for_history() {
+        let tool_call = LlmToolCall {
+            id: "tool-1".to_string(),
+            name: "plan_tasks".to_string(),
+            arguments: "{".to_string(),
+        };
+
+        assert_eq!(
+            tool_call_arguments_for_history(&tool_call),
+            json!({ "_raw": "{" })
+        );
+    }
 }
 
 async fn execute_spawn_subagent_batch(
@@ -543,9 +633,47 @@ async fn execute_spawn_subagent_batch(
     tool_calls: &[LlmToolCall],
 ) -> Vec<ChatMessageBlock> {
     let mut pending = FuturesUnordered::new();
+    let mut ordered_results: Vec<Option<ChatMessageBlock>> = vec![None; tool_calls.len()];
 
     for (index, tool_call) in tool_calls.iter().cloned().enumerate() {
-        let args: Value = serde_json::from_str(&tool_call.arguments).unwrap_or(Value::Null);
+        let args = match parse_tool_arguments(&tool_call) {
+            Ok(args) => args,
+            Err(error) => {
+                let history_args = tool_call_arguments_for_history(&tool_call);
+                event_bus::emit(
+                    &context.agent_id,
+                    &context.session_id,
+                    EventPayload::ToolStart {
+                        tool_id: tool_call.id.clone(),
+                        tool_name: tool_call.name.clone(),
+                        args: history_args,
+                    },
+                );
+                event_bus::emit(
+                    &context.agent_id,
+                    &context.session_id,
+                    EventPayload::ToolResult {
+                        tool_id: tool_call.id.clone(),
+                        result: error.clone(),
+                        is_error: true,
+                    },
+                );
+                event_bus::emit(
+                    &context.agent_id,
+                    &context.session_id,
+                    EventPayload::ToolEnd {
+                        tool_id: tool_call.id.clone(),
+                        exit_code: 1,
+                    },
+                );
+                ordered_results[index] = Some(ChatMessageBlock::ToolResult {
+                    tool_call_id: tool_call.id.clone(),
+                    content: error,
+                    is_error: true,
+                });
+                continue;
+            }
+        };
 
         event_bus::emit(
             &context.agent_id,
@@ -562,8 +690,6 @@ async fn execute_spawn_subagent_batch(
             (index, tool_call, result_block)
         });
     }
-
-    let mut ordered_results: Vec<Option<ChatMessageBlock>> = vec![None; tool_calls.len()];
 
     while let Some((index, tool_call, result_block)) = pending.next().await {
         if let ChatMessageBlock::ToolResult {
