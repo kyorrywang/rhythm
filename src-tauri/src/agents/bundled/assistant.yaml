@@ -3,7 +3,6 @@ schema_version: 2
 agent:
   id: assistant
   label: Assistant
-  mode: Chat
   description: 全功能助手，可使用所有工具和派生子 agent
   promptRefs:
     - base.assistant

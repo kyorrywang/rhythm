@@ -492,8 +492,6 @@ pub enum AgentConfigKind {
 pub struct AgentDefinitionConfig {
     pub id: String,
     pub label: String,
-    #[serde(default)]
-    pub mode: String,
     pub description: String,
     #[serde(default)]
     pub kinds: Vec<AgentConfigKind>,
@@ -1278,7 +1276,6 @@ pub fn resolve_agent_definition(
             fallback_primary_agent("chat").unwrap_or(AgentDefinitionConfig {
                 id: "chat".to_string(),
                 label: "Chat".to_string(),
-                mode: "Chat".to_string(),
                 description: "Chat".to_string(),
                 kinds: vec![AgentConfigKind::Primary],
                 prompt_refs: vec![],
@@ -1835,7 +1832,6 @@ mod tests {
         settings.agents.items = vec![AgentDefinitionConfig {
             id: "chat".to_string(),
             label: "Chat".to_string(),
-            mode: "Chat".to_string(),
             description: "test".to_string(),
             kinds: vec![AgentConfigKind::Primary],
             prompt_refs: vec![],
@@ -1897,7 +1893,6 @@ mod tests {
         bundle.agents.items = vec![AgentDefinitionConfig {
             id: "custom".to_string(),
             label: "Custom".to_string(),
-            mode: "Chat".to_string(),
             description: "broken".to_string(),
             kinds: vec![AgentConfigKind::Primary],
             prompt_refs: vec!["missing.fragment".to_string()],

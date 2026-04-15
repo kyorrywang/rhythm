@@ -121,8 +121,9 @@ fn default_agent_schema_version() -> u32 {
     AGENT_SCHEMA_VERSION
 }
 
-const BUNDLED_AGENT_FILES: [(&str, &str); 3] = [
+const BUNDLED_AGENT_FILES: [(&str, &str); 4] = [
     ("chat", include_str!("bundled/chat.yaml")),
+    ("assistant", include_str!("bundled/assistant.yaml")),
     ("explorer", include_str!("bundled/explorer.yaml")),
     ("dynamic", include_str!("bundled/dynamic.yaml")),
 ];

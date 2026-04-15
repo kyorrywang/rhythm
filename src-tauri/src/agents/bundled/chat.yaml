@@ -3,7 +3,6 @@ schema_version: 2
 agent:
   id: chat
   label: Chat
-  mode: Chat
   description: 单 agent 普通对话
   promptRefs:
     - base.assistant
