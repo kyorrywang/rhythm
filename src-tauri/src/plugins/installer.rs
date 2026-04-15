@@ -104,6 +104,7 @@ pub fn install_plugin(source: &Path) -> Result<PluginSummary, RhythmError> {
         skills_count: 0, // computed lazily on full load
         hooks_count: 0,
         mcp_servers_count: 0,
+        agents_count: 0,
         path: dest.to_string_lossy().to_string(),
         main: manifest.entry.clone(),
         dev_main: manifest.dev.main.clone(),

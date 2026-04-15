@@ -1,9 +1,7 @@
-pub mod spec;
-
 use crate::infrastructure::config::{
-    AgentConfigKind, AgentDefinitionConfig, CompletionPolicyDefinition, ConfigBundle, DelegationPolicyDefinition,
-    LimitPolicyDefinition, ObservabilityPolicyDefinition, PermissionPolicyDefinition,
-    ResolvedAgentSpec, ReviewPolicyDefinition,
+    AgentConfigKind, AgentDefinitionConfig, CompletionPolicyDefinition, ConfigBundle,
+    DelegationPolicyDefinition, LimitPolicyDefinition, ObservabilityPolicyDefinition,
+    PermissionPolicyDefinition, ResolvedAgentSpec, ReviewPolicyDefinition,
 };
 use crate::infrastructure::paths;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -97,11 +95,15 @@ impl AgentDefinition {
     }
 
     pub fn primary_agent(&self) -> Option<&AgentDefinitionConfig> {
-        self.kinds.contains(&AgentKind::Primary).then_some(&self.agent)
+        self.kinds
+            .contains(&AgentKind::Primary)
+            .then_some(&self.agent)
     }
 
     pub fn delegated_agent(&self) -> Option<&AgentDefinitionConfig> {
-        self.kinds.contains(&AgentKind::Subagent).then_some(&self.agent)
+        self.kinds
+            .contains(&AgentKind::Subagent)
+            .then_some(&self.agent)
     }
 
     pub fn prompt_fragments(&self) -> &HashMap<String, String> {
@@ -119,12 +121,10 @@ fn default_agent_schema_version() -> u32 {
     AGENT_SCHEMA_VERSION
 }
 
-const BUNDLED_AGENT_FILES: [(&str, &str); 5] = [
+const BUNDLED_AGENT_FILES: [(&str, &str); 3] = [
     ("chat", include_str!("bundled/chat.yaml")),
     ("explorer", include_str!("bundled/explorer.yaml")),
     ("dynamic", include_str!("bundled/dynamic.yaml")),
-    ("spec", include_str!("bundled/spec.yaml")),
-    ("spec-agent", include_str!("bundled/spec-agent.yaml")),
 ];
 
 pub fn default_agent_definitions() -> Vec<AgentDefinition> {
@@ -139,10 +139,15 @@ pub fn default_agent_definitions() -> Vec<AgentDefinition> {
     definitions
 }
 
-pub fn load_all_agent_definitions() -> Result<Vec<AgentDefinition>, String> {
+pub fn load_all_agent_definitions(
+    plugins: Option<&[crate::plugins::LoadedPlugin]>,
+) -> Result<Vec<AgentDefinition>, String> {
     let bundled = default_agent_definitions();
+    let from_plugins = plugins
+        .map(|p| p.iter().flat_map(|plugin| plugin.agents.clone()).collect())
+        .unwrap_or_default();
     let custom = load_custom_agent_definitions()?;
-    Ok(merge_agent_definitions(bundled, custom))
+    Ok(merge_agent_definitions(bundled, from_plugins, custom))
 }
 
 pub fn load_custom_agent_definitions() -> Result<Vec<AgentDefinition>, String> {
@@ -155,19 +160,32 @@ pub fn load_custom_agent_definitions() -> Result<Vec<AgentDefinition>, String> {
 
 fn merge_agent_definitions(
     bundled: Vec<AgentDefinition>,
+    from_plugins: Vec<AgentDefinition>,
     custom: Vec<AgentDefinition>,
 ) -> Vec<AgentDefinition> {
-    let mut seen = bundled
+    let mut seen: HashSet<String> = bundled
         .iter()
         .map(|definition| definition.id().to_lowercase())
-        .collect::<HashSet<_>>();
+        .collect();
     let mut merged = bundled;
 
+    // Merge plugin agents (override bundled, overridden by custom)
+    for definition in from_plugins {
+        let id = definition.id().to_lowercase();
+        if let Some(existing) = merged.iter_mut().find(|d| d.id().eq_ignore_ascii_case(&id)) {
+            *existing = definition;
+        } else {
+            seen.insert(id.clone());
+            merged.push(definition);
+        }
+    }
+
+    // Merge custom agents (highest priority)
     for definition in custom {
         let id = definition.id().to_lowercase();
         if seen.contains(&id) {
             eprintln!(
-                "[agents] Ignoring custom agent definition '{}' because it conflicts with a bundled agent id",
+                "[agents] Ignoring custom agent definition '{}' because it conflicts with a bundled or plugin agent id",
                 definition.id()
             );
             continue;
@@ -243,14 +261,26 @@ pub fn merge_agent_definitions_into_settings(
         settings.agents.items.push(agent);
 
         for (key, value) in definition.prompt_fragments() {
-            settings.prompts.fragments.insert(key.clone(), value.clone());
+            settings
+                .prompts
+                .fragments
+                .insert(key.clone(), value.clone());
         }
 
         if let Some(policies) = definition.policies() {
-            merge_policy_catalog(&mut settings.policies.catalog.permission, &policies.permission);
-            merge_policy_catalog(&mut settings.policies.catalog.delegation, &policies.delegation);
+            merge_policy_catalog(
+                &mut settings.policies.catalog.permission,
+                &policies.permission,
+            );
+            merge_policy_catalog(
+                &mut settings.policies.catalog.delegation,
+                &policies.delegation,
+            );
             merge_policy_catalog(&mut settings.policies.catalog.review, &policies.review);
-            merge_policy_catalog(&mut settings.policies.catalog.completion, &policies.completion);
+            merge_policy_catalog(
+                &mut settings.policies.catalog.completion,
+                &policies.completion,
+            );
             merge_policy_catalog(
                 &mut settings.policies.catalog.observability,
                 &policies.observability,
@@ -274,30 +304,64 @@ pub fn strip_agent_data_from_settings(
         .retain(|key, _| !prompt_keys.contains(key));
     settings.agents.items.clear();
 
-    strip_policy_catalog(&mut settings.policies.catalog.permission, definitions, |definition| {
-        definition
-            .policies()
-            .map(|policies| policies.permission.iter().map(|item| item.id.clone()).collect())
-            .unwrap_or_default()
-    });
-    strip_policy_catalog(&mut settings.policies.catalog.delegation, definitions, |definition| {
-        definition
-            .policies()
-            .map(|policies| policies.delegation.iter().map(|item| item.id.clone()).collect())
-            .unwrap_or_default()
-    });
-    strip_policy_catalog(&mut settings.policies.catalog.review, definitions, |definition| {
-        definition
-            .policies()
-            .map(|policies| policies.review.iter().map(|item| item.id.clone()).collect())
-            .unwrap_or_default()
-    });
-    strip_policy_catalog(&mut settings.policies.catalog.completion, definitions, |definition| {
-        definition
-            .policies()
-            .map(|policies| policies.completion.iter().map(|item| item.id.clone()).collect())
-            .unwrap_or_default()
-    });
+    strip_policy_catalog(
+        &mut settings.policies.catalog.permission,
+        definitions,
+        |definition| {
+            definition
+                .policies()
+                .map(|policies| {
+                    policies
+                        .permission
+                        .iter()
+                        .map(|item| item.id.clone())
+                        .collect()
+                })
+                .unwrap_or_default()
+        },
+    );
+    strip_policy_catalog(
+        &mut settings.policies.catalog.delegation,
+        definitions,
+        |definition| {
+            definition
+                .policies()
+                .map(|policies| {
+                    policies
+                        .delegation
+                        .iter()
+                        .map(|item| item.id.clone())
+                        .collect()
+                })
+                .unwrap_or_default()
+        },
+    );
+    strip_policy_catalog(
+        &mut settings.policies.catalog.review,
+        definitions,
+        |definition| {
+            definition
+                .policies()
+                .map(|policies| policies.review.iter().map(|item| item.id.clone()).collect())
+                .unwrap_or_default()
+        },
+    );
+    strip_policy_catalog(
+        &mut settings.policies.catalog.completion,
+        definitions,
+        |definition| {
+            definition
+                .policies()
+                .map(|policies| {
+                    policies
+                        .completion
+                        .iter()
+                        .map(|item| item.id.clone())
+                        .collect()
+                })
+                .unwrap_or_default()
+        },
+    );
     strip_policy_catalog(
         &mut settings.policies.catalog.observability,
         definitions,
@@ -314,19 +378,22 @@ pub fn strip_agent_data_from_settings(
                 .unwrap_or_default()
         },
     );
-    strip_policy_catalog(&mut settings.policies.catalog.limits, definitions, |definition| {
-        definition
-            .policies()
-            .map(|policies| policies.limits.iter().map(|item| item.id.clone()).collect())
-            .unwrap_or_default()
-    });
+    strip_policy_catalog(
+        &mut settings.policies.catalog.limits,
+        definitions,
+        |definition| {
+            definition
+                .policies()
+                .map(|policies| policies.limits.iter().map(|item| item.id.clone()).collect())
+                .unwrap_or_default()
+        },
+    );
 }
 
 pub fn explain_agent_snapshot(runtime_spec: &ResolvedAgentSpec) -> String {
     format!(
         "{}:{}",
-        runtime_spec.agent.id,
-        runtime_spec.completion.strategy
+        runtime_spec.agent.id, runtime_spec.completion.strategy
     )
 }
 
@@ -510,7 +577,7 @@ mod tests {
             .map(|definition| definition.id().to_string())
             .collect::<HashSet<_>>();
 
-        for id in ["chat", "explorer", "dynamic", "spec", "spec-agent"] {
+        for id in ["chat", "explorer", "dynamic"] {
             assert!(ids.contains(id), "missing bundled agent {id}");
         }
     }
@@ -597,7 +664,8 @@ policies:
       strategy: direct_answer
 "#;
 
-        let definition: AgentDefinition = serde_yaml::from_str(yaml).expect("dual identity agent should parse");
+        let definition: AgentDefinition =
+            serde_yaml::from_str(yaml).expect("dual identity agent should parse");
 
         assert_eq!(definition.id(), "dual-agent");
         assert!(definition.primary_agent().is_some());

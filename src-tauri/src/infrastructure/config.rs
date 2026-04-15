@@ -723,7 +723,7 @@ pub fn load_config_bundle() -> ConfigBundle {
     };
 
     let normalized = normalize_config_bundle(&mut bundle);
-    let agent_definitions = match crate::agents::load_all_agent_definitions() {
+    let agent_definitions = match crate::agents::load_all_agent_definitions(None) {
         Ok(definitions) => definitions,
         Err(error) => {
             eprintln!("[config] Failed to load agent definitions: {}", error);
@@ -759,7 +759,7 @@ fn create_default_config(path: &std::path::Path) -> ConfigBundle {
 
     let mut bundle = ConfigBundle::default();
     normalize_config_bundle(&mut bundle);
-    if let Ok(agent_definitions) = crate::agents::load_all_agent_definitions() {
+    if let Ok(agent_definitions) = crate::agents::load_all_agent_definitions(None) {
         crate::agents::merge_agent_definitions_into_settings(&mut bundle, &agent_definitions);
     }
 
@@ -1048,7 +1048,7 @@ pub fn save_config_bundle(bundle: &ConfigBundle) -> Result<(), String> {
     normalize_config_bundle(&mut normalized);
     validate_config_bundle(&normalized).map_err(|errors| errors.join("\n"))?;
     let mut persisted = normalized.clone();
-    let agent_definitions = crate::agents::load_all_agent_definitions()
+    let agent_definitions = crate::agents::load_all_agent_definitions(None)
         .unwrap_or_else(|_| crate::agents::default_agent_definitions());
     crate::agents::strip_agent_data_from_settings(&mut persisted, &agent_definitions);
     let json = serde_json::to_string_pretty(&persisted).map_err(|e| e.to_string())?;

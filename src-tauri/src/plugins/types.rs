@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::agents::AgentDefinition;
 use crate::infrastructure::config::HookConfig;
 use crate::mcp::types::McpServerConfig;
 use crate::skills::types::SkillDefinition;
@@ -169,6 +170,8 @@ pub struct LoadedPlugin {
     pub hooks: HashMap<String, Vec<HookConfig>>,
     /// MCP server configurations contributed by this plugin.
     pub mcp_servers: HashMap<String, McpServerConfig>,
+    /// Agent definitions contributed by this plugin.
+    pub agents: Vec<AgentDefinition>,
 }
 
 impl LoadedPlugin {
@@ -202,6 +205,7 @@ pub struct PluginSummary {
     pub skills_count: usize,
     pub hooks_count: usize,
     pub mcp_servers_count: usize,
+    pub agents_count: usize,
     pub path: String,
     pub main: Option<String>,
     pub dev_main: Option<String>,
@@ -230,6 +234,7 @@ impl From<&LoadedPlugin> for PluginSummary {
             skills_count: p.skills.len(),
             hooks_count: p.hooks.values().map(Vec::len).sum(),
             mcp_servers_count: p.mcp_servers.len(),
+            agents_count: p.agents.len(),
             path: p.path.to_string_lossy().to_string(),
             main: p.manifest.entry.clone(),
             dev_main: p.manifest.dev.main.clone(),

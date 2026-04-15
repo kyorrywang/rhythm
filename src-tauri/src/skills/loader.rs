@@ -7,12 +7,8 @@ use std::path::Path;
 
 // ─── Bundled skills (embedded at compile time) ────────────────────────────────
 
-const SPEC_WORKFLOW_SKILL: &str = include_str!("bundled/spec-workflow.md");
-
 fn get_bundled_skills() -> Vec<SkillDefinition> {
-    vec![
-        parse_skill("spec-workflow", SPEC_WORKFLOW_SKILL, SkillSource::Bundled),
-    ]
+    vec![]
 }
 
 /// Parse a skill from its Markdown content.

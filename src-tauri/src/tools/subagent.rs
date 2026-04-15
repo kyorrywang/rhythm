@@ -28,16 +28,6 @@ struct SubagentArgs {
     #[serde(default)]
     system_prompt: Option<String>,
     agent_id: String,
-    /// When spawning a task declared in a plan, supply the task's id from plan.json.
-    /// The engine will verify that all dependencies of this task are Done before
-    /// allowing the spawn. If any dependency is still Pending or Failed, the spawn
-    /// is rejected with an actionable error.
-    #[serde(default)]
-    plan_task_id: Option<String>,
-    /// Absolute path to the workspace directory that contains plan.json
-    /// (the workspace_path returned by plan_tasks). Required when plan_task_id is set.
-    #[serde(default)]
-    workspace_path: Option<String>,
 }
 
 #[async_trait]
@@ -71,14 +61,6 @@ impl BaseTool for SubagentTool {
                 "agent_id": {
                     "type": "string",
                     "description": "The configured agent id to delegate to (for example 'dynamic' or 'coordinate')"
-                },
-                "plan_task_id": {
-                    "type": "string",
-                    "description": "The id of this task as declared in plan_tasks. When provided together with workspace_path, the engine validates that all depends_on tasks are Done before allowing the spawn. REQUIRED when spawning tasks that are part of a plan."
-                },
-                "workspace_path": {
-                    "type": "string",
-                    "description": "Absolute path to the plan workspace directory (the workspace_path returned by plan_tasks). Required when plan_task_id is set."
                 }
             },
             "required": ["message", "title", "agent_id"]

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use super::types::{LoadedPlugin, PluginManifest, PluginSource, PluginStatus};
+use crate::agents::AgentDefinition;
 use crate::infrastructure::config::{HookConfig, RhythmSettings};
 use crate::infrastructure::paths;
 use crate::mcp::types::McpServerConfig;
@@ -88,6 +89,9 @@ pub fn load_plugin(
     // Load MCP servers
     let mcp_servers = load_plugin_mcp(path, &manifest.mcp_file);
 
+    // Load agents from agents/ subdirectory
+    let agents = load_plugin_agents(path);
+
     Some(LoadedPlugin {
         manifest,
         path: path.to_path_buf(),
@@ -107,6 +111,7 @@ pub fn load_plugin(
         skills,
         hooks,
         mcp_servers,
+        agents,
     })
 }
 
@@ -313,7 +318,8 @@ fn resolve_plugin_activity(plugins: &mut [LoadedPlugin]) {
         let plugin_name = plugins[idx].manifest.name.clone();
         match winners.get(&plugin_name).copied() {
             Some(current_idx)
-                if source_priority(plugins[idx].source) > source_priority(plugins[current_idx].source) =>
+                if source_priority(plugins[idx].source)
+                    > source_priority(plugins[current_idx].source) =>
             {
                 winners.insert(plugin_name, idx);
             }
@@ -630,6 +636,37 @@ fn load_plugin_mcp(plugin_root: &Path, mcp_file: &str) -> HashMap<String, McpSer
     serde_json::from_str(&text).unwrap_or_default()
 }
 
+// ─── Agent Definitions ───────────────────────────────────────────────────────
+
+/// Scan `agents/` subdirectory in the plugin root and parse all YAML files.
+fn load_plugin_agents(plugin_root: &Path) -> Vec<AgentDefinition> {
+    let agents_dir = plugin_root.join("agents");
+    if !agents_dir.exists() {
+        return Vec::new();
+    }
+
+    let mut agents = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&agents_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("yaml") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    match serde_yaml::from_str::<AgentDefinition>(&content) {
+                        Ok(agent) => agents.push(agent),
+                        Err(e) => eprintln!(
+                            "[plugins] Failed to parse agent YAML '{}': {}",
+                            path.display(),
+                            e
+                        ),
+                    }
+                }
+            }
+        }
+    }
+    agents.sort_by(|a, b| a.id().cmp(b.id()));
+    agents
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -669,14 +706,23 @@ mod tests {
             skills: vec![],
             hooks: HashMap::new(),
             mcp_servers: HashMap::new(),
+            agents: vec![],
         }
     }
 
     #[test]
     fn workspace_dev_plugin_overrides_global_plugin_with_same_name() {
         let mut plugins = vec![
-            make_plugin("folder", PluginSource::Global, "C:/Users/test/.rhythm/plugins/folder"),
-            make_plugin("folder", PluginSource::WorkspaceDev, "C:/repo/plugins/folder"),
+            make_plugin(
+                "folder",
+                PluginSource::Global,
+                "C:/Users/test/.rhythm/plugins/folder",
+            ),
+            make_plugin(
+                "folder",
+                PluginSource::WorkspaceDev,
+                "C:/repo/plugins/folder",
+            ),
         ];
 
         resolve_plugin_activity(&mut plugins);

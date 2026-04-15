@@ -149,8 +149,6 @@ impl ToolRegistry {
         registry.register(Box::new(plan::PlanTool));
         registry.register(Box::new(subagent::SubagentTool));
         registry.register(Box::new(skill::SkillTool));
-        registry.register(Box::new(crate::agents::spec::CreateSpecTool));
-        registry.register(Box::new(crate::agents::spec::StartSpecTool));
 
         for plugin in plugins {
             if !plugin.is_runtime_active() {
