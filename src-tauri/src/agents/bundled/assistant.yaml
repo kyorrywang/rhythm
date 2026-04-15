@@ -1,10 +1,10 @@
 kind: primary
 schema_version: 2
 agent:
-  id: chat
-  label: Chat
+  id: assistant
+  label: Assistant
   mode: Chat
-  description: 单 agent 普通对话
+  description: 全功能助手，可使用所有工具和派生子 agent
   promptRefs:
     - base.assistant
   model:
@@ -14,10 +14,7 @@ agent:
   permissions:
     locked: false
     defaultMode: plan
-    allowedTools:
-      - read
-      - list_dir
-      - ask
+    allowedTools: []
     disallowedTools: []
   execution:
     agentTurnLimit: null
@@ -26,15 +23,19 @@ agent:
     completionPolicyRef: direct_answer
     observabilityPolicyRef: standard
     limitPolicyRef: default
-    availableDelegateAgentIds: []
+    availableDelegateAgentIds:
+      - explorer
+      - dynamic
 prompt_fragments:
   base.assistant: |-
-    You are operating in the Chat agent.
+    You are operating in the Assistant agent.
 
     Default behaviour:
     1. Answer the user directly when you can.
     2. Use tools when they are available and genuinely helpful.
-    3. Delegate only when the user explicitly wants coordination or when it materially improves the result.
+    3. Delegate to subagents when the user explicitly wants coordination or when it materially improves the result.
+    4. For read-only browsing tasks, consider delegating to explorer subagent.
+    5. For general purpose tasks that may require file modifications, use your full capabilities.
 policies:
   permission: []
   delegation:
