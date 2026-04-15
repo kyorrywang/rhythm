@@ -776,11 +776,7 @@ fn cleanup_legacy_config_path() {
         let _ = fs::remove_file(&legacy_path);
     }
     if let Some(parent) = legacy_path.parent() {
-        if parent
-            .file_name()
-            .and_then(|segment| segment.to_str())
-            == Some("config")
-        {
+        if parent.file_name().and_then(|segment| segment.to_str()) == Some("config") {
             let _ = fs::remove_dir(parent);
         }
     }
@@ -790,13 +786,17 @@ fn upgrade_config_bundle(raw_value: serde_json::Value) -> Result<(ConfigBundle, 
     let version = raw_value
         .get("schema_version")
         .and_then(|value| value.as_u64())
-        .or_else(|| raw_value.get("schemaVersion").and_then(|value| value.as_u64()))
+        .or_else(|| {
+            raw_value
+                .get("schemaVersion")
+                .and_then(|value| value.as_u64())
+        })
         .unwrap_or(default_schema_version() as u64);
 
     match version {
         2 => {
-            let bundle: ConfigBundle =
-                serde_json::from_value(raw_value).map_err(|e| format!("config bundle parse failed: {e}"))?;
+            let bundle: ConfigBundle = serde_json::from_value(raw_value)
+                .map_err(|e| format!("config bundle parse failed: {e}"))?;
             Ok((bundle, false))
         }
         other => Err(format!("Unsupported config schema version: {}", other)),
@@ -952,10 +952,11 @@ fn validate_config_bundle(bundle: &ConfigBundle) -> Result<(), Vec<String>> {
         }
     }
 
-    if !primary_agents
-        .iter()
-        .any(|agent| agent.id.eq_ignore_ascii_case(&bundle.agents.default_agent_id))
-    {
+    if !primary_agents.iter().any(|agent| {
+        agent
+            .id
+            .eq_ignore_ascii_case(&bundle.agents.default_agent_id)
+    }) {
         errors.push(format!(
             "default agent '{}' does not exist",
             bundle.agents.default_agent_id
@@ -982,7 +983,10 @@ fn validate_config_bundle(bundle: &ConfigBundle) -> Result<(), Vec<String>> {
             errors.push(format!("duplicate provider id '{}'", provider.id));
         }
         if provider.models.is_empty() {
-            errors.push(format!("provider '{}' must define at least one model", provider.id));
+            errors.push(format!(
+                "provider '{}' must define at least one model",
+                provider.id
+            ));
         }
     }
 
@@ -1071,7 +1075,9 @@ pub fn resolve_llm_config(
         return Ok(resolved);
     }
 
-    let provider = if let Some(provider_id) = provider_id.map(str::trim).filter(|value| !value.is_empty()) {
+    let provider = if let Some(provider_id) =
+        provider_id.map(str::trim).filter(|value| !value.is_empty())
+    {
         settings
             .models
             .providers
@@ -1083,8 +1089,7 @@ pub fn resolve_llm_config(
             })
             .ok_or_else(|| format!("Provider '{}' is not available", provider_id))?
     } else {
-        default_provider(settings)
-            .ok_or_else(|| "No enabled provider is configured".to_string())?
+        default_provider(settings).ok_or_else(|| "No enabled provider is configured".to_string())?
     };
 
     let model = if let Some(model_id) = model_id.map(str::trim).filter(|value| !value.is_empty()) {
@@ -1270,19 +1275,18 @@ pub fn resolve_agent_definition(
                 .cloned()
         })
         .unwrap_or_else(|| {
-            fallback_primary_agent("chat")
-                .unwrap_or(AgentDefinitionConfig {
-                    id: "chat".to_string(),
-                    label: "Chat".to_string(),
-                    mode: "Chat".to_string(),
-                    description: "Chat".to_string(),
-                    kinds: vec![AgentConfigKind::Primary],
-                    prompt_refs: vec![],
-                    model: AgentModelConfig::default(),
-                    permissions: AgentPermissions::default(),
-                    execution: AgentExecutionConfig::default(),
-                    max_turns: None,
-                })
+            fallback_primary_agent("chat").unwrap_or(AgentDefinitionConfig {
+                id: "chat".to_string(),
+                label: "Chat".to_string(),
+                mode: "Chat".to_string(),
+                description: "Chat".to_string(),
+                kinds: vec![AgentConfigKind::Primary],
+                prompt_refs: vec![],
+                model: AgentModelConfig::default(),
+                permissions: AgentPermissions::default(),
+                execution: AgentExecutionConfig::default(),
+                max_turns: None,
+            })
         })
 }
 
@@ -1297,11 +1301,7 @@ fn resolve_permission_policy(
         .iter()
         .find(|policy| {
             agent.permissions.locked == policy.locked
-                && agent
-                    .permissions
-                    .default_mode
-                    .as_ref()
-                    == Some(&policy.mode)
+                && agent.permissions.default_mode.as_ref() == Some(&policy.mode)
                 && agent.permissions.allowed_tools == policy.allowed_tools
                 && agent.permissions.disallowed_tools == policy.denied_tools
         })
@@ -1309,12 +1309,16 @@ fn resolve_permission_policy(
         .or_else(|| {
             fallback_agent_definition(&agent.id).and_then(|definition| {
                 definition.policies().and_then(|policies| {
-                    policies.permission.iter().find(|policy| {
-                        policy.locked == agent.permissions.locked
-                            && agent.permissions.default_mode.as_ref() == Some(&policy.mode)
-                            && agent.permissions.allowed_tools == policy.allowed_tools
-                            && agent.permissions.disallowed_tools == policy.denied_tools
-                    }).cloned()
+                    policies
+                        .permission
+                        .iter()
+                        .find(|policy| {
+                            policy.locked == agent.permissions.locked
+                                && agent.permissions.default_mode.as_ref() == Some(&policy.mode)
+                                && agent.permissions.allowed_tools == policy.allowed_tools
+                                && agent.permissions.disallowed_tools == policy.denied_tools
+                        })
+                        .cloned()
                 })
             })
         })
@@ -1509,7 +1513,10 @@ fn resolve_observability_policy(
     }
 }
 
-fn resolve_limit_policy_agent_turn_limit(settings: &RhythmSettings, agent: &AgentDefinitionConfig) -> Option<usize> {
+fn resolve_limit_policy_agent_turn_limit(
+    settings: &RhythmSettings,
+    agent: &AgentDefinitionConfig,
+) -> Option<usize> {
     agent
         .execution
         .limit_policy_ref
@@ -1657,28 +1664,22 @@ pub fn resolve_runtime_spec(
         allowed_tools: if agent.permissions.locked {
             agent.permissions.allowed_tools.clone()
         } else {
-            intent
-                .allowed_tools
-                .clone()
-                .unwrap_or_else(|| {
-                    permission_policy
-                        .as_ref()
-                        .map(|policy| policy.allowed_tools.clone())
-                        .unwrap_or_else(|| settings.policies.permissions.allowed_tools.clone())
-                })
+            intent.allowed_tools.clone().unwrap_or_else(|| {
+                permission_policy
+                    .as_ref()
+                    .map(|policy| policy.allowed_tools.clone())
+                    .unwrap_or_else(|| settings.policies.permissions.allowed_tools.clone())
+            })
         },
         denied_tools: if agent.permissions.locked {
             agent.permissions.disallowed_tools.clone()
         } else {
-            intent
-                .disallowed_tools
-                .clone()
-                .unwrap_or_else(|| {
-                    permission_policy
-                        .as_ref()
-                        .map(|policy| policy.denied_tools.clone())
-                        .unwrap_or_else(|| settings.policies.permissions.denied_tools.clone())
-                })
+            intent.disallowed_tools.clone().unwrap_or_else(|| {
+                permission_policy
+                    .as_ref()
+                    .map(|policy| policy.denied_tools.clone())
+                    .unwrap_or_else(|| settings.policies.permissions.denied_tools.clone())
+            })
         },
         path_rules: settings.policies.permissions.path_rules.clone(),
         denied_commands: settings.policies.permissions.denied_commands.clone(),
@@ -1723,12 +1724,19 @@ pub fn resolve_runtime_spec(
     };
     let permission_policy_source = if agent.permissions.locked {
         "agent.permissions.locked"
-    } else if intent.permission_mode.is_some() || intent.allowed_tools.is_some() || intent.disallowed_tools.is_some() {
+    } else if intent.permission_mode.is_some()
+        || intent.allowed_tools.is_some()
+        || intent.disallowed_tools.is_some()
+    {
         "intent.permission_override"
     } else if env_overrides.permission_mode.is_some() {
         "env.RHYTHM_PERMISSION_MODE_OVERRIDE"
     } else if let Some(policy) = &permission_policy {
-        if policy.locked { "policies.catalog.permission" } else { "policies.catalog.permission" }
+        if policy.locked {
+            "policies.catalog.permission"
+        } else {
+            "policies.catalog.permission"
+        }
     } else {
         "policies.permissions"
     };
@@ -1789,7 +1797,10 @@ mod tests {
 
         let settings = RhythmSettings::default();
 
-        assert_eq!(settings.models.providers[0].models[0].name, "claude-opus-4-5");
+        assert_eq!(
+            settings.models.providers[0].models[0].name,
+            "claude-opus-4-5"
+        );
         assert_eq!(settings.policies.permissions.mode, PermissionMode::Default);
 
         clear_runtime_override_env();
@@ -1856,7 +1867,10 @@ mod tests {
 
         assert_eq!(resolved.llm.model, "env-model");
         assert_eq!(resolved.permission.mode, PermissionMode::FullAuto);
-        assert_eq!(resolved.env_overrides.model_id.as_deref(), Some("env-model"));
+        assert_eq!(
+            resolved.env_overrides.model_id.as_deref(),
+            Some("env-model")
+        );
         assert_eq!(
             resolved.env_overrides.permission_mode,
             Some(PermissionMode::FullAuto)
@@ -1895,108 +1909,9 @@ mod tests {
         bundle.agents.default_agent_id = "custom".to_string();
 
         let errors = validate_config_bundle(&bundle).expect_err("bundle should be invalid");
-        assert!(errors.iter().any(|error| error.contains("missing prompt fragment")));
-    }
-
-    #[test]
-    fn should_delegate_task_marks_complex_coordinate_requests() {
-        let _guard = runtime_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        clear_runtime_override_env();
-        let mut settings = ConfigBundle::default();
-        settings.models.providers = vec![ProviderConfig {
-            id: "test".to_string(),
-            name: "Test".to_string(),
-            provider: "openai".to_string(),
-            base_url: "https://example.com".to_string(),
-            api_key: "key".to_string(),
-            capabilities: ProviderCapabilities::default(),
-            models: vec![ProviderModelConfig {
-                id: "test-model".to_string(),
-                name: "test-model".to_string(),
-                enabled: true,
-                note: None,
-                capabilities: ModelCapabilities::default(),
-            }],
-        }];
-        normalize_config_bundle(&mut settings);
-        let coordinate = resolve_runtime_spec(
-            &settings,
-            RuntimeIntent {
-                agent_id: Some("coordinate".to_string()),
-                provider_id: Some("test".to_string()),
-                model_id: None,
-                reasoning: None,
-                permission_mode: None,
-                allowed_tools: None,
-                disallowed_tools: None,
-            },
-        )
-        .expect("coordinate spec");
-        let chat = resolve_runtime_spec(
-            &settings,
-            RuntimeIntent {
-                agent_id: Some("chat".to_string()),
-                provider_id: Some("test".to_string()),
-                model_id: None,
-                reasoning: None,
-                permission_mode: None,
-                allowed_tools: None,
-                disallowed_tools: None,
-            },
-        )
-        .expect("chat spec");
-
-        assert!(!should_delegate_task(&coordinate, "写一本修仙小说大纲", 0));
-        assert!(!should_delegate_task(&chat, "你好", 0));
-        clear_runtime_override_env();
-    }
-
-    #[test]
-    fn resolve_runtime_spec_resolves_policy_refs_and_provenance() {
-        let _guard = runtime_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        clear_runtime_override_env();
-        let mut settings = ConfigBundle::default();
-        settings.models.providers = vec![ProviderConfig {
-            id: "test".to_string(),
-            name: "Test".to_string(),
-            provider: "openai".to_string(),
-            base_url: "https://example.com".to_string(),
-            api_key: "key".to_string(),
-            capabilities: ProviderCapabilities::default(),
-            models: vec![ProviderModelConfig {
-                id: "test-model".to_string(),
-                name: "test-model".to_string(),
-                enabled: true,
-                note: None,
-                capabilities: ModelCapabilities::default(),
-            }],
-        }];
-        normalize_config_bundle(&mut settings);
-        let resolved = resolve_runtime_spec(
-            &settings,
-            RuntimeIntent {
-                agent_id: Some("coordinate".to_string()),
-                provider_id: Some("test".to_string()),
-                model_id: None,
-                reasoning: None,
-                permission_mode: None,
-                allowed_tools: None,
-                disallowed_tools: None,
-            },
-        )
-        .expect("coordinate runtime spec should resolve");
-
-        assert_eq!(resolved.delegation.id.as_deref(), Some("coordinate_delegate_only"));
-        assert!(!resolved.delegation.root_may_execute);
-        assert_eq!(resolved.completion.id.as_deref(), Some("direct_answer"));
-        assert_eq!(resolved.observability.id.as_deref(), Some("standard"));
-        assert_eq!(resolved.provenance.agent_id, "coordinate");
-        assert_eq!(resolved.provenance.delegation_policy_source, "coordinate_delegate_only");
-        clear_runtime_override_env();
+        assert!(errors
+            .iter()
+            .any(|error| error.contains("missing prompt fragment")));
     }
 
     #[test]
@@ -2153,10 +2068,7 @@ fn default_provider(settings: &RhythmSettings) -> Option<&ProviderConfig> {
 }
 
 fn default_model(provider: &ProviderConfig) -> Option<&ProviderModelConfig> {
-    provider
-        .models
-        .iter()
-        .find(|model| model.enabled)
+    provider.models.iter().find(|model| model.enabled)
 }
 
 impl ProviderConfig {
@@ -2166,4 +2078,3 @@ impl ProviderConfig {
             && self.models.iter().any(|model| model.enabled)
     }
 }
-

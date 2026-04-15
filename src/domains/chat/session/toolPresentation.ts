@@ -14,7 +14,6 @@ const toolArgs = (tool: ToolCall): Record<string, unknown> =>
 const normalizeSubagentKind = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, '_');
 const SUBAGENT_KIND_LABELS: Record<string, string> = {
   dynamic: 'Dynamic 智能体',
-  coordinate: 'Coordinate 智能体',
   explorer: 'Explorer 智能体',
 };
 const findStringArg = (args: Record<string, unknown>, keys: string[]) => {

@@ -670,16 +670,15 @@ function isFirstSessionTurn(session: Session | undefined, prompt: string) {
   return !!session && session.messages.length === 0 && prompt.trim().length > 0;
 }
 
-const CANONICAL_PROFILE_IDS: Record<'Chat' | 'Coordinate' | 'Spec', string> = {
+const CANONICAL_PROFILE_IDS: Record<'Chat' | 'Spec', string> = {
   Chat: 'chat',
-  Coordinate: 'coordinate',
   Spec: 'spec',
 };
 
 function resolveRuntimeProfileForComposerMode(
   primaryAgents: BackendAgent[],
   defaultAgentId: BackendSettings['defaultAgentId'],
-  mode: 'Chat' | 'Coordinate' | 'Spec',
+  mode: 'Chat' | 'Spec',
 ) {
   const canonicalId = CANONICAL_PROFILE_IDS[mode];
   const canonicalProfile = primaryAgents.find((item) => item.id.toLowerCase() === canonicalId);

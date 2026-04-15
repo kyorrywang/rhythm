@@ -57,3 +57,5 @@ target/
 _agents/
 _agent/
 .github/
+.opencode/
+openspec/

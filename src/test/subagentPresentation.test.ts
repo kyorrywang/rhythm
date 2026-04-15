@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getSubagentDisplayTitle, getToolPresentation } from '@/domains/chat/session/toolPresentation';
+import { getSubagentDisplayTitle } from '@/domains/chat/session/toolPresentation';
 import type { ToolCall } from '@/shared/types/schema';
 
 function buildTool(argumentsValue: ToolCall['arguments']): ToolCall {
@@ -12,13 +12,6 @@ function buildTool(argumentsValue: ToolCall['arguments']): ToolCall {
 }
 
 describe('subagent presentation', () => {
-  it('shows coordinate subagent titles from agent type', () => {
-    const tool = buildTool({ agent_type: 'coordinate', title: '协调任务' });
-
-    expect(getSubagentDisplayTitle(tool)).toBe('Coordinate 智能体');
-    expect(getToolPresentation(tool).title).toBe('Coordinate 智能体');
-  });
-
   it('shows explorer subagent titles from type aliases', () => {
     const tool = buildTool({ type: 'explorer', title: '检索代码' });
 

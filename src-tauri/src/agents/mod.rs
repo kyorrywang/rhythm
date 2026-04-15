@@ -119,9 +119,8 @@ fn default_agent_schema_version() -> u32 {
     AGENT_SCHEMA_VERSION
 }
 
-const BUNDLED_AGENT_FILES: [(&str, &str); 6] = [
+const BUNDLED_AGENT_FILES: [(&str, &str); 5] = [
     ("chat", include_str!("bundled/chat.yaml")),
-    ("coordinate", include_str!("bundled/coordinate.yaml")),
     ("explorer", include_str!("bundled/explorer.yaml")),
     ("dynamic", include_str!("bundled/dynamic.yaml")),
     ("spec", include_str!("bundled/spec.yaml")),
@@ -511,7 +510,7 @@ mod tests {
             .map(|definition| definition.id().to_string())
             .collect::<HashSet<_>>();
 
-        for id in ["chat", "coordinate", "explorer", "dynamic", "spec", "spec-agent"] {
+        for id in ["chat", "explorer", "dynamic", "spec", "spec-agent"] {
             assert!(ids.contains(id), "missing bundled agent {id}");
         }
     }

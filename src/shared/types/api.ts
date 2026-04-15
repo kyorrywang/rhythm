@@ -24,7 +24,7 @@ export interface BackendAgentPermissions {
 export interface BackendAgent {
   id: string;
   label: string;
-  mode: "Chat" | "Coordinate" | "Spec";
+  mode: "Chat" | "Spec";
   description: string;
   kinds: Array<"primary" | "subagent">;
   promptRefs?: string[];

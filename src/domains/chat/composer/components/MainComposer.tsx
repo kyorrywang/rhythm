@@ -34,13 +34,11 @@ const DEFAULT_MODE_OPTIONS: Array<{
   description: string;
 }> = [
   { value: 'Chat', label: 'Chat', description: '单 agent 普通对话' },
-  { value: 'Coordinate', label: 'Coordinate', description: '多 agent 协调执行' },
   { value: 'Spec', label: 'Spec', description: '规划驱动的 spec 工作流' },
 ];
 
 const CANONICAL_MODE_IDS: Record<MainComposerProps['controls']['mode'], string> = {
   Chat: 'chat',
-  Coordinate: 'coordinate',
   Spec: 'spec',
 };
 
@@ -71,7 +69,7 @@ function getVisibleModeOptions(primaryAgents: BackendAgent[]) {
     }
   }
 
-  const orderedModes: Array<MainComposerProps['controls']['mode']> = ['Chat', 'Coordinate', 'Spec'];
+  const orderedModes: Array<MainComposerProps['controls']['mode']> = ['Chat', 'Spec'];
   return orderedModes
     .map((mode) => byMode.get(mode))
     .filter((profile): profile is BackendAgent => Boolean(profile))

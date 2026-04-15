@@ -547,9 +547,9 @@ mod tests {
             reasoning: None,
             system_prompt: String::new(),
             agent_turn_limit: Some(4),
-            definition_id: "coordinate".to_string(),
+            definition_id: "chat".to_string(),
             delegation: ResolvedDelegationPolicy {
-                id: Some("coordinate_delegate_first".to_string()),
+                id: Some("chat_delegate".to_string()),
                 enabled: true,
                 root_may_execute: false,
                 max_subagents_per_turn: Some(3),
