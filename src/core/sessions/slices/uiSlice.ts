@@ -1,4 +1,4 @@
-import type { Attachment, MessageMode } from '@/shared/types/schema';
+import type { Attachment } from '@/shared/types/schema';
 
 interface WorkbenchItem {
   id: string;
@@ -43,7 +43,7 @@ interface UiSliceState {
   } | null;
   overlay: OverlayItem | null;
   composerControls: {
-    mode: MessageMode;
+    agentId: string;
     providerId: string;
     modelId: string;
     modelName: string;
@@ -91,7 +91,7 @@ export const createUiSlice = (
   workbench: null,
   overlay: null,
   composerControls: {
-    mode: 'Chat',
+    agentId: 'chat',
     providerId: 'openai',
     modelId: 'gpt-5.4',
     modelName: 'gpt-5.4',

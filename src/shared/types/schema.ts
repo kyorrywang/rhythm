@@ -126,8 +126,6 @@ export interface QueuedMessage {
   createdAt: number;
 }
 
-export type MessageMode = 'Chat' | 'Spec';
-
 export type SessionQueueState =
   | 'idle'
   | 'streaming_with_queue'
@@ -146,7 +144,7 @@ export type MessageSegment =
 export interface BaseMessage {
   id: string;
   attachments?: Attachment[];
-  mode?: MessageMode;
+  agentId?: string;
   model?: string;
   createdAt: number;
   segments?: MessageSegment[];

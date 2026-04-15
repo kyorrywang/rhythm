@@ -1,4 +1,4 @@
-import { SessionQueueState, SelectionType, Task, QueuedMessage, AskQuestion, MessageMode, Attachment, StreamRuntime, AskRequest, StreamRuntimeState } from '@/shared/types/schema';
+import { SessionQueueState, SelectionType, Task, QueuedMessage, AskQuestion, Attachment, StreamRuntime, AskRequest, StreamRuntimeState } from '@/shared/types/schema';
 import type { PermissionRequest } from '@/core/permissions/usePermissionStore';
 
 export type DockType = 'none' | 'append' | 'ask';
@@ -78,7 +78,7 @@ export interface MainComposerProps {
   dockType: DockType;
   headerContent?: React.ReactNode;
   controls: {
-    mode: MessageMode;
+    agentId: string;
     providerId: string;
     modelId: string;
     modelName: string;
@@ -88,7 +88,7 @@ export interface MainComposerProps {
   modelGroups: ComposerModelGroup[];
   runtimeState?: StreamRuntimeState;
   queueState?: SessionQueueState;
-  onSetMode: (mode: MainComposerProps['controls']['mode']) => void;
+  onSetAgentId: (agentId: string) => void;
   onSetModel: (model: ComposerModelSelection) => void;
   onSetReasoning: (reasoning: MainComposerProps['controls']['reasoning']) => void;
   onToggleFullAuto: () => void;

@@ -108,7 +108,7 @@ export function sanitizeMessage(message: Message): Message {
   const base = {
     id: message.id,
     attachments: message.attachments ? [...message.attachments] : undefined,
-    mode: message.mode,
+    agentId: message.agentId,
     model: message.model,
     createdAt: message.createdAt,
     segments: message.segments?.map(sanitizeMessageSegment),

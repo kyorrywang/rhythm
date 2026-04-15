@@ -94,7 +94,7 @@ export const ComposerBox = () => {
     queueState,
     currentAsk: currentAsk || null,
     allTasksDone,
-    composerMode: composerControls.mode,
+    composerMode: composerControls.agentId,
   });
 
   if (dockType === 'ask' && currentAsk) {
@@ -147,7 +147,7 @@ export const ComposerBox = () => {
       modelGroups={modelGroups}
       runtimeState={runtimeState}
       queueState={queueState}
-      onSetMode={(mode) => setComposerControls({ mode })}
+      onSetAgentId={(agentId) => setComposerControls({ agentId })}
       onSetModel={(model) => setComposerControls(model)}
       onSetReasoning={(reasoning) => setComposerControls({ reasoning })}
       onToggleFullAuto={handleToggleFullAuto}

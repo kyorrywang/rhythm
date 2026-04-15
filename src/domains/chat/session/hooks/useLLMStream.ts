@@ -314,7 +314,7 @@ export const useLLMStream = () => {
   const connectStream = useCallback(async (
     prompt: string,
     messageMode: 'normal' | 'build' | 'task' | 'ask' | 'append',
-    userMode?: Message['mode'],
+    userMode?: string,
     attachments: Attachment[] = [],
     targetSessionId?: string,
   ) => {
@@ -334,14 +334,7 @@ export const useLLMStream = () => {
     const permissionMode = state.composerControls.fullAuto ? 'full_auto' : 'default';
     const settings = useSettingsStore.getState().settings;
     const primaryAgents = (settings.agents ?? []).filter((agent) => agent.kinds.includes('primary'));
-    const profile = resolveRuntimeProfileForComposerMode(primaryAgents, settings.defaultAgentId, state.composerControls.mode);
-    if (state.composerControls.mode === 'Spec' && (!profile || profile.id.toLowerCase() !== 'spec')) {
-      useToastStore.getState().addToast({
-        type: 'error',
-        message: 'Spec 模式未绑定到受限 spec profile，已拒绝发送。',
-      });
-      return;
-    }
+    const profile = resolveRuntimeProfileForComposerMode(primaryAgents, settings.defaultAgentId, state.composerControls.agentId);
     const profileRequest = profile?.permissions.locked
       ? {
           agentId: profile.id,
@@ -376,7 +369,7 @@ export const useLLMStream = () => {
       role: 'user',
       content: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
       attachments,
-      mode: userMode || state.composerControls.mode,
+      agentId: userMode || state.composerControls.agentId,
       createdAt: Date.now(),
       startedAt: Date.now(),
     };
@@ -391,7 +384,7 @@ export const useLLMStream = () => {
       id: aiMessageId,
       role: 'assistant',
       model,
-      mode: state.composerControls.mode,
+      agentId: state.composerControls.agentId,
       createdAt: Date.now(),
       startedAt: Date.now(),
       status: 'running',
@@ -481,7 +474,7 @@ export const useLLMStream = () => {
         connectStream(
           getMessageTextContent(queuedItem.message),
           queuedItem.mode || 'normal',
-          queuedItem.message.mode,
+          queuedItem.message.agentId,
           queuedItem.message.attachments || [],
           sessionId,
         );
@@ -670,28 +663,14 @@ function isFirstSessionTurn(session: Session | undefined, prompt: string) {
   return !!session && session.messages.length === 0 && prompt.trim().length > 0;
 }
 
-const CANONICAL_PROFILE_IDS: Record<'Chat' | 'Spec', string> = {
-  Chat: 'chat',
-  Spec: 'spec',
-};
-
 function resolveRuntimeProfileForComposerMode(
   primaryAgents: BackendAgent[],
   defaultAgentId: BackendSettings['defaultAgentId'],
-  mode: 'Chat' | 'Spec',
+  agentId: string,
 ) {
-  const canonicalId = CANONICAL_PROFILE_IDS[mode];
-  const canonicalProfile = primaryAgents.find((item) => item.id.toLowerCase() === canonicalId);
-  if (canonicalProfile) {
-    return canonicalProfile;
-  }
-
-  const exactModeProfiles = primaryAgents.filter((item) => item.mode === mode);
-  if (exactModeProfiles.length === 1) {
-    return exactModeProfiles[0];
-  }
-
-  return primaryAgents.find((item) => item.id === defaultAgentId) || null;
+  return primaryAgents.find((item) => item.id === agentId)
+    || primaryAgents.find((item) => item.id === defaultAgentId)
+    || null;
 }
 
 function getActiveWorkspacePath() {

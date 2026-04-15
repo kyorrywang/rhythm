@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Message } from '@/shared/types/schema';
 import { CopyIconButton, IconButton } from '@/ui/components';
 import { useSessionStore } from '@/core/sessions/useSessionStore';
+import { useSettingsStore } from '@/core/runtime/useSettingsStore';
 
 interface UserMessageProps {
   sessionId: string;
@@ -10,7 +11,9 @@ interface UserMessageProps {
 }
 
 export const UserMessage = ({ sessionId, message }: UserMessageProps) => {
-  const mode = (message.mode || 'Chat').toUpperCase();
+  const agents = useSettingsStore((state) => state.settings.agents ?? []);
+  const agent = agents.find((a) => a.id === message.agentId);
+  const agentLabel = agent?.label || (message.agentId ? message.agentId : null);
   const time = new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   const attachments = message.attachments || [];
   const rewindSessionToMessage = useSessionStore((s) => s.rewindSessionToMessage);
@@ -53,7 +56,8 @@ export const UserMessage = ({ sessionId, message }: UserMessageProps) => {
         </div>
 
         <div className="mt-[var(--theme-toolbar-gap)] flex h-6 items-center justify-end gap-[var(--theme-toolbar-gap)] pr-1 text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">
-          <span className="font-medium text-[var(--theme-text-secondary)]">{mode}</span>
+          {agentLabel && <span className="font-medium text-[var(--theme-text-secondary)]">{agentLabel}</span>}
+          {agentLabel && <span className="text-[var(--theme-border-strong)]">·</span>}
           <span className="text-[var(--theme-border-strong)]">·</span>
           <span>{time}</span>
           <span className="text-[var(--theme-border-strong)]">|</span>

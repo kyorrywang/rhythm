@@ -28,56 +28,16 @@ const REASONING_OPTIONS: Array<{ value: MainComposerProps['controls']['reasoning
   { value: 'high', label: 'High', description: '更深入推理' },
 ];
 
-const DEFAULT_MODE_OPTIONS: Array<{
-  value: MainComposerProps['controls']['mode'];
-  label: string;
-  description: string;
-}> = [
-  { value: 'Chat', label: 'Chat', description: '单 agent 普通对话' },
-  { value: 'Spec', label: 'Spec', description: '规划驱动的 spec 工作流' },
-];
-
-const CANONICAL_MODE_IDS: Record<MainComposerProps['controls']['mode'], string> = {
-  Chat: 'chat',
-  Spec: 'spec',
-};
-
-function resolveRuntimeProfileForMode(
-  primaryAgents: BackendAgent[],
-  mode: MainComposerProps['controls']['mode'],
-) {
-  const canonicalId = CANONICAL_MODE_IDS[mode];
-  return primaryAgents.find((profile) => profile.id.toLowerCase() === canonicalId)
-    || primaryAgents.find((profile) => profile.mode === mode)
-    || null;
+function resolveAgentById(primaryAgents: BackendAgent[], agentId: string) {
+  return primaryAgents.find((agent) => agent.id === agentId) || null;
 }
 
-function getVisibleModeOptions(primaryAgents: BackendAgent[]) {
-  const byMode = new Map<MainComposerProps['controls']['mode'], BackendAgent>();
-
-  for (const profile of primaryAgents) {
-    const mode = profile.mode as MainComposerProps['controls']['mode'];
-    const existing = byMode.get(mode);
-    if (!existing) {
-      byMode.set(mode, profile);
-      continue;
-    }
-
-    const canonicalId = CANONICAL_MODE_IDS[mode];
-    if (profile.id.toLowerCase() === canonicalId && existing.id.toLowerCase() !== canonicalId) {
-      byMode.set(mode, profile);
-    }
-  }
-
-  const orderedModes: Array<MainComposerProps['controls']['mode']> = ['Chat', 'Spec'];
-  return orderedModes
-    .map((mode) => byMode.get(mode))
-    .filter((profile): profile is BackendAgent => Boolean(profile))
-    .map((profile) => ({
-      value: profile.mode as MainComposerProps['controls']['mode'],
-      label: profile.label,
-      description: profile.description,
-    }));
+function getVisibleAgentOptions(primaryAgents: BackendAgent[]) {
+  return primaryAgents.map((agent) => ({
+    value: agent.id,
+    label: agent.label,
+    description: agent.description,
+  }));
 }
 
 const TEXT_FILE_ACCEPT = [
@@ -179,7 +139,7 @@ export const MainComposer = ({
   modelGroups,
   runtimeState,
   queueState,
-  onSetMode,
+  onSetAgentId,
   onSetModel,
   onSetReasoning,
   onToggleFullAuto,
@@ -202,12 +162,12 @@ export const MainComposer = ({
     () => agents.filter((agent) => agent.kinds.includes('primary')),
     [agents],
   );
-  const modeOptions = useMemo(() => getVisibleModeOptions(primaryAgents), [primaryAgents]);
-  const activeProfile = useMemo(
-    () => resolveRuntimeProfileForMode(primaryAgents, controls.mode),
-    [primaryAgents, controls.mode],
+  const agentOptions = useMemo(() => getVisibleAgentOptions(primaryAgents), [primaryAgents]);
+  const activeAgent = useMemo(
+    () => resolveAgentById(primaryAgents, controls.agentId),
+    [primaryAgents, controls.agentId],
   );
-  const isLockedMode = Boolean(activeProfile?.permissions.locked);
+  const isLockedMode = Boolean(activeAgent?.permissions.locked);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -367,11 +327,11 @@ export const MainComposer = ({
         <div className="flex flex-wrap items-center gap-[var(--theme-toolbar-gap)] border-t-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-panel-bg)_0%,var(--theme-shell-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[calc(var(--theme-panel-padding-y)*0.45)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-secondary)]">
           {isCompactControls ? (
             <CompactControlsPopover
-              mode={controls.mode}
+              agentId={controls.agentId}
               reasoning={controls.reasoning}
               modelGroups={modelGroups}
               selectedModel={{ providerId: controls.providerId, modelId: controls.modelId, modelName: controls.modelName }}
-              onSetMode={onSetMode}
+              onSetAgentId={onSetAgentId}
               onSetModel={onSetModel}
               onSetReasoning={onSetReasoning}
             />
@@ -379,11 +339,11 @@ export const MainComposer = ({
             <>
               <ControlPopover
                 icon={<Sparkles size={13} />}
-                label={controls.mode}
-                title="选择模式"
-                options={modeOptions.length > 0 ? modeOptions : DEFAULT_MODE_OPTIONS}
-                value={controls.mode}
-                onSelect={onSetMode}
+                label={activeAgent?.label || controls.agentId}
+                title="选择助手"
+                options={agentOptions}
+                value={controls.agentId}
+                onSelect={onSetAgentId}
               />
               <ModelPopover
                 icon={<Bot size={13} />}
@@ -429,19 +389,19 @@ export const MainComposer = ({
 };
 
 const CompactControlsPopover = ({
-  mode,
+  agentId,
   reasoning,
   modelGroups,
   selectedModel,
-  onSetMode,
+  onSetAgentId,
   onSetModel,
   onSetReasoning,
 }: {
-  mode: MainComposerProps['controls']['mode'];
+  agentId: string;
   reasoning: MainComposerProps['controls']['reasoning'];
   modelGroups: MainComposerProps['modelGroups'];
   selectedModel: ComposerModelSelection;
-  onSetMode: (mode: MainComposerProps['controls']['mode']) => void;
+  onSetAgentId: (agentId: string) => void;
   onSetModel: (model: ComposerModelSelection) => void;
   onSetReasoning: (reasoning: MainComposerProps['controls']['reasoning']) => void;
 }) => {
@@ -452,7 +412,7 @@ const CompactControlsPopover = ({
     () => agents.filter((agent) => agent.kinds.includes('primary')),
     [agents],
   );
-  const modeOptions = useMemo(() => getVisibleModeOptions(primaryAgents), [primaryAgents]);
+  const agentOptions = useMemo(() => getVisibleAgentOptions(primaryAgents), [primaryAgents]);
 
   return (
     <MenuRoot
@@ -485,15 +445,15 @@ const CompactControlsPopover = ({
         >
           <MenuSub>
             <MenuSubmenuTrigger icon={<Sparkles size={13} />}>
-              Mode
+              Agent
             </MenuSubmenuTrigger>
             <MenuPortal>
               <MenuSubmenuContent>
-                {(modeOptions.length > 0 ? modeOptions : DEFAULT_MODE_OPTIONS).map((option) => (
+                {agentOptions.map((option) => (
                   <MenuItem
                     key={option.value}
-                    onSelect={() => onSetMode(option.value)}
-                    className={option.value === mode ? 'bg-[var(--theme-menu-item-hover-bg)] text-[var(--theme-menu-item-hover-text)]' : undefined}
+                    onSelect={() => onSetAgentId(option.value)}
+                    className={option.value === agentId ? 'bg-[var(--theme-menu-item-hover-bg)] text-[var(--theme-menu-item-hover-text)]' : undefined}
                   >
                     {option.label}
                   </MenuItem>

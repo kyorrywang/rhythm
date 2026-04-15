@@ -12,7 +12,7 @@ interface UseComposerActionsParams {
   queueState: SessionQueueState;
   currentAsk: { toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[] } | null;
   allTasksDone: boolean;
-  composerMode: Message['mode'];
+  composerMode: string;
 }
 
 export const useComposerActions = ({ activeSessionId, runtimeState, queueState, currentAsk, allTasksDone, composerMode }: UseComposerActionsParams) => {
@@ -128,7 +128,7 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
           role: 'user',
           content: trimmed,
           attachments: outgoingAttachments,
-          mode: composerMode,
+          agentId: composerMode,
           createdAt: Date.now(),
         }, 'urgent', 'append');
         setText('');

@@ -68,7 +68,7 @@ export function App() {
         : 'default';
 
     setComposerControls({
-      mode: defaultAgent?.mode || currentControls.mode || 'Chat',
+      agentId: defaultAgent?.id || currentControls.agentId || 'chat',
       providerId: selectedModel.providerId,
       modelId: selectedModel.modelId,
       modelName: selectedModel.modelName,
