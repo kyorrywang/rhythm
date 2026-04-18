@@ -1,5 +1,5 @@
-const { createRuntimeHost } = require('./common');
-const { loadCommandDescriptor, resolveHandlerModule } = require('./command_loader');
+const { createRuntimeHost } = require('./common.cjs');
+const { loadCommandDescriptor } = require('./command_loader.cjs');
 
 const call = JSON.parse(process.env.RHYTHM_PLUGIN_CALL || '{}');
 
@@ -9,13 +9,7 @@ async function runCommand() {
   if (!descriptor) {
     return { status: 'error', message: `Unknown slash descriptor '${call.command}'` };
   }
-
-  const handler = resolveHandlerModule(__dirname, descriptor.handler?.id || descriptor.entry?.id);
-  if (!handler || typeof handler.run !== 'function') {
-    return { status: 'error', message: `Missing handler '${descriptor.handler?.id}'` };
-  }
-
-  return handler.run(host, descriptor);
+  return host.runSkillPromptCommand(descriptor);
 }
 
 runCommand()

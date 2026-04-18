@@ -132,11 +132,10 @@ export const ComposerBox = () => {
     handleResetAskOptions,
     handleIgnoreAsk,
     slashState,
-    activeSlashCommand,
     handleSlashNavigate,
+    handleSlashSelect,
     handleSlashConfirm,
     handleSlashClose,
-    handleClearActiveSlashCommand,
   } = useComposerActions({
     activeSessionId,
     runtimeState,
@@ -196,7 +195,6 @@ export const ComposerBox = () => {
       controls={composerControls}
       modelGroups={modelGroups}
       slashState={slashState}
-      activeSlashCommand={activeSlashCommand}
       runtimeState={runtimeState}
       queueState={queueState}
       onSetAgentId={(agentId) => setComposerControls({ agentId })}
@@ -205,9 +203,9 @@ export const ComposerBox = () => {
       onToggleFullAuto={handleToggleFullAuto}
       onInterrupt={handleInterrupt}
       onSlashNavigate={handleSlashNavigate}
+      onSlashSelect={handleSlashSelect}
       onSlashConfirm={handleSlashConfirm}
       onSlashClose={handleSlashClose}
-      onClearActiveSlashCommand={handleClearActiveSlashCommand}
     />
   );
 };

@@ -138,7 +138,6 @@ export const MainComposer = ({
   controls,
   modelGroups,
   slashState,
-  activeSlashCommand,
   runtimeState,
   queueState,
   onSetAgentId,
@@ -147,9 +146,9 @@ export const MainComposer = ({
   onToggleFullAuto,
   onInterrupt,
   onSlashNavigate,
+  onSlashSelect,
   onSlashConfirm,
   onSlashClose,
-  onClearActiveSlashCommand,
 }: MainComposerProps) => {
   const hasContent = text.trim().length > 0;
   const canSubmit = hasContent || attachments.length > 0;
@@ -174,6 +173,7 @@ export const MainComposer = ({
     [primaryAgents, controls.agentId],
   );
   const isLockedMode = Boolean(activeAgent?.permissions.locked);
+  const composerPlaceholder = PLACEHOLDER_MAP[dockType];
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -206,29 +206,6 @@ export const MainComposer = ({
     <div ref={composerRef} className="relative z-20 mx-auto w-full max-w-[868px] px-6 pb-3">
       <div className={`text-left ${themeRecipes.workbenchSurface()} focus-within:border-[var(--theme-accent)] focus-within:ring-4 focus-within:ring-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] transition-all flex flex-col pointer-events-auto relative overflow-hidden`}>
         {headerContent}
-        {activeSlashCommand && (
-          <div className="border-b-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-panel-bg)_0%,var(--theme-shell-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[calc(var(--theme-panel-padding-y)*0.48)]">
-            <div className="flex items-center justify-between gap-[var(--theme-toolbar-gap)] rounded-[var(--theme-radius-card)] border-[var(--theme-border-width)] border-[var(--theme-accent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-panel-bg))] px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*0.85)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-secondary)]">
-              <span className="min-w-0">
-                <span className="block text-[13px] font-medium text-[var(--theme-text-primary)]">
-                  /{activeSlashCommand.name}
-                </span>
-                <span className="mt-0.5 block truncate opacity-80">
-                  {activeSlashCommand.contextPolicy === 'exclude' ? 'BTW 模式：消息会显示在会话里，但不计入正常上下文' : activeSlashCommand.description}
-                </span>
-              </span>
-              <Button
-                variant="unstyled"
-                size="none"
-                onClick={onClearActiveSlashCommand}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--theme-radius-control)] text-[var(--theme-text-muted)] transition-colors hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]"
-                title="退出该命令模式"
-              >
-                <X size={14} />
-              </Button>
-            </div>
-          </div>
-        )}
         {slashState?.active && (
           <div className="border-b-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-panel-bg)_0%,var(--theme-shell-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[calc(var(--theme-panel-padding-y)*0.55)]">
             <div className="flex items-center justify-between px-1 text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">
@@ -245,7 +222,7 @@ export const MainComposer = ({
                       type="button"
                       onMouseDown={(event) => {
                         event.preventDefault();
-                        onTextChange(`/${command.name}`);
+                        onSlashSelect?.(command);
                       }}
                       className={cn(
                         'flex w-full items-start justify-between gap-[var(--theme-toolbar-gap)] rounded-[var(--theme-radius-card)] border-[var(--theme-border-width)] px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*0.95)] text-left transition-colors',
@@ -318,7 +295,7 @@ export const MainComposer = ({
             value={text}
             rows={1}
             className="max-h-[180px] min-h-7 w-full resize-none overflow-y-auto bg-transparent px-1 text-[length:var(--theme-body-size)] leading-7 text-[var(--theme-text-primary)] outline-none placeholder:text-[var(--theme-text-muted)]"
-            placeholder={PLACEHOLDER_MAP[dockType]}
+            placeholder={composerPlaceholder}
             onChange={(e) => onTextChange(e.target.value)}
             onPaste={(e) => {
               const files = Array.from(e.clipboardData.files);
@@ -341,6 +318,13 @@ export const MainComposer = ({
                 if (e.key === 'Escape') {
                   e.preventDefault();
                   onSlashClose?.();
+                  return;
+                }
+                if (e.key === 'Tab') {
+                  e.preventDefault();
+                  if (!isBusy) {
+                    onSlashConfirm?.();
+                  }
                   return;
                 }
                 if (e.key === 'Enter' && !e.shiftKey) {

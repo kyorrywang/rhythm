@@ -12,7 +12,7 @@
     "slash": {
       "commandsDir": "slash/commands",
       "skillsDir": "slash/skills",
-      "runtimeEntry": "slash/runtime/mod.js"
+      "runtimeEntry": "slash/runtime/mod.cjs"
     }
   }
 }

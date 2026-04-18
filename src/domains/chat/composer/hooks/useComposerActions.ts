@@ -27,23 +27,22 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [selectedAskOptions, setSelectedAskOptions] = useState<string[]>([]);
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
-  const [activeSlashCommandName, setActiveSlashCommandName] = useState<string | null>(null);
 
   const slashQuery = useMemo(() => parseSlashQuery(text), [text]);
   const filteredSlashCommands = useMemo(
     () => filterComposerSlashCommands(Array.from(availableSlashCommands.values()), slashQuery.query),
     [availableSlashCommands, slashQuery.query],
   );
-  const activeSlashCommand = useMemo(
-    () => (activeSlashCommandName ? availableSlashCommands.get(activeSlashCommandName) || null : null),
-    [activeSlashCommandName, availableSlashCommands],
-  );
+  const matchedSlashCommand = useMemo(() => {
+    const { commandName } = splitSlashCommandInput(text);
+    return commandName ? availableSlashCommands.get(commandName) || null : null;
+  }, [availableSlashCommands, text]);
   const slashState: ComposerSlashState = useMemo(() => ({
-    active: slashQuery.active && !currentAsk,
+    active: slashQuery.active && !currentAsk && !matchedSlashCommand,
     query: slashQuery.query,
     commands: filteredSlashCommands,
     selectedIndex: filteredSlashCommands.length === 0 ? 0 : Math.min(selectedSlashIndex, filteredSlashCommands.length - 1),
-  }), [currentAsk, filteredSlashCommands, selectedSlashIndex, slashQuery.active, slashQuery.query]);
+  }), [currentAsk, filteredSlashCommands, matchedSlashCommand, selectedSlashIndex, slashQuery.active, slashQuery.query]);
 
   useEffect(() => {
     if (currentAsk && runtimeState !== 'waiting_for_user') {
@@ -70,12 +69,6 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     setAttachments(composerDraft.attachments);
     clearComposerDraft();
   }, [composerDraft, clearComposerDraft]);
-
-  useEffect(() => {
-    if (activeSlashCommandName && !availableSlashCommands.has(activeSlashCommandName)) {
-      setActiveSlashCommandName(null);
-    }
-  }, [activeSlashCommandName, availableSlashCommands]);
 
   useEffect(() => {
     setSelectedSlashIndex(0);
@@ -169,9 +162,8 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
           return;
         }
 
-        setActiveSlashCommandName(selectedCommand.name);
-        if (!argumentText && attachments.length === 0 && selectedCommand.kind !== 'workflow') {
-          setText('');
+        setText(argumentText ? `/${selectedCommand.name} ${argumentText}` : `/${selectedCommand.name} `);
+        if (!argumentText && attachments.length === 0) {
           setSelectedSlashIndex(0);
           return;
         }
@@ -179,12 +171,12 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
 
       const trimmed = slashState.active ? splitSlashCommandInput(text).argumentText : text.trim();
       const outgoingAttachments = attachments;
-      const resolvedSlashCommand = (slashState.active
-        ? (filteredSlashCommands.find((command) => command.name === splitSlashCommandInput(text).commandName) || filteredSlashCommands[slashState.selectedIndex] || activeSlashCommand)
-        : activeSlashCommand) || null;
-      if (!trimmed && outgoingAttachments.length === 0 && resolvedSlashCommand?.kind !== 'workflow') return;
-      const contextPolicy = resolvedSlashCommand?.contextPolicy || 'default';
-      const slashCommandName = resolvedSlashCommand?.name;
+      const selectedSlashCommand = (slashState.active
+        ? (filteredSlashCommands.find((command) => command.name === splitSlashCommandInput(text).commandName) || filteredSlashCommands[slashState.selectedIndex] || null)
+        : matchedSlashCommand) || null;
+      if (!trimmed && outgoingAttachments.length === 0 && !selectedSlashCommand) return;
+      const contextPolicy = selectedSlashCommand?.contextPolicy || 'default';
+      const slashCommandName = selectedSlashCommand?.name;
 
       const targetSessionId = await ensureTargetSession();
 
@@ -229,7 +221,7 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     };
 
     void sendNormalMessage();
-  }, [activeSessionId, runtimeState, queueState, currentAsk, text, attachments, composerMode, activeWorkspace.path, enqueueMessage, connectStream, setQueueState, buildAskAnswer, recordAskAnswer, sessions, addMessage, addSession, setActiveSession, slashState.active, slashState.selectedIndex, filteredSlashCommands, slashQuery.query, activeSlashCommand]);
+  }, [activeSessionId, runtimeState, queueState, currentAsk, text, attachments, composerMode, activeWorkspace.path, enqueueMessage, connectStream, setQueueState, buildAskAnswer, recordAskAnswer, sessions, addMessage, addSession, setActiveSession, slashState.active, slashState.selectedIndex, filteredSlashCommands, slashQuery.query, matchedSlashCommand]);
 
   const handleIgnoreAsk = useCallback(() => {
     if (!activeSessionId || !currentAsk) return;
@@ -302,20 +294,21 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     });
   }, [slashState.active, slashState.commands.length]);
 
+  const handleSlashSelect = useCallback((command: ComposerSlashCommand) => {
+    setText(`/${command.name} `);
+    setSelectedSlashIndex(0);
+  }, []);
+
   const handleSlashConfirm = useCallback(() => {
     if (!slashState.active || slashState.commands.length === 0) return;
-    handleSend();
-  }, [handleSend, slashState.active, slashState.commands.length]);
+    handleSlashSelect(slashState.commands[slashState.selectedIndex]);
+  }, [handleSlashSelect, slashState.active, slashState.commands, slashState.selectedIndex]);
 
   const handleSlashClose = useCallback(() => {
     if (!slashState.active) return;
     setText((currentText) => currentText.startsWith('/') ? '' : currentText);
     setSelectedSlashIndex(0);
   }, [slashState.active]);
-
-  const handleClearActiveSlashCommand = useCallback(() => {
-    setActiveSlashCommandName(null);
-  }, []);
 
   return {
     text,
@@ -333,10 +326,9 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     handleAskOptionToggle,
     handleResetAskOptions,
     slashState,
-    activeSlashCommand,
     handleSlashNavigate,
+    handleSlashSelect,
     handleSlashConfirm,
     handleSlashClose,
-    handleClearActiveSlashCommand,
   };
 };

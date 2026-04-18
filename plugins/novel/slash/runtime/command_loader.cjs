@@ -12,11 +12,6 @@ function loadCommandDescriptor(commandsDir, commandName) {
   return null;
 }
 
-function resolveHandlerModule(runtimeRoot, handlerId) {
-  return require(path.join(runtimeRoot, 'handlers', `${handlerId}.js`));
-}
-
 module.exports = {
   loadCommandDescriptor,
-  resolveHandlerModule,
 };

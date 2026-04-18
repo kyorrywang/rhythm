@@ -13,6 +13,21 @@
   "handler": {
     "id": "archive"
   },
+  "skillFiles": ["archive.md", "archive-state.md"],
+  "outputHints": [
+    {
+      "path": ".novel/archive/sessions/latest-session.md",
+      "description": "整理最近一次与小说创作相关的会话摘要。"
+    },
+    {
+      "path": ".novel/archive/summaries/conversation-summary.md",
+      "description": "更新长期可续写的对话摘要。"
+    },
+    {
+      "path": ".novel/archive/summaries/state-summary.md",
+      "description": "更新人物、物品、能力、伏笔等连续性状态摘要。"
+    }
+  ],
   "defaultSkill": "default",
   "contextPolicy": "default"
 }

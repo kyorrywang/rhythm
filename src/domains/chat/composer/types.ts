@@ -88,7 +88,6 @@ export interface MainComposerProps {
   };
   modelGroups: ComposerModelGroup[];
   slashState?: ComposerSlashState;
-  activeSlashCommand?: ComposerSlashCommand | null;
   runtimeState?: StreamRuntimeState;
   queueState?: SessionQueueState;
   onSetAgentId: (agentId: string) => void;
@@ -98,8 +97,8 @@ export interface MainComposerProps {
   onInterrupt: () => void;
   onSlashNavigate?: (direction: 'up' | 'down') => void;
   onSlashConfirm?: () => void;
+  onSlashSelect?: (command: ComposerSlashCommand) => void;
   onSlashClose?: () => void;
-  onClearActiveSlashCommand?: () => void;
 }
 
 export interface ComposerModelSelection {

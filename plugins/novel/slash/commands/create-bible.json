@@ -13,6 +13,13 @@
   "handler": {
     "id": "create-bible"
   },
+  "skillFiles": ["create-bible.md"],
+  "outputHints": [
+    {
+      "path": ".novel/setting/bible.md",
+      "description": "创建设定集主文档；如内容天然分块，可补充角色、势力、体系等相关设定文件。"
+    }
+  ],
   "defaultSkill": "default",
   "contextPolicy": "default"
 }

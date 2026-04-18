@@ -13,6 +13,13 @@
   "handler": {
     "id": "init"
   },
+  "skillFiles": ["init.md"],
+  "outputHints": [
+    {
+      "path": ".novel/project.yaml",
+      "description": "初始化完成后，在确认关键信息后创建或更新小说项目配置。"
+    }
+  ],
   "defaultSkill": "default",
   "contextPolicy": "default"
 }

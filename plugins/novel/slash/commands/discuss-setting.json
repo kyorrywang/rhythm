@@ -13,6 +13,17 @@
   "handler": {
     "id": "discuss-setting"
   },
+  "skillFiles": ["discuss-setting.md"],
+  "outputHints": [
+    {
+      "path": ".novel/discovery/setting-discussion.md",
+      "description": "如发生有效设定探讨，可沉淀本次讨论记录。"
+    },
+    {
+      "path": ".novel/discovery/setting-brief.md",
+      "description": "如讨论足够清晰，可整理为后续创作复用的设定 brief。"
+    }
+  ],
   "defaultSkill": "default",
   "contextPolicy": "default"
 }

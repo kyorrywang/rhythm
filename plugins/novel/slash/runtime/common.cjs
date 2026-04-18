@@ -99,6 +99,10 @@ function createRuntimeHost(call) {
     return rpc('askUser', { title, questions });
   }
 
+  async function executeCommand(commandId, input) {
+    return rpc('command.execute', { commandId, input });
+  }
+
   async function spawnSubagent(message, title) {
     return rpc('spawnSubagent', { message, title, agent_id: 'dynamic' });
   }
@@ -115,11 +119,34 @@ function createRuntimeHost(call) {
     return rpc('pluginStorage.set', { key, value });
   }
 
+  function listSkillProfiles() {
+    const skillsRoot = slashSkillsRoot();
+    return fs.readdirSync(skillsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((left, right) => {
+        if (left === 'default') return -1;
+        if (right === 'default') return 1;
+        return left.localeCompare(right);
+      });
+  }
+
   function loadSkillText(profile, fileName) {
     const skillsRoot = slashSkillsRoot();
     const preferred = path.join(skillsRoot, profile, fileName);
     const fallback = path.join(skillsRoot, 'default', fileName);
     return fs.readFileSync(fs.existsSync(preferred) ? preferred : fallback, 'utf8');
+  }
+
+  function normalizeCommandInput(commandName, rawInput) {
+    const input = String(rawInput || '');
+    const trimmedStart = input.trimStart();
+    const prefix = `/${commandName}`;
+    if (!trimmedStart.startsWith(prefix)) {
+      return input.trim();
+    }
+    const rest = trimmedStart.slice(prefix.length);
+    return rest.trim();
   }
 
   function yamlValue(text, key) {
@@ -129,6 +156,12 @@ function createRuntimeHost(call) {
 
   function defaultNovelRoot(projectText) {
     return yamlValue(projectText, 'root') || '.novel';
+  }
+
+  function resolveActiveProfile(descriptor, context) {
+    return yamlValue(context?.project, 'profile')
+      || descriptor.defaultSkill
+      || 'default';
   }
 
   async function restoreNovelContext() {
@@ -243,6 +276,79 @@ function createRuntimeHost(call) {
     ].join('\n');
   }
 
+  function renderSkillBlocks(profile, descriptor) {
+    const files = Array.isArray(descriptor.skillFiles) && descriptor.skillFiles.length > 0
+      ? descriptor.skillFiles
+      : [`${descriptor.entry?.id || descriptor.handler?.id || 'command'}.md`];
+    return files.map((fileName) => ({
+      fileName,
+      content: loadSkillText(profile, fileName),
+    }));
+  }
+
+  function renderOutputHints(descriptor) {
+    const outputs = Array.isArray(descriptor.outputHints) ? descriptor.outputHints : [];
+    if (outputs.length === 0) {
+      return '(无强制输出文件，可以直接在对话中推进；若需要落盘，请自行判断并使用工作区文件工具。)';
+    }
+    return outputs.map((item) => {
+      const pathText = item.path || '(未指定路径)';
+      const description = item.description || '按命令目标决定是否写入';
+      return `- ${pathText}: ${description}`;
+    }).join('\n');
+  }
+
+  function buildSkillPrompt(descriptor, profile, context) {
+    const normalizedInput = normalizeCommandInput(descriptor.name, call.input?.userInput || '');
+    const availableProfiles = listSkillProfiles();
+    const skillBlocks = renderSkillBlocks(profile, descriptor);
+    return [
+      `# Novel Slash Command`,
+      '',
+      `command: ${descriptor.name}`,
+      `title: ${descriptor.title || descriptor.name}`,
+      `profile: ${profile}`,
+      `available_profiles: ${availableProfiles.join(', ') || 'default'}`,
+      '',
+      '## Command Description',
+      descriptor.description || '(无描述)',
+      '',
+      '## User Input',
+      normalizedInput || '(无额外输入)',
+      '',
+      '## Project Context',
+      renderContextSnapshot(context),
+      '',
+      '## Output Hints',
+      renderOutputHints(descriptor),
+      '',
+      '## Active Skill Instructions',
+      ...skillBlocks.flatMap((block) => [
+        '',
+        `### ${block.fileName}`,
+        block.content,
+      ]),
+      '',
+      '## Runtime Rules',
+      '- 你正在响应一个 novel 插件 slash 命令。',
+      '- 以 skill prompt 为主要行为依据，不要被程序化工作流限制。',
+      '- 如果需要继续追问用户，就直接在当前对话里提问。',
+      '- 如果需要创建或更新文件，请直接使用工作区文件工具写入目标文件。',
+      '- 如果上下文不足，请优先基于 skill 提问或澄清，而不是擅自编造。',
+      '- 保持输出贴合当前小说项目，而不是泛化成通用建议。',
+    ].join('\n');
+  }
+
+  async function runSkillPromptCommand(descriptor) {
+    const context = await restoreNovelContext();
+    const profile = resolveActiveProfile(descriptor, context);
+    const prompt = buildSkillPrompt(descriptor, profile, context);
+    return {
+      status: 'prompt',
+      prompt,
+    };
+  }
+
   return {
     call,
     pluginRoot,
@@ -257,15 +363,21 @@ function createRuntimeHost(call) {
     readIfExists,
     listFilesIfExists,
     askUser,
+    executeCommand,
     spawnSubagent,
     emitTasks,
     readPluginStorage,
     writePluginStorage,
+    listSkillProfiles,
     loadSkillText,
     yamlValue,
     restoreNovelContext,
     renderContextSnapshot,
     buildProjectYaml,
+    normalizeCommandInput,
+    resolveActiveProfile,
+    buildSkillPrompt,
+    runSkillPromptCommand,
   };
 }
 
