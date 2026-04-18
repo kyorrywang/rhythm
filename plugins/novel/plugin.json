@@ -8,5 +8,11 @@
     "main": "src/main.tsx"
   },
   "permissions": [],
-  "contributes": {}
+  "contributes": {
+    "slash": {
+      "commandsDir": "slash/commands",
+      "skillsDir": "slash/skills",
+      "runtimeEntry": "slash/runtime/mod.js"
+    }
+  }
 }

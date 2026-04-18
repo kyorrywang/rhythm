@@ -158,6 +158,11 @@ export interface BackendPluginSummary {
     tool_result_actions: BackendPluginContribution[];
     tree_item_actions: BackendPluginContribution[];
     workflow_nodes: BackendPluginContribution[];
+    slash?: {
+      commandsDir: string;
+      skillsDir: string;
+      runtimeEntry: string;
+    } | null;
   };
 }
 

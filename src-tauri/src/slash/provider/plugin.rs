@@ -21,8 +21,12 @@ pub async fn execute_plugin_command(
         .iter()
         .find(|plugin| plugin.name() == plugin_name && plugin.is_runtime_active())
         .ok_or_else(|| format!("Slash plugin '{}' is not active", plugin_name))?;
+    let slash = plugin
+        .slash_contribution
+        .as_ref()
+        .ok_or_else(|| format!("Slash plugin '{}' does not declare contributes.slash", plugin_name))?;
 
-    let runtime_entry = plugin.path.join("slash").join("runtime").join("mod.js");
+    let runtime_entry = plugin.path.join(&slash.runtime_entry);
     if !runtime_entry.exists() {
         return Err(format!(
             "Slash plugin '{}' is missing runtime at '{}'",
@@ -33,6 +37,11 @@ pub async fn execute_plugin_command(
 
     let request = PluginSlashRuntimeRequest {
         descriptor: descriptor.clone(),
+        slash: crate::slash::types::PluginSlashContributionRuntimeConfig {
+            commands_dir: slash.commands_dir.clone(),
+            skills_dir: slash.skills_dir.clone(),
+            runtime_entry: slash.runtime_entry.clone(),
+        },
         input: SlashRuntimeInput {
             user_input: user_input.to_string(),
         },
@@ -68,7 +77,7 @@ pub async fn execute_plugin_command(
     let result = run_plugin_runtime(
         "node",
         &plugin.path,
-        "slash/runtime/mod.js",
+        &slash.runtime_entry,
         "runCommand",
         &call,
         Some(PluginRuntimeHost {

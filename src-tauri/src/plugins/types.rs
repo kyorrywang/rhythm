@@ -113,6 +113,16 @@ pub struct PluginContributions {
     pub tree_item_actions: Vec<serde_json::Value>,
     #[serde(default, alias = "workflowNodes")]
     pub workflow_nodes: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub slash: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginSlashContribution {
+    pub commands_dir: String,
+    pub skills_dir: String,
+    pub runtime_entry: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -162,7 +172,9 @@ pub struct LoadedPlugin {
     pub enabled: bool,
     pub status: PluginStatus,
     pub blocked_reason: Option<String>,
+    pub configuration_errors: Vec<String>,
     pub granted_permissions: Vec<String>,
+    pub slash_contribution: Option<PluginSlashContribution>,
     /// Skills contributed by this plugin.
     pub skills: Vec<SkillDefinition>,
     /// Hooks contributed by this plugin, keyed by event name

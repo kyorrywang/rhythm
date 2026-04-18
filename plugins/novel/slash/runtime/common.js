@@ -43,12 +43,28 @@ function createRuntimeHost(call) {
     return call.context.cwd;
   }
 
+  function pluginRoot() {
+    return process.cwd();
+  }
+
+  function slashConfig() {
+    const config = call.slash || call.input?.slash;
+    if (!config || !config.commandsDir || !config.skillsDir) {
+      throw new Error('Slash runtime requires manifest-declared slash contribution paths');
+    }
+    return config;
+  }
+
   function normalizeWorkspacePath(target) {
     return path.relative(workspaceRoot(), target).replace(/\\/g, '/');
   }
 
-  function slashRoot() {
-    return path.join(__dirname, '..');
+  function slashCommandsRoot() {
+    return path.resolve(pluginRoot(), slashConfig().commandsDir);
+  }
+
+  function slashSkillsRoot() {
+    return path.resolve(pluginRoot(), slashConfig().skillsDir);
   }
 
   async function readWorkspaceText(target) {
@@ -100,8 +116,9 @@ function createRuntimeHost(call) {
   }
 
   function loadSkillText(profile, fileName) {
-    const preferred = path.join(slashRoot(), 'skills', profile, fileName);
-    const fallback = path.join(slashRoot(), 'skills', 'default', fileName);
+    const skillsRoot = slashSkillsRoot();
+    const preferred = path.join(skillsRoot, profile, fileName);
+    const fallback = path.join(skillsRoot, 'default', fileName);
     return fs.readFileSync(fs.existsSync(preferred) ? preferred : fallback, 'utf8');
   }
 
@@ -228,6 +245,10 @@ function createRuntimeHost(call) {
 
   return {
     call,
+    pluginRoot,
+    slashConfig,
+    slashCommandsRoot,
+    slashSkillsRoot,
     workspaceRoot,
     normalizeWorkspacePath,
     readWorkspaceText,

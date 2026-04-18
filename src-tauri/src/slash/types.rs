@@ -61,8 +61,17 @@ pub struct SlashRuntimeExecutionContext {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PluginSlashContributionRuntimeConfig {
+    pub commands_dir: String,
+    pub skills_dir: String,
+    pub runtime_entry: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PluginSlashRuntimeRequest {
     pub descriptor: SlashCommandDescriptor,
+    pub slash: PluginSlashContributionRuntimeConfig,
     pub input: SlashRuntimeInput,
     pub context: SlashRuntimeExecutionContext,
 }

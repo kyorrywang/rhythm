@@ -94,10 +94,10 @@ fn load_plugin_slash_commands(
     let plugins = crate::plugins::loader::load_plugins(&settings, workspace_path);
 
     for plugin in plugins.iter().filter(|plugin| plugin.is_runtime_active()) {
-        let command_dir = plugin.path.join("slash").join("commands");
-        if !command_dir.exists() {
+        let Some(slash) = plugin.slash_contribution.as_ref() else {
             continue;
-        }
+        };
+        let command_dir = plugin.path.join(&slash.commands_dir);
 
         let entries = match fs::read_dir(&command_dir) {
             Ok(entries) => entries,

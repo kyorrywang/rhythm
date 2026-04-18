@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use super::types::{LoadedPlugin, PluginManifest, PluginSource, PluginStatus};
+use super::types::{
+    LoadedPlugin, PluginManifest, PluginSlashContribution, PluginSource, PluginStatus,
+};
 use crate::agents::AgentDefinition;
 use crate::infrastructure::config::{HookConfig, RhythmSettings};
 use crate::infrastructure::paths;
@@ -79,6 +81,7 @@ pub fn load_plugin(
         .copied()
         .unwrap_or(manifest.enabled_by_default);
     let granted_permissions = manifest.permissions.clone();
+    let (slash_contribution, configuration_errors) = resolve_slash_contribution(path, &manifest);
 
     // Load skills
     let skills = load_plugin_skills(path, &manifest.skills_dir);
@@ -107,7 +110,9 @@ pub fn load_plugin(
             PluginStatus::Disabled
         },
         blocked_reason: None,
+        configuration_errors,
         granted_permissions,
+        slash_contribution,
         skills,
         hooks,
         mcp_servers,
@@ -226,6 +231,10 @@ fn blocked_reason_for(
     plugin_index: &HashMap<String, usize>,
     capabilities: &HashSet<String>,
 ) -> Option<String> {
+    if let Some(error) = plugin.configuration_errors.first() {
+        return Some(error.clone());
+    }
+
     for (dependency_name, version_range) in &plugin.manifest.requires.plugins {
         let Some(dependency_idx) = plugin_index.get(dependency_name).copied() else {
             return Some(format!("缺少依赖插件：{}", dependency_name));
@@ -403,6 +412,86 @@ fn core_capabilities() -> Vec<&'static str> {
         "workbench.log-stream",
         "workbench.iframe",
     ]
+}
+
+fn resolve_slash_contribution(
+    plugin_root: &Path,
+    manifest: &PluginManifest,
+) -> (Option<PluginSlashContribution>, Vec<String>) {
+    let Some(raw) = manifest.contributes.slash.as_ref() else {
+        return (None, Vec::new());
+    };
+
+    let parsed = match serde_json::from_value::<PluginSlashContribution>(raw.clone()) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return (
+                None,
+                vec![format!(
+                    "插件 '{}' 的 contributes.slash 配置无效: {}",
+                    manifest.name, error
+                )],
+            )
+        }
+    };
+
+    let mut errors = Vec::new();
+    validate_slash_path(plugin_root, &manifest.name, "commandsDir", &parsed.commands_dir, true, &mut errors);
+    validate_slash_path(plugin_root, &manifest.name, "skillsDir", &parsed.skills_dir, true, &mut errors);
+    validate_slash_path(plugin_root, &manifest.name, "runtimeEntry", &parsed.runtime_entry, false, &mut errors);
+
+    if errors.is_empty() {
+        (Some(parsed), errors)
+    } else {
+        (None, errors)
+    }
+}
+
+fn validate_slash_path(
+    plugin_root: &Path,
+    plugin_name: &str,
+    field_name: &str,
+    relative: &str,
+    expect_directory: bool,
+    errors: &mut Vec<String>,
+) {
+    let trimmed = relative.trim();
+    if trimmed.is_empty() {
+        errors.push(format!(
+            "插件 '{}' 的 contributes.slash.{} 不能为空",
+            plugin_name, field_name
+        ));
+        return;
+    }
+
+    let resolved = plugin_root.join(trimmed);
+    if !resolved.exists() {
+        errors.push(format!(
+            "插件 '{}' 的 contributes.slash.{} 指向不存在的路径 '{}'",
+            plugin_name,
+            field_name,
+            resolved.display()
+        ));
+        return;
+    }
+
+    if expect_directory && !resolved.is_dir() {
+        errors.push(format!(
+            "插件 '{}' 的 contributes.slash.{} 必须是目录: '{}'",
+            plugin_name,
+            field_name,
+            resolved.display()
+        ));
+    }
+
+    if !expect_directory && !resolved.is_file() {
+        errors.push(format!(
+            "插件 '{}' 的 contributes.slash.{} 必须是文件: '{}'",
+            plugin_name,
+            field_name,
+            resolved.display()
+        ));
+    }
 }
 
 fn detect_dependency_cycles(plugins: &[LoadedPlugin]) -> HashSet<String> {
@@ -702,7 +791,9 @@ mod tests {
             enabled: true,
             status: PluginStatus::Enabled,
             blocked_reason: None,
+            configuration_errors: vec![],
             granted_permissions: vec![],
+            slash_contribution: None,
             skills: vec![],
             hooks: HashMap::new(),
             mcp_servers: HashMap::new(),

@@ -1,4 +1,3 @@
-const path = require('path');
 const { createRuntimeHost } = require('./common');
 const { loadCommandDescriptor, resolveHandlerModule } = require('./command_loader');
 
@@ -6,8 +5,7 @@ const call = JSON.parse(process.env.RHYTHM_PLUGIN_CALL || '{}');
 
 async function runCommand() {
   const host = createRuntimeHost(call);
-  const slashRoot = path.join(__dirname, '..');
-  const descriptor = call.input?.descriptor || loadCommandDescriptor(slashRoot, call.command);
+  const descriptor = call.input?.descriptor || loadCommandDescriptor(host.slashCommandsRoot(), call.command);
   if (!descriptor) {
     return { status: 'error', message: `Unknown slash descriptor '${call.command}'` };
   }
