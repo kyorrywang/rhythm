@@ -109,6 +109,8 @@ export function sanitizeMessage(message: Message): Message {
     id: message.id,
     attachments: message.attachments ? [...message.attachments] : undefined,
     agentId: message.agentId,
+    slashCommandName: message.slashCommandName,
+    contextPolicy: message.contextPolicy,
     model: message.model,
     createdAt: message.createdAt,
     segments: message.segments?.map(sanitizeMessageSegment),

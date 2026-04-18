@@ -651,6 +651,7 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
   const isMessageRunning = Boolean(isSessionRunning && isLast);
   const segments = message.segments || [];
   const modelName = message.model || 'Rhythm AI';
+  const isOutOfContext = message.contextPolicy === 'exclude';
   const messageActions = usePluginHostStore((s) => s.messageActions);
   const copyText = getMessageTextContent(message);
   const openWorkbench = useSessionStore((s) => s.openWorkbench);
@@ -750,10 +751,16 @@ export const AgentMessage = ({ message, sessionId, isLast, isSessionRunning }: A
         </div>
       </div>
 
-      <div className="mt-[var(--theme-toolbar-gap)] h-6 flex-col justify-center">
+        <div className="mt-[var(--theme-toolbar-gap)] h-6 flex-col justify-center">
         <div className="flex items-center text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">
           <CopyIconButton text={copyText} />
           <span className="mx-2 text-[var(--theme-border-strong)]">|</span>
+          {isOutOfContext && (
+            <>
+              <span className="text-[var(--theme-warning-text)]">不计入上下文</span>
+              <span className="mx-2 text-[var(--theme-border-strong)]">·</span>
+            </>
+          )}
           <span>{modelName}</span>
           <span className="mx-2 text-[var(--theme-border-strong)]">·</span>
           <Timer

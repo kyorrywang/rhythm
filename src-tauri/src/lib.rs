@@ -64,6 +64,7 @@ pub fn run() {
             commands::settings::save_settings,
             // Plugin management (Phase 10)
             commands::plugins::list_plugins,
+            commands::slash::list_slash_commands,
             commands::plugins::enable_plugin,
             commands::plugins::disable_plugin,
             commands::plugins::grant_plugin_permission,

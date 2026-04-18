@@ -1,14 +1,19 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '@/core/sessions/useSessionStore';
 import { usePermissionStore } from '@/core/permissions/usePermissionStore';
-import { approvePermission } from '@/core/runtime/api/commands';
+import { approvePermission, listSlashCommands } from '@/core/runtime/api/commands';
 import { useSettingsStore } from '@/core/runtime/useSettingsStore';
+import { useToastStore } from '@/ui/state/useToastStore';
+import { useActiveWorkspace } from '@/core/workspace/useWorkspaceStore';
 import { useComposerActions } from './hooks/useComposerActions';
 import { derivePendingItems } from './lib/derivePendingItems';
+import { normalizeSlashCommands } from './lib/slashCommands';
 import { AskDock } from './components/AskDock';
 import { MainComposer } from './components/MainComposer';
 import { TaskDock } from './components/TaskDock';
 import { AppendDock } from './components/AppendDock';
 import { getCurrentAsk, getCurrentTasks, getSessionQueueState, getSessionRuntimeState } from '@/core/sessions/sessionState';
+import type { ComposerSlashCommand } from './types';
 
 export const ComposerBox = () => {
   const {
@@ -21,6 +26,7 @@ export const ComposerBox = () => {
     resolvePermissionRequestInTimeline,
     updateSession,
   } = useSessionStore();
+  const activeWorkspace = useActiveWorkspace();
   const setPermissionConfig = usePermissionStore((s) => s.setConfig);
   const pendingPermissions = usePermissionStore((s) => s.pendingPermissions);
   const providers = useSettingsStore((s) => s.settings.providers ?? []);
@@ -34,6 +40,43 @@ export const ComposerBox = () => {
   const hasTasks = !!(currentTasks && currentTasks.length > 0);
   const allTasksDone: boolean = hasTasks && currentTasks!.every((t: { status: string }) => t.status === 'completed');
   const pendingItems = derivePendingItems(activeSession, Array.from(pendingPermissions.values()));
+  const [availableSlashCommands, setAvailableSlashCommands] = useState<ComposerSlashCommand[]>([]);
+  const warningSignatureRef = useRef('');
+
+  useEffect(() => {
+    let disposed = false;
+
+    void listSlashCommands(activeWorkspace.path)
+      .then((registry) => {
+        if (disposed) return;
+        setAvailableSlashCommands(normalizeSlashCommands(registry.commands));
+        const signature = registry.warnings.join('|');
+        if (signature && signature !== warningSignatureRef.current) {
+          warningSignatureRef.current = signature;
+          useToastStore.getState().addToast({
+            type: 'warning',
+            message: registry.warnings[0],
+          });
+        }
+      })
+      .catch((error) => {
+        if (disposed) return;
+        setAvailableSlashCommands([]);
+        useToastStore.getState().addToast({
+          type: 'error',
+          message: error instanceof Error ? error.message : '加载 slash commands 失败',
+        });
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [activeWorkspace.path]);
+
+  const availableSlashCommandMap = useMemo(
+    () => new Map(availableSlashCommands.map((command) => [command.name, command])),
+    [availableSlashCommands],
+  );
 
   const dockType = currentAsk ? 'ask' : 'none';
   const modelGroups = providers
@@ -88,6 +131,12 @@ export const ComposerBox = () => {
     handleAskOptionToggle,
     handleResetAskOptions,
     handleIgnoreAsk,
+    slashState,
+    activeSlashCommand,
+    handleSlashNavigate,
+    handleSlashConfirm,
+    handleSlashClose,
+    handleClearActiveSlashCommand,
   } = useComposerActions({
     activeSessionId,
     runtimeState,
@@ -95,6 +144,7 @@ export const ComposerBox = () => {
     currentAsk: currentAsk || null,
     allTasksDone,
     composerMode: composerControls.agentId,
+    availableSlashCommands: availableSlashCommandMap,
   });
 
   if (dockType === 'ask' && currentAsk) {
@@ -145,6 +195,8 @@ export const ComposerBox = () => {
       headerContent={headerContent}
       controls={composerControls}
       modelGroups={modelGroups}
+      slashState={slashState}
+      activeSlashCommand={activeSlashCommand}
       runtimeState={runtimeState}
       queueState={queueState}
       onSetAgentId={(agentId) => setComposerControls({ agentId })}
@@ -152,6 +204,10 @@ export const ComposerBox = () => {
       onSetReasoning={(reasoning) => setComposerControls({ reasoning })}
       onToggleFullAuto={handleToggleFullAuto}
       onInterrupt={handleInterrupt}
+      onSlashNavigate={handleSlashNavigate}
+      onSlashConfirm={handleSlashConfirm}
+      onSlashClose={handleSlashClose}
+      onClearActiveSlashCommand={handleClearActiveSlashCommand}
     />
   );
 };

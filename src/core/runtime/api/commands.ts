@@ -9,6 +9,7 @@ import type {
   BackendWorkspaceTextFile,
   BackendWorkspaceWriteResult,
   BackendPluginSummary,
+  BackendSlashCommandRegistry,
   BackendPluginInstallPreview,
   BackendPluginRuntimeInfo,
   BackendCronJobConfig,
@@ -94,6 +95,10 @@ export function saveSettings(settings: BackendSettings): Promise<void> {
 
 export function listPlugins(cwd: string): Promise<BackendPluginSummary[]> {
   return client.invoke('list_plugins', { cwd } as never);
+}
+
+export function listSlashCommands(cwd: string): Promise<BackendSlashCommandRegistry> {
+  return client.invoke('list_slash_commands', { cwd } as never);
 }
 
 export function enablePlugin(name: string): Promise<void> {

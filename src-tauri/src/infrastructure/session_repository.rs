@@ -120,6 +120,8 @@ pub struct MessageSnapshot {
     pub content: Option<String>,
     pub attachments: Option<Vec<AttachmentSnapshot>>,
     pub mode: Option<String>,
+    pub slash_command_name: Option<String>,
+    pub context_policy: Option<String>,
     pub model: Option<String>,
     pub created_at: i64,
     pub segments: Option<Vec<MessageSegmentSnapshot>>,

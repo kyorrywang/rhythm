@@ -137,6 +137,8 @@ export const MainComposer = ({
   headerContent,
   controls,
   modelGroups,
+  slashState,
+  activeSlashCommand,
   runtimeState,
   queueState,
   onSetAgentId,
@@ -144,6 +146,10 @@ export const MainComposer = ({
   onSetReasoning,
   onToggleFullAuto,
   onInterrupt,
+  onSlashNavigate,
+  onSlashConfirm,
+  onSlashClose,
+  onClearActiveSlashCommand,
 }: MainComposerProps) => {
   const hasContent = text.trim().length > 0;
   const canSubmit = hasContent || attachments.length > 0;
@@ -200,6 +206,76 @@ export const MainComposer = ({
     <div ref={composerRef} className="relative z-20 mx-auto w-full max-w-[868px] px-6 pb-3">
       <div className={`text-left ${themeRecipes.workbenchSurface()} focus-within:border-[var(--theme-accent)] focus-within:ring-4 focus-within:ring-[color:color-mix(in_srgb,var(--theme-accent)_12%,transparent)] transition-all flex flex-col pointer-events-auto relative overflow-hidden`}>
         {headerContent}
+        {activeSlashCommand && (
+          <div className="border-b-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-panel-bg)_0%,var(--theme-shell-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[calc(var(--theme-panel-padding-y)*0.48)]">
+            <div className="flex items-center justify-between gap-[var(--theme-toolbar-gap)] rounded-[var(--theme-radius-card)] border-[var(--theme-border-width)] border-[var(--theme-accent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-panel-bg))] px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*0.85)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-secondary)]">
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-[var(--theme-text-primary)]">
+                  /{activeSlashCommand.name}
+                </span>
+                <span className="mt-0.5 block truncate opacity-80">
+                  {activeSlashCommand.contextPolicy === 'exclude' ? 'BTW 模式：消息会显示在会话里，但不计入正常上下文' : activeSlashCommand.description}
+                </span>
+              </span>
+              <Button
+                variant="unstyled"
+                size="none"
+                onClick={onClearActiveSlashCommand}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--theme-radius-control)] text-[var(--theme-text-muted)] transition-colors hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]"
+                title="退出该命令模式"
+              >
+                <X size={14} />
+              </Button>
+            </div>
+          </div>
+        )}
+        {slashState?.active && (
+          <div className="border-b-[var(--theme-divider-width)] border-[var(--theme-border)] bg-[linear-gradient(180deg,var(--theme-panel-bg)_0%,var(--theme-shell-bg)_100%)] px-[var(--theme-panel-padding-x)] py-[calc(var(--theme-panel-padding-y)*0.55)]">
+            <div className="flex items-center justify-between px-1 text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">
+              <span className={themeRecipes.eyebrow()}>Commands</span>
+              <span>{slashState.query ? `/${slashState.query}` : '输入命令名称或描述'}</span>
+            </div>
+            {slashState.commands.length > 0 ? (
+              <div className="mt-[calc(var(--theme-toolbar-gap)*0.8)] space-y-[calc(var(--theme-toolbar-gap)*0.55)]">
+                {slashState.commands.map((command, index) => {
+                  const selected = index === slashState.selectedIndex;
+                  return (
+                    <button
+                      key={`${command.source}:${command.name}`}
+                      type="button"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        onTextChange(`/${command.name}`);
+                      }}
+                      className={cn(
+                        'flex w-full items-start justify-between gap-[var(--theme-toolbar-gap)] rounded-[var(--theme-radius-card)] border-[var(--theme-border-width)] px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*0.95)] text-left transition-colors',
+                        selected
+                          ? 'border-[var(--theme-accent)] bg-[color:color-mix(in_srgb,var(--theme-accent)_10%,var(--theme-panel-bg))] text-[var(--theme-text-primary)]'
+                          : 'border-[var(--theme-border)] bg-[var(--theme-surface)] text-[var(--theme-text-secondary)] hover:border-[var(--theme-border-strong)] hover:bg-[var(--theme-surface-muted)] hover:text-[var(--theme-text-primary)]',
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-medium">
+                          /{command.name}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[12px] opacity-80">
+                          {command.description}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[11px] uppercase tracking-[0.08em] opacity-65">
+                        {command.source}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-[calc(var(--theme-toolbar-gap)*0.8)] rounded-[var(--theme-radius-card)] border-[var(--theme-border-width)] border-dashed border-[var(--theme-border)] bg-[var(--theme-surface)] px-[var(--theme-control-padding-x-sm)] py-[calc(var(--theme-row-padding-y)*1.2)] text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">
+                没有匹配的命令
+              </div>
+            )}
+          </div>
+        )}
 
         <div
           className="cursor-text px-[var(--theme-panel-padding-x)] pb-[calc(var(--theme-panel-padding-y)*0.4)] pt-[calc(var(--theme-panel-padding-y)*0.5)]"
@@ -251,6 +327,31 @@ export const MainComposer = ({
               void handleFiles(files);
             }}
             onKeyDown={(e) => {
+              if (slashState?.active) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  onSlashNavigate?.('down');
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  onSlashNavigate?.('up');
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  onSlashClose?.();
+                  return;
+                }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!isBusy) {
+                    onSlashConfirm?.();
+                  }
+                  return;
+                }
+              }
+
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 if (!isBusy) {

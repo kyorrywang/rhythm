@@ -500,6 +500,7 @@ fn rebuild_history_from_snapshot(
     let mut messages: Vec<ChatMessage> = snapshot
         .messages
         .into_iter()
+        .filter(|message| message.context_policy.as_deref() != Some("exclude"))
         .flat_map(snapshot_message_to_chat_messages)
         .collect();
 
@@ -710,6 +711,8 @@ mod tests {
             content: None,
             attachments: None,
             mode: None,
+            slash_command_name: None,
+            context_policy: None,
             model: None,
             created_at: 1,
             segments: Some(vec![MessageSegmentSnapshot::Tool {
@@ -743,6 +746,69 @@ mod tests {
             rebuilt[1].blocks.first(),
             Some(ChatMessageBlock::ToolResult { tool_call_id, .. }) if tool_call_id == "tool-1"
         ));
+    }
+
+    #[test]
+    fn rebuild_history_skips_messages_marked_excluded_from_context() {
+        let rebuilt = rebuild_history_from_snapshot(
+            SessionSnapshot {
+                id: "s1".to_string(),
+                title: "demo".to_string(),
+                updated_at: 2,
+                workspace_path: None,
+                messages: vec![
+                    MessageSnapshot {
+                        id: "m1".to_string(),
+                        role: "user".to_string(),
+                        content: Some("keep me".to_string()),
+                        attachments: None,
+                        mode: None,
+                        slash_command_name: None,
+                        context_policy: None,
+                        model: None,
+                        created_at: 1,
+                        segments: None,
+                        status: None,
+                        started_at: None,
+                        ended_at: None,
+                    },
+                    MessageSnapshot {
+                        id: "m2".to_string(),
+                        role: "user".to_string(),
+                        content: Some("skip me".to_string()),
+                        attachments: None,
+                        mode: None,
+                        slash_command_name: Some("btw".to_string()),
+                        context_policy: Some("exclude".to_string()),
+                        model: None,
+                        created_at: 2,
+                        segments: None,
+                        status: None,
+                        started_at: None,
+                        ended_at: None,
+                    },
+                ],
+                pinned: None,
+                archived: None,
+                has_unread_completed: None,
+                task_dock_minimized: None,
+                append_dock_minimized: None,
+                parent_id: None,
+                queued_messages: None,
+                queue_state: None,
+                usage: None,
+                token_count: None,
+                permission_grants: None,
+                subagent_result: None,
+                runtime: None,
+                error: None,
+            },
+            "new prompt",
+            &[],
+        );
+
+        assert_eq!(rebuilt.len(), 1);
+        assert_eq!(extract_text_from_blocks(&rebuilt[0].blocks), "keep me");
     }
 }
 

@@ -6,5 +6,6 @@ pub mod memory;
 pub mod plugins;
 pub mod session;
 pub mod settings;
+pub mod slash;
 pub mod swarm;
 pub mod workspace;

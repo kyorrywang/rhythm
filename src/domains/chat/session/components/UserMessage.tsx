@@ -14,6 +14,7 @@ export const UserMessage = ({ sessionId, message }: UserMessageProps) => {
   const agents = useSettingsStore((state) => state.settings.agents ?? []);
   const agent = agents.find((a) => a.id === message.agentId);
   const agentLabel = agent?.label || (message.agentId ? message.agentId : null);
+  const isOutOfContext = message.contextPolicy === 'exclude';
   const time = new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   const attachments = message.attachments || [];
   const rewindSessionToMessage = useSessionStore((s) => s.rewindSessionToMessage);
@@ -56,6 +57,8 @@ export const UserMessage = ({ sessionId, message }: UserMessageProps) => {
         </div>
 
         <div className="mt-[var(--theme-toolbar-gap)] flex h-6 items-center justify-end gap-[var(--theme-toolbar-gap)] pr-1 text-[length:var(--theme-meta-size)] text-[var(--theme-text-muted)]">
+          {isOutOfContext && <span className="font-medium text-[var(--theme-warning-text)]">不计入上下文</span>}
+          {isOutOfContext && <span className="text-[var(--theme-border-strong)]">·</span>}
           {agentLabel && <span className="font-medium text-[var(--theme-text-secondary)]">{agentLabel}</span>}
           {agentLabel && <span className="text-[var(--theme-border-strong)]">·</span>}
           <span className="text-[var(--theme-border-strong)]">·</span>

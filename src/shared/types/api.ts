@@ -87,6 +87,20 @@ export interface BackendSessionInfo {
   created_at: string;
 }
 
+export interface BackendSlashCommand {
+  name: string;
+  description: string;
+  kind: 'mode';
+  contextPolicy: 'default' | 'exclude';
+  source: 'builtin' | 'user' | 'workspace';
+  sourcePath?: string | null;
+}
+
+export interface BackendSlashCommandRegistry {
+  commands: BackendSlashCommand[];
+  warnings: string[];
+}
+
 export interface BackendPluginSummary {
   name: string;
   version: string;
@@ -402,6 +416,10 @@ export interface TauriCommands {
   list_plugins: {
     request: { cwd: string };
     response: BackendPluginSummary[];
+  };
+  list_slash_commands: {
+    request: { cwd: string };
+    response: BackendSlashCommandRegistry;
   };
   enable_plugin: {
     request: { name: string };

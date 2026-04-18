@@ -1,5 +1,6 @@
 import { SessionQueueState, SelectionType, Task, QueuedMessage, AskQuestion, Attachment, StreamRuntime, AskRequest, StreamRuntimeState } from '@/shared/types/schema';
 import type { PermissionRequest } from '@/core/permissions/usePermissionStore';
+import type { BackendSlashCommand } from '@/shared/types/api';
 
 export type DockType = 'none' | 'append' | 'ask';
 
@@ -86,6 +87,8 @@ export interface MainComposerProps {
     fullAuto: boolean;
   };
   modelGroups: ComposerModelGroup[];
+  slashState?: ComposerSlashState;
+  activeSlashCommand?: ComposerSlashCommand | null;
   runtimeState?: StreamRuntimeState;
   queueState?: SessionQueueState;
   onSetAgentId: (agentId: string) => void;
@@ -93,6 +96,10 @@ export interface MainComposerProps {
   onSetReasoning: (reasoning: MainComposerProps['controls']['reasoning']) => void;
   onToggleFullAuto: () => void;
   onInterrupt: () => void;
+  onSlashNavigate?: (direction: 'up' | 'down') => void;
+  onSlashConfirm?: () => void;
+  onSlashClose?: () => void;
+  onClearActiveSlashCommand?: () => void;
 }
 
 export interface ComposerModelSelection {
@@ -109,4 +116,15 @@ export interface ComposerModelGroup {
     name: string;
     note?: string;
   }>;
+}
+
+export interface ComposerSlashCommand extends BackendSlashCommand {
+  rawQuery: string;
+}
+
+export interface ComposerSlashState {
+  active: boolean;
+  query: string;
+  commands: ComposerSlashCommand[];
+  selectedIndex: number;
 }

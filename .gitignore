@@ -58,4 +58,5 @@ _agents/
 _agent/
 .github/
 .opencode/
+.codex/
 openspec/

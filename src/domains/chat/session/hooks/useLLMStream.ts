@@ -317,6 +317,7 @@ export const useLLMStream = () => {
     userMode?: string,
     attachments: Attachment[] = [],
     targetSessionId?: string,
+    messageMetadata?: { slashCommandName?: string; contextPolicy?: 'default' | 'exclude' },
   ) => {
     const state = store.getState();
     const sessionId = targetSessionId || state.activeSessionId;
@@ -370,6 +371,8 @@ export const useLLMStream = () => {
       content: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
       attachments,
       agentId: userMode || state.composerControls.agentId,
+      slashCommandName: messageMetadata?.slashCommandName,
+      contextPolicy: messageMetadata?.contextPolicy,
       createdAt: Date.now(),
       startedAt: Date.now(),
     };
@@ -385,6 +388,8 @@ export const useLLMStream = () => {
       role: 'assistant',
       model,
       agentId: state.composerControls.agentId,
+      slashCommandName: messageMetadata?.slashCommandName,
+      contextPolicy: messageMetadata?.contextPolicy,
       createdAt: Date.now(),
       startedAt: Date.now(),
       status: 'running',
@@ -477,6 +482,10 @@ export const useLLMStream = () => {
           queuedItem.message.agentId,
           queuedItem.message.attachments || [],
           sessionId,
+          {
+            slashCommandName: queuedItem.message.slashCommandName,
+            contextPolicy: queuedItem.message.contextPolicy,
+          },
         );
       }
     } else {

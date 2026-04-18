@@ -145,6 +145,8 @@ export interface BaseMessage {
   id: string;
   attachments?: Attachment[];
   agentId?: string;
+  slashCommandName?: string;
+  contextPolicy?: 'default' | 'exclude';
   model?: string;
   createdAt: number;
   segments?: MessageSegment[];

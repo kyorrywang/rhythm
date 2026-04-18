@@ -1,10 +1,12 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { createSession, submitUserAnswer } from '@/core/runtime/api/commands';
 import { useSessionStore } from '@/core/sessions/useSessionStore';
 import { useActiveWorkspace } from '@/core/workspace/useWorkspaceStore';
 import { useLLMStream } from '@/domains/chat/session/hooks/useLLMStream';
 import { SelectionType, AskQuestion, Message, Attachment, SessionQueueState, StreamRuntimeState } from '@/shared/types/schema';
 import { getSessionQueueState, getSessionRuntimeState } from '@/core/sessions/sessionState';
+import type { ComposerSlashCommand, ComposerSlashState } from '../types';
+import { filterComposerSlashCommands, parseSlashQuery, splitSlashCommandInput } from '../lib/slashCommands';
 
 interface UseComposerActionsParams {
   activeSessionId: string | null;
@@ -13,16 +15,35 @@ interface UseComposerActionsParams {
   currentAsk: { toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[] } | null;
   allTasksDone: boolean;
   composerMode: string;
+  availableSlashCommands: Map<string, ComposerSlashCommand>;
 }
 
-export const useComposerActions = ({ activeSessionId, runtimeState, queueState, currentAsk, allTasksDone, composerMode }: UseComposerActionsParams) => {
+export const useComposerActions = ({ activeSessionId, runtimeState, queueState, currentAsk, allTasksDone, composerMode, availableSlashCommands }: UseComposerActionsParams) => {
   const activeWorkspace = useActiveWorkspace();
-  const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, setQueueState, clearTasks, setTaskMinimized, recordAskAnswer, sessions, addSession, setActiveSession, composerDraft, clearComposerDraft } = useSessionStore();
+  const { enqueueMessage, removeQueuedMessage, clearQueue, getQueueLength, setQueueState, clearTasks, setTaskMinimized, recordAskAnswer, sessions, addSession, setActiveSession, composerDraft, clearComposerDraft, addMessage } = useSessionStore();
   const { connectStream, requestInterrupt } = useLLMStream();
 
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [selectedAskOptions, setSelectedAskOptions] = useState<string[]>([]);
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [activeSlashCommandName, setActiveSlashCommandName] = useState<string | null>(null);
+
+  const slashQuery = useMemo(() => parseSlashQuery(text), [text]);
+  const filteredSlashCommands = useMemo(
+    () => filterComposerSlashCommands(Array.from(availableSlashCommands.values()), slashQuery.query),
+    [availableSlashCommands, slashQuery.query],
+  );
+  const activeSlashCommand = useMemo(
+    () => (activeSlashCommandName ? availableSlashCommands.get(activeSlashCommandName) || null : null),
+    [activeSlashCommandName, availableSlashCommands],
+  );
+  const slashState: ComposerSlashState = useMemo(() => ({
+    active: slashQuery.active && !currentAsk,
+    query: slashQuery.query,
+    commands: filteredSlashCommands,
+    selectedIndex: filteredSlashCommands.length === 0 ? 0 : Math.min(selectedSlashIndex, filteredSlashCommands.length - 1),
+  }), [currentAsk, filteredSlashCommands, selectedSlashIndex, slashQuery.active, slashQuery.query]);
 
   useEffect(() => {
     if (currentAsk && runtimeState !== 'waiting_for_user') {
@@ -49,6 +70,26 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     setAttachments(composerDraft.attachments);
     clearComposerDraft();
   }, [composerDraft, clearComposerDraft]);
+
+  useEffect(() => {
+    if (activeSlashCommandName && !availableSlashCommands.has(activeSlashCommandName)) {
+      setActiveSlashCommandName(null);
+    }
+  }, [activeSlashCommandName, availableSlashCommands]);
+
+  useEffect(() => {
+    setSelectedSlashIndex(0);
+  }, [slashQuery.query]);
+
+  useEffect(() => {
+    if (filteredSlashCommands.length === 0 && selectedSlashIndex !== 0) {
+      setSelectedSlashIndex(0);
+      return;
+    }
+    if (selectedSlashIndex >= filteredSlashCommands.length && filteredSlashCommands.length > 0) {
+      setSelectedSlashIndex(filteredSlashCommands.length - 1);
+    }
+  }, [filteredSlashCommands.length, selectedSlashIndex]);
 
   const buildAskAnswer = useCallback((): { answer: string; record: { selected: string[]; text: string } } => {
     if (!currentAsk) {
@@ -97,17 +138,56 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     }
 
     const sendNormalMessage = async () => {
-      const trimmed = text.trim();
+      const ensureTargetSession = async () => {
+        let targetSessionId = activeSessionId && sessions.has(activeSessionId) ? activeSessionId : null;
+        if (!targetSessionId) {
+          const session = await createSession('新会话', activeWorkspace.path);
+          addSession(session);
+          setActiveSession(session.id);
+          targetSessionId = session.id;
+        }
+        return targetSessionId;
+      };
+
+      const appendSystemMessage = async (content: string) => {
+        const targetSessionId = await ensureTargetSession();
+        addMessage(targetSessionId, {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          role: 'system',
+          content,
+          createdAt: Date.now(),
+        });
+      };
+
+      if (slashState.active) {
+        const { commandName, argumentText } = splitSlashCommandInput(text);
+        const exactMatch = filteredSlashCommands.find((command) => command.name === commandName);
+        const selectedCommand = exactMatch || filteredSlashCommands[slashState.selectedIndex];
+
+        if (!selectedCommand) {
+          await appendSystemMessage(`未找到命令 \`/${commandName || slashQuery.query}\`。`);
+          return;
+        }
+
+        setActiveSlashCommandName(selectedCommand.name);
+        if (!argumentText && attachments.length === 0) {
+          setText('');
+          setSelectedSlashIndex(0);
+          return;
+        }
+      }
+
+      const trimmed = slashState.active ? splitSlashCommandInput(text).argumentText : text.trim();
       const outgoingAttachments = attachments;
       if (!trimmed && outgoingAttachments.length === 0) return;
+      const contextPolicy = (slashState.active
+        ? (filteredSlashCommands.find((command) => command.name === splitSlashCommandInput(text).commandName) || filteredSlashCommands[slashState.selectedIndex] || activeSlashCommand)
+        : activeSlashCommand)?.contextPolicy || 'default';
+      const slashCommandName = (slashState.active
+        ? (filteredSlashCommands.find((command) => command.name === splitSlashCommandInput(text).commandName) || filteredSlashCommands[slashState.selectedIndex] || activeSlashCommand)
+        : activeSlashCommand)?.name;
 
-      let targetSessionId = activeSessionId && sessions.has(activeSessionId) ? activeSessionId : null;
-      if (!targetSessionId) {
-        const session = await createSession('新会话', activeWorkspace.path);
-        addSession(session);
-        setActiveSession(session.id);
-        targetSessionId = session.id;
-      }
+      const targetSessionId = await ensureTargetSession();
 
       const currentRuntimeState = targetSessionId
         ? getSessionRuntimeState(useSessionStore.getState().sessions.get(targetSessionId))
@@ -129,6 +209,8 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
           content: trimmed,
           attachments: outgoingAttachments,
           agentId: composerMode,
+          slashCommandName,
+          contextPolicy,
           createdAt: Date.now(),
         }, 'urgent', 'append');
         setText('');
@@ -139,13 +221,16 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
         return;
       }
 
-      connectStream(trimmed, 'normal', composerMode, outgoingAttachments, targetSessionId);
+      connectStream(trimmed, 'normal', composerMode, outgoingAttachments, targetSessionId, {
+        slashCommandName,
+        contextPolicy,
+      });
       setText('');
       setAttachments([]);
     };
 
     void sendNormalMessage();
-  }, [activeSessionId, runtimeState, queueState, currentAsk, text, attachments, composerMode, activeWorkspace.path, enqueueMessage, connectStream, setQueueState, buildAskAnswer, recordAskAnswer, sessions]);
+  }, [activeSessionId, runtimeState, queueState, currentAsk, text, attachments, composerMode, activeWorkspace.path, enqueueMessage, connectStream, setQueueState, buildAskAnswer, recordAskAnswer, sessions, addMessage, addSession, setActiveSession, slashState.active, slashState.selectedIndex, filteredSlashCommands, slashQuery.query, activeSlashCommand]);
 
   const handleIgnoreAsk = useCallback(() => {
     if (!activeSessionId || !currentAsk) return;
@@ -211,6 +296,31 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     setAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
   }, []);
 
+  const handleSlashNavigate = useCallback((direction: 'up' | 'down') => {
+    if (!slashState.active || slashState.commands.length === 0) return;
+    setSelectedSlashIndex((current) => {
+      if (direction === 'up') {
+        return current <= 0 ? slashState.commands.length - 1 : current - 1;
+      }
+      return current >= slashState.commands.length - 1 ? 0 : current + 1;
+    });
+  }, [slashState.active, slashState.commands.length]);
+
+  const handleSlashConfirm = useCallback(() => {
+    if (!slashState.active || slashState.commands.length === 0) return;
+    handleSend();
+  }, [handleSend, slashState.active, slashState.commands.length]);
+
+  const handleSlashClose = useCallback(() => {
+    if (!slashState.active) return;
+    setText((currentText) => currentText.startsWith('/') ? '' : currentText);
+    setSelectedSlashIndex(0);
+  }, [slashState.active]);
+
+  const handleClearActiveSlashCommand = useCallback(() => {
+    setActiveSlashCommandName(null);
+  }, []);
+
   return {
     text,
     setText,
@@ -226,5 +336,11 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     handleInterrupt,
     handleAskOptionToggle,
     handleResetAskOptions,
+    slashState,
+    activeSlashCommand,
+    handleSlashNavigate,
+    handleSlashConfirm,
+    handleSlashClose,
+    handleClearActiveSlashCommand,
   };
 };
