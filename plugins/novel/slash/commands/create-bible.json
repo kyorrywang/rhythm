@@ -1,16 +1,13 @@
 {
   "name": "novel:create-bible",
   "title": "创建设定集",
-  "description": "委派子 agent 创建设定集文件。",
+  "description": "根据当前 skill 提示词创建设定集相关内容。",
   "kind": "workflow",
   "provider": {
     "type": "plugin",
     "id": "novel"
   },
   "entry": {
-    "id": "create-bible"
-  },
-  "handler": {
     "id": "create-bible"
   },
   "skillFiles": ["create-bible.md"],

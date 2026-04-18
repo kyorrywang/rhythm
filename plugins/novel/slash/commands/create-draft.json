@@ -1,16 +1,13 @@
 {
   "name": "novel:create-draft",
   "title": "创建正文",
-  "description": "委派子 agent 创作正文草稿。",
+  "description": "根据当前 skill 提示词生成正文草稿。",
   "kind": "workflow",
   "provider": {
     "type": "plugin",
     "id": "novel"
   },
   "entry": {
-    "id": "create-draft"
-  },
-  "handler": {
     "id": "create-draft"
   },
   "skillFiles": ["create-draft.md"],

@@ -152,28 +152,19 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
         });
       };
 
-      if (slashState.active) {
-        const { commandName, argumentText } = splitSlashCommandInput(text);
-        const exactMatch = filteredSlashCommands.find((command) => command.name === commandName);
-        const selectedCommand = exactMatch || filteredSlashCommands[slashState.selectedIndex];
-
-        if (!selectedCommand) {
-          await appendSystemMessage(`未找到命令 \`/${commandName || slashQuery.query}\`。`);
-          return;
-        }
-
-        setText(argumentText ? `/${selectedCommand.name} ${argumentText}` : `/${selectedCommand.name} `);
-        if (!argumentText && attachments.length === 0) {
-          setSelectedSlashIndex(0);
-          return;
-        }
-      }
-
-      const trimmed = slashState.active ? splitSlashCommandInput(text).argumentText : text.trim();
+      const parsedSlashInput = splitSlashCommandInput(text);
       const outgoingAttachments = attachments;
       const selectedSlashCommand = (slashState.active
-        ? (filteredSlashCommands.find((command) => command.name === splitSlashCommandInput(text).commandName) || filteredSlashCommands[slashState.selectedIndex] || null)
+        ? (filteredSlashCommands.find((command) => command.name === parsedSlashInput.commandName) || filteredSlashCommands[slashState.selectedIndex] || null)
         : matchedSlashCommand) || null;
+
+      if (slashState.active && !selectedSlashCommand) {
+        await appendSystemMessage(`未找到命令 \`/${parsedSlashInput.commandName || slashQuery.query}\`。`);
+        return;
+      }
+
+      const trimmed = selectedSlashCommand ? parsedSlashInput.argumentText : text.trim();
+
       if (!trimmed && outgoingAttachments.length === 0 && !selectedSlashCommand) return;
       const contextPolicy = selectedSlashCommand?.contextPolicy || 'default';
       const slashCommandName = selectedSlashCommand?.name;

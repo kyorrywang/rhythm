@@ -1,16 +1,13 @@
 {
   "name": "novel:archive",
   "title": "归档小说状态",
-  "description": "归档对话决策与创作状态，为跨 session 续写恢复上下文。",
+  "description": "根据当前 skill 提示词归档对话决策与创作状态，为跨 session 续写恢复上下文。",
   "kind": "workflow",
   "provider": {
     "type": "plugin",
     "id": "novel"
   },
   "entry": {
-    "id": "archive"
-  },
-  "handler": {
     "id": "archive"
   },
   "skillFiles": ["archive.md", "archive-state.md"],

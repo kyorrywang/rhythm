@@ -95,30 +95,6 @@ function createRuntimeHost(call) {
     }
   }
 
-  async function askUser(title, questions) {
-    return rpc('askUser', { title, questions });
-  }
-
-  async function executeCommand(commandId, input) {
-    return rpc('command.execute', { commandId, input });
-  }
-
-  async function spawnSubagent(message, title) {
-    return rpc('spawnSubagent', { message, title, agent_id: 'dynamic' });
-  }
-
-  async function emitTasks(tasks) {
-    return rpc('task.update', { tasks });
-  }
-
-  async function readPluginStorage(key) {
-    return rpc('pluginStorage.get', { key });
-  }
-
-  async function writePluginStorage(key, value) {
-    return rpc('pluginStorage.set', { key, value });
-  }
-
   function listSkillProfiles() {
     const skillsRoot = slashSkillsRoot();
     return fs.readdirSync(skillsRoot, { withFileTypes: true })
@@ -235,51 +211,10 @@ function createRuntimeHost(call) {
     ].join('\n');
   }
 
-  function buildProjectYaml(title, profile, root, options = {}) {
-    const settingRounds = options.settingRounds || 4;
-    const arcRounds = options.arcRounds || 4;
-    const chapterMode = options.chapterMode || 'serial';
-    return [
-      `title: ${title}`,
-      `profile: ${profile}`,
-      '',
-      'skills:',
-      `  discuss_setting: ${profile}`,
-      `  create_bible: ${profile}`,
-      `  discuss_arc: ${profile}`,
-      `  create_draft: ${profile}`,
-      `  archive_state: ${profile}`,
-      '',
-      'paths:',
-      `  root: ${root}`,
-      `  bible: ${root}/setting/bible.md`,
-      `  outline: ${root}/outline/master-outline.md`,
-      `  chapters: ${root}/chapters`,
-      `  archive: ${root}/archive`,
-      '',
-      'discussion:',
-      `  setting_rounds: ${settingRounds}`,
-      '  setting_questions_per_round: 8',
-      `  arc_rounds: ${arcRounds}`,
-      '  arc_questions_per_round: 8',
-      '  arc_span_chapters: 4',
-      '',
-      'generation:',
-      `  chapter_mode: ${chapterMode}`,
-      '',
-      'archive:',
-      '  track_characters: true',
-      '  track_inventory: true',
-      '  track_skills: true',
-      '  check_foreshadowing: true',
-      '',
-    ].join('\n');
-  }
-
   function renderSkillBlocks(profile, descriptor) {
     const files = Array.isArray(descriptor.skillFiles) && descriptor.skillFiles.length > 0
       ? descriptor.skillFiles
-      : [`${descriptor.entry?.id || descriptor.handler?.id || 'command'}.md`];
+      : [`${descriptor.entry?.id || 'command'}.md`];
     return files.map((fileName) => ({
       fileName,
       content: loadSkillText(profile, fileName),
@@ -362,18 +297,11 @@ function createRuntimeHost(call) {
     listWorkspaceDir,
     readIfExists,
     listFilesIfExists,
-    askUser,
-    executeCommand,
-    spawnSubagent,
-    emitTasks,
-    readPluginStorage,
-    writePluginStorage,
     listSkillProfiles,
     loadSkillText,
     yamlValue,
     restoreNovelContext,
     renderContextSnapshot,
-    buildProjectYaml,
     normalizeCommandInput,
     resolveActiveProfile,
     buildSkillPrompt,
