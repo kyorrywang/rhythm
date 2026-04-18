@@ -1,0 +1,17 @@
+{
+  "name": "btw",
+  "title": "BTW",
+  "description": "消息显示在会话里，但不计入正常上下文。",
+  "kind": "mode",
+  "provider": {
+    "type": "builtin",
+    "id": "btw"
+  },
+  "entry": {
+    "id": "btw"
+  },
+  "handler": {
+    "id": "btw"
+  },
+  "contextPolicy": "exclude"
+}

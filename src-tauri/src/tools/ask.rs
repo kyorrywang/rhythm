@@ -1,7 +1,7 @@
 use super::{BaseTool, ToolExecutionContext, ToolResult};
 use crate::infrastructure::event_bus;
 use crate::runtime::ask;
-use crate::shared::schema::{AskQuestion, EventPayload};
+use crate::shared::schema::{AskQuestion, AskResponse, EventPayload};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
@@ -12,6 +12,7 @@ pub struct AskTool;
 
 #[derive(Deserialize, Clone)]
 struct AskQuestionArg {
+    id: Option<String>,
     question: String,
     options: Vec<String>,
     #[serde(rename = "selectionType")]
@@ -30,6 +31,7 @@ struct AskArgs {
 
 fn parse_question(arg: &AskQuestionArg) -> AskQuestion {
     AskQuestion {
+        id: arg.id.clone().unwrap_or_default(),
         question: arg.question.clone(),
         options: arg.options.clone(),
         selection_type: arg.selection_type.clone(),
@@ -97,30 +99,52 @@ impl BaseTool for AskTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> ToolResult {
+        match Self::execute_structured(args, ctx).await {
+            Ok(answer) => ToolResult::ok(render_ask_response(&answer)),
+            Err(error) => ToolResult::error(error),
+        }
+    }
+}
+
+impl AskTool {
+    pub async fn execute_structured(
+        args: Value,
+        ctx: &ToolExecutionContext,
+    ) -> Result<AskResponse, String> {
         let args: AskArgs = match serde_json::from_value(args) {
             Ok(a) => a,
-            Err(e) => return ToolResult::error(e.to_string()),
+            Err(e) => return Err(e.to_string()),
         };
 
         let questions: Vec<AskQuestion> = if let Some(qs) = &args.questions {
-            qs.iter().map(parse_question).collect()
+            qs.iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    let mut question = parse_question(item);
+                    if question.id.trim().is_empty() {
+                        question.id = format!("question-{}", index + 1);
+                    }
+                    question
+                })
+                .collect()
         } else {
             let q = match args.question.clone() {
                 Some(question) => question,
-                None => return ToolResult::error("No question provided"),
+                None => return Err("No question provided".to_string()),
             };
             if q.is_empty() {
-                return ToolResult::error("No question provided");
+                return Err("No question provided".to_string());
             }
             let options = match args.options.clone() {
                 Some(options) => options,
-                None => return ToolResult::error("Ask questions require options"),
+                None => return Err("Ask questions require options".to_string()),
             };
             let selection_type = match args.selection_type.clone() {
                 Some(selection_type) => selection_type,
-                None => return ToolResult::error("Ask questions require selectionType"),
+                None => return Err("Ask questions require selectionType".to_string()),
             };
             vec![AskQuestion {
+                id: "question-1".to_string(),
                 question: q,
                 options,
                 selection_type,
@@ -128,12 +152,12 @@ impl BaseTool for AskTool {
         };
 
         if questions.is_empty() {
-            return ToolResult::error("No questions provided");
+            return Err("No questions provided".to_string());
         }
 
         for q in &questions {
             if let Err(e) = q.validate() {
-                return ToolResult::error(format!("Invalid question: {}", e));
+                return Err(format!("Invalid question: {}", e));
             }
         }
 
@@ -143,7 +167,7 @@ impl BaseTool for AskTool {
         let first = &questions[0];
         let title = args.title.trim().to_string();
         if title.is_empty() {
-            return ToolResult::error("Ask requests require title");
+            return Err("Ask requests require title".to_string());
         }
 
         event_bus::emit(
@@ -163,19 +187,37 @@ impl BaseTool for AskTool {
             answer = rx => answer,
             _ = wait_for_interrupt(&ctx.session_id) => {
                 let _ = ask::remove_ask_waiter(&ctx.tool_call_id).await;
-                return ToolResult::error("Ask request was interrupted");
+                return Err("Ask request was interrupted".to_string());
             }
         };
 
         match answer {
-            Ok(answer) => ToolResult::ok(answer),
+            Ok(answer) => Ok(answer),
             Err(_) => {
                 // Clean up stale waiter on drop
                 let _ = ask::remove_ask_waiter(&ctx.tool_call_id).await;
-                ToolResult::error("Ask request was cancelled or dropped")
+                Err("Ask request was cancelled or dropped".to_string())
             }
         }
     }
+}
+
+fn render_ask_response(response: &AskResponse) -> String {
+    response
+        .answers
+        .iter()
+        .map(|answer| {
+            let selected = answer.selected.join(", ");
+            let detail = answer.text.trim();
+            [selected, detail.to_string()]
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(" | ")
+        })
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 async fn wait_for_interrupt(session_id: &str) {

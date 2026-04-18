@@ -1,0 +1,18 @@
+{
+  "name": "novel:create-draft",
+  "title": "创建正文",
+  "description": "委派子 agent 创作正文草稿。",
+  "kind": "workflow",
+  "provider": {
+    "type": "plugin",
+    "id": "novel"
+  },
+  "entry": {
+    "id": "create-draft"
+  },
+  "handler": {
+    "id": "create-draft"
+  },
+  "defaultSkill": "default",
+  "contextPolicy": "default"
+}

@@ -21,9 +21,20 @@ export interface Task {
 export type SelectionType = 'single_with_input' | 'multiple_with_input';
 
 export interface AskQuestion {
+  id: string;
   question: string;
   options: string[];
   selectionType: SelectionType;
+}
+
+export interface AskAnswer {
+  questionId: string;
+  selected: string[];
+  text: string;
+}
+
+export interface AskResponse {
+  answers: AskAnswer[];
 }
 
 export interface AskRequest {
@@ -135,7 +146,7 @@ export type SessionQueueState =
 export type MessageSegment =
   | { type: 'thinking'; content: string; isLive?: boolean; startedAt?: number; endedAt?: number }
   | { type: 'tool'; tool: ToolCall }
-  | { type: 'ask'; toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[]; status: 'waiting' | 'answered'; answer?: { selected: string[]; text: string }; startedAt?: number; endedAt?: number }
+  | { type: 'ask'; toolId: string; title: string; question: string; options: string[]; selectionType: SelectionType; questions?: AskQuestion[]; status: 'waiting' | 'answered'; answer?: AskResponse; startedAt?: number; endedAt?: number }
   | { type: 'tasks'; tasks: Task[]; startedAt?: number; endedAt?: number }
   | { type: 'retry'; state: 'backoff_waiting' | 'retrying'; reason?: StreamRuntimeReason; message: string; attempt: number; retryAt?: number; retryInSeconds?: number; updatedAt: number }
   | { type: 'text'; content: string }

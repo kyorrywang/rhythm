@@ -46,6 +46,7 @@ function sanitizeMessageSegment(segment: MessageSegment): MessageSegment {
         options: [...segment.options],
         selectionType: segment.selectionType,
         questions: segment.questions?.map((question) => ({
+          id: question.id,
           question: question.question,
           options: [...question.options],
           selectionType: question.selectionType,
@@ -53,8 +54,11 @@ function sanitizeMessageSegment(segment: MessageSegment): MessageSegment {
         status: segment.status,
         answer: segment.answer
           ? {
-              selected: [...segment.answer.selected],
-              text: segment.answer.text,
+              answers: segment.answer.answers.map((answer) => ({
+                questionId: answer.questionId,
+                selected: [...answer.selected],
+                text: answer.text,
+              })),
             }
           : undefined,
         startedAt: segment.startedAt,

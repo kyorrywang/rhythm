@@ -237,7 +237,7 @@ const AskSegment = ({ segment }: { segment: MessageSegment & { type: 'ask' } }) 
   const config = useDisplayStore((s) => s.preferences.ask);
   const qaList = segment.questions && segment.questions.length > 0
     ? segment.questions
-    : [{ question: segment.question, options: segment.options, selectionType: segment.selectionType }];
+    : [{ id: 'question-1', question: segment.question, options: segment.options, selectionType: segment.selectionType }];
   const title = segment.title.trim();
 
   const defaultExpanded = isWaiting
@@ -259,7 +259,8 @@ const AskSegment = ({ segment }: { segment: MessageSegment & { type: 'ask' } }) 
             {q.options.length > 0 && (
               <div className="mt-[var(--theme-toolbar-gap)] flex flex-wrap gap-[var(--theme-toolbar-gap)]">
                 {q.options.map((opt) => {
-                  const selected = segment.answer?.selected.includes(opt);
+                  const answer = segment.answer?.answers.find((entry) => entry.questionId === q.id);
+                  const selected = answer?.selected.includes(opt);
                   return (
                     <Badge key={opt} tone={selected ? 'success' : 'muted'}>
                       {opt}

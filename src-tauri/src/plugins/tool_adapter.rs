@@ -7,6 +7,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use super::types::LoadedPlugin;
+use crate::slash::host_api::{handle_runtime_rpc, PluginRuntimeHost};
 use crate::tools::{BaseTool, ToolExecutionContext, ToolResult};
 
 #[derive(Clone)]
@@ -135,6 +136,18 @@ impl BaseTool for PluginToolAdapter {
                         plugins: &self.plugins,
                         caller_plugin: &self.plugin_name,
                         cwd: &ctx.cwd,
+                        plugin_storage_path: crate::infrastructure::paths::get_workspace_plugin_data_dir(
+                            &ctx.cwd,
+                            &self.plugin_name,
+                        )
+                        .to_string_lossy()
+                        .to_string(),
+                        session_id: Some(&ctx.session_id),
+                        agent_id: Some(&ctx.agent_id),
+                        definition_id: ctx.metadata.get("agent_id").and_then(Value::as_str),
+                        provider_id: ctx.metadata.get("provider_id").and_then(Value::as_str),
+                        model: ctx.metadata.get("model").and_then(Value::as_str),
+                        reasoning: ctx.metadata.get("reasoning").and_then(Value::as_str),
                     }),
                 )
                 .await
@@ -171,12 +184,6 @@ pub struct PluginRuntimeCallContext {
     pub session_id: Option<String>,
     pub tool_call_id: Option<String>,
     pub plugin_storage_path: String,
-}
-
-pub struct PluginRuntimeHost<'a> {
-    pub plugins: &'a [LoadedPlugin],
-    pub caller_plugin: &'a str,
-    pub cwd: &'a std::path::Path,
 }
 
 pub async fn run_plugin_runtime(
@@ -302,62 +309,6 @@ fn normalize_process_path(path: &std::path::Path) -> std::path::PathBuf {
     }
 }
 
-async fn handle_runtime_rpc(value: &Value, host: Option<&PluginRuntimeHost<'_>>) -> Value {
-    let id = value.get("id").cloned().unwrap_or(Value::Null);
-    let method = value
-        .get("method")
-        .or_else(|| value.get("rpc"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    match method {
-        "command.execute" => {
-            let Some(host) = host else {
-                return rpc_error(id, "Plugin runtime host command bridge is unavailable");
-            };
-            let params = value
-                .get("params")
-                .or_else(|| value.get("input"))
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({}));
-            let Some(command_id) = params.get("commandId").and_then(Value::as_str) else {
-                return rpc_error(id, "RPC command.execute is missing params.commandId");
-            };
-            let input = params.get("input").cloned().unwrap_or(Value::Null);
-            let registry =
-                super::command_registry::PluginCommandRegistry::from_plugins(host.plugins);
-            match Box::pin(registry.execute(
-                host.plugins,
-                host.caller_plugin,
-                command_id,
-                input,
-                host.cwd,
-            ))
-            .await
-            {
-                Ok(execution) => serde_json::json!({
-                    "id": id,
-                    "ok": true,
-                    "data": execution.result
-                }),
-                Err(error) => rpc_error(id, error),
-            }
-        }
-        other => rpc_error(
-            id,
-            format!("Unsupported plugin runtime RPC method '{}'", other),
-        ),
-    }
-}
-
-fn rpc_error(id: Value, message: impl Into<String>) -> Value {
-    serde_json::json!({
-        "id": id,
-        "ok": false,
-        "error": {
-            "message": message.into()
-        }
-    })
-}
 
 pub fn runtime_value_to_tool_result(value: Value) -> ToolResult {
     if value.get("ok").and_then(Value::as_bool) == Some(false) {

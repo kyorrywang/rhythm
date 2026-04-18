@@ -91,6 +91,7 @@ pub async fn chat_stream(
     provider_id: Option<String>,
     model: Option<String>,
     reasoning: Option<String>,
+    slash_command_name: Option<String>,
     on_event: Channel<ServerEventChunk>,
 ) -> Result<(), String> {
     let settings = config::load_settings();
@@ -112,7 +113,6 @@ pub async fn chat_stream(
     event_bus::register_ipc_channel(&agent_id, on_event.clone());
     sessions::register_session(session_id.clone(), agent_id.clone()).await;
     let cwd_path = crate::commands::workspace::resolve_workspace_path(cwd.as_deref())?;
-
     tokio::spawn(async move {
         let heartbeat_running = Arc::new(AtomicBool::new(true));
         let heartbeat_flag = heartbeat_running.clone();
@@ -160,8 +160,97 @@ pub async fn chat_stream(
         let hook_executor = Arc::new(HookExecutor::new(hook_executor));
 
         let attachments = attachments.unwrap_or_default();
+        let prepared_prompt = match slash_command_name
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            Some(command_name) => {
+                let descriptor = match crate::slash::registry::resolve_slash_command(
+                    &cwd_path,
+                    command_name,
+                ) {
+                    Ok(Some(descriptor)) => descriptor,
+                    Ok(None) => {
+                        emit_runtime_status(
+                            &agent_id,
+                            &session_id,
+                            "failed",
+                            Some("error"),
+                            None,
+                            None,
+                            None,
+                        );
+                        event_bus::emit(&agent_id, &session_id, EventPayload::Failed);
+                        return;
+                    }
+                    Err(error) => {
+                        eprintln!("Failed to resolve slash command: {}", error);
+                        emit_runtime_status(
+                            &agent_id,
+                            &session_id,
+                            "failed",
+                            Some("error"),
+                            None,
+                            None,
+                            None,
+                        );
+                        event_bus::emit(&agent_id, &session_id, EventPayload::Failed);
+                        return;
+                    }
+                };
+                match crate::slash::router::execute_slash_command(
+                    &descriptor,
+                    &prompt,
+                    &crate::slash::types::SlashRuntimeExecutionContext {
+                        cwd: cwd_path.to_string_lossy().to_string(),
+                        session_id: session_id.clone(),
+                        agent_id: agent_id.clone(),
+                        definition_id: runtime_spec.agent.id.clone(),
+                        provider_id: provider_id
+                            .as_deref()
+                            .unwrap_or(&llm_config.name)
+                            .to_string(),
+                        model: llm_config.model.clone(),
+                        reasoning: runtime_spec.reasoning.clone().unwrap_or_else(|| "medium".to_string()),
+                    },
+                )
+                .await
+                {
+                    Ok(crate::slash::router::SlashExecutionOutcome::ContinueWithPrompt(prompt)) => prompt,
+                    Ok(crate::slash::router::SlashExecutionOutcome::Handled) => {
+                        emit_runtime_status(
+                            &agent_id,
+                            &session_id,
+                            "completed",
+                            Some("completed"),
+                            Some(0),
+                            None,
+                            None,
+                        );
+                        event_bus::emit(&agent_id, &session_id, EventPayload::Done);
+                        return;
+                    }
+                    Err(error) => {
+                        eprintln!("Slash command '{}' failed: {}", command_name, error);
+                        emit_runtime_status(
+                            &agent_id,
+                            &session_id,
+                            "failed",
+                            Some("error"),
+                            None,
+                            None,
+                            None,
+                        );
+                        event_bus::emit(&agent_id, &session_id, EventPayload::Failed);
+                        return;
+                    }
+                }
+            }
+            None => prompt.clone(),
+        };
+
         let requires_delegation_for_completion =
-            config::should_delegate_task(&runtime_spec, &prompt, attachments.len());
+            config::should_delegate_task(&runtime_spec, &prepared_prompt, attachments.len());
         let mut retry_attempt: u32 = 0;
         emit_runtime_status(
             &agent_id,
@@ -228,7 +317,7 @@ pub async fn chat_stream(
             );
 
             match engine
-                .submit_message_with_attachments(prompt.clone(), attachments.clone())
+                .submit_message_with_attachments(prepared_prompt.clone(), attachments.clone())
                 .await
             {
                 Ok(_) => {
@@ -814,8 +903,19 @@ mod tests {
 
 /// Called by the frontend when the user answers an ask_user question.
 #[tauri::command]
-pub async fn submit_user_answer(tool_id: String, answer: String) -> Result<(), String> {
-    ask::resume_ask(&tool_id, answer).await
+pub async fn submit_user_answer(
+    tool_id: String,
+    answer: String,
+    record: Option<crate::shared::schema::AskResponse>,
+) -> Result<(), String> {
+    let structured = record.unwrap_or_else(|| crate::shared::schema::AskResponse {
+        answers: vec![crate::shared::schema::AskAnswer {
+            question_id: "question-1".to_string(),
+            selected: Vec::new(),
+            text: answer,
+        }],
+    });
+    ask::resume_ask(&tool_id, structured).await
 }
 
 /// Called by the frontend when the user approves or denies a permission request.

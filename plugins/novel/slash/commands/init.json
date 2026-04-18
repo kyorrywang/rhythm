@@ -1,0 +1,18 @@
+{
+  "name": "novel:init",
+  "title": "初始化小说项目",
+  "description": "初始化小说项目配置，并通过问答流生成 .novel/project.yaml。",
+  "kind": "workflow",
+  "provider": {
+    "type": "plugin",
+    "id": "novel"
+  },
+  "entry": {
+    "id": "init"
+  },
+  "handler": {
+    "id": "init"
+  },
+  "defaultSkill": "default",
+  "contextPolicy": "default"
+}

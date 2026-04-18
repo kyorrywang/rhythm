@@ -349,7 +349,8 @@ export const useLLMStream = () => {
           allowedTools: permissionStore.getState().config.allowedTools,
           disallowedTools: permissionStore.getState().config.deniedTools,
         };
-    const isFirstTurn = isFirstSessionTurn(state.sessions.get(sessionId), prompt);
+    const titleSeed = prompt || (messageMetadata?.slashCommandName ? `/${messageMetadata.slashCommandName}` : '');
+    const isFirstTurn = isFirstSessionTurn(state.sessions.get(sessionId), titleSeed);
     const workspacePath = getActiveWorkspacePath();
 
     abortRef.current = false;
@@ -368,7 +369,7 @@ export const useLLMStream = () => {
     const userMsg: Message = {
       id: Date.now().toString() + '-u',
       role: 'user',
-      content: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
+      content: prompt || (messageMetadata?.slashCommandName ? `/${messageMetadata.slashCommandName}` : (messageMode === 'ask' ? '已提交选项' : '测试任务')),
       attachments,
       agentId: userMode || state.composerControls.agentId,
       slashCommandName: messageMetadata?.slashCommandName,
@@ -378,7 +379,7 @@ export const useLLMStream = () => {
     };
     state.addMessage(sessionId, userMsg);
     if (isFirstTurn) {
-      void generateTitleFromFirstTurn(sessionId, prompt, providerId, model);
+      void generateTitleFromFirstTurn(sessionId, titleSeed, providerId, model);
     }
 
     const aiMessageId = Date.now().toString() + '-a';
@@ -409,7 +410,7 @@ export const useLLMStream = () => {
 
       await chatStream({
         sessionId,
-        prompt: prompt || (messageMode === 'ask' ? '已提交选项' : '测试任务'),
+        prompt: prompt || (messageMetadata?.slashCommandName ? '' : (messageMode === 'ask' ? '已提交选项' : '测试任务')),
         attachments,
         agentId: profileRequest.agentId,
         permissionMode: profileRequest.permissionMode as 'default' | 'plan' | 'full_auto' | undefined,
@@ -419,6 +420,7 @@ export const useLLMStream = () => {
         model,
         reasoning,
         cwd: workspacePath,
+        slashCommandName: messageMetadata?.slashCommandName,
       }, onEvent);
     };
 

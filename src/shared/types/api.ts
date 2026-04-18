@@ -1,4 +1,4 @@
-import type { Attachment, Session } from './schema';
+import type { AskResponse, Attachment, Session } from './schema';
 
 export interface ChatStreamRequest {
   sessionId: string;
@@ -12,6 +12,7 @@ export interface ChatStreamRequest {
   providerId?: string;
   model?: string;
   reasoning?: "low" | "medium" | "high";
+  slashCommandName?: string;
 }
 
 export interface BackendAgentPermissions {
@@ -52,6 +53,7 @@ export interface ChatStreamResponse {
 export interface SubmitAnswerRequest {
   toolId: string;
   answer: string;
+  record?: AskResponse;
 }
 
 export interface ApprovePermissionRequest {
@@ -89,11 +91,22 @@ export interface BackendSessionInfo {
 
 export interface BackendSlashCommand {
   name: string;
+  title: string;
   description: string;
-  kind: 'mode';
+  kind: 'mode' | 'workflow';
+  provider: {
+    type: 'builtin' | 'plugin';
+    id: string;
+  };
+  entry: {
+    id: string;
+  };
+  handler: {
+    id: string;
+  };
   contextPolicy: 'default' | 'exclude';
-  source: 'builtin' | 'user' | 'workspace';
   sourcePath?: string | null;
+  defaultSkill?: string | null;
 }
 
 export interface BackendSlashCommandRegistry {

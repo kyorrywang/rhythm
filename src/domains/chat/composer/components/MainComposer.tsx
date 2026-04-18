@@ -241,7 +241,7 @@ export const MainComposer = ({
                   const selected = index === slashState.selectedIndex;
                   return (
                     <button
-                      key={`${command.source}:${command.name}`}
+                      key={`${command.provider.type}:${command.provider.id}:${command.name}`}
                       type="button"
                       onMouseDown={(event) => {
                         event.preventDefault();
@@ -259,11 +259,11 @@ export const MainComposer = ({
                           /{command.name}
                         </span>
                         <span className="mt-0.5 block truncate text-[12px] opacity-80">
-                          {command.description}
+                          {command.title || command.description}
                         </span>
                       </span>
                       <span className="shrink-0 text-[11px] uppercase tracking-[0.08em] opacity-65">
-                        {command.source}
+                        {command.provider.type === 'builtin' ? 'builtin' : command.provider.id}
                       </span>
                     </button>
                   );

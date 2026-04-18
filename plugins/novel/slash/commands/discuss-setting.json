@@ -1,0 +1,18 @@
+{
+  "name": "novel:discuss-setting",
+  "title": "探讨设定",
+  "description": "围绕题材、世界观、角色与风格做多轮设定探讨。",
+  "kind": "workflow",
+  "provider": {
+    "type": "plugin",
+    "id": "novel"
+  },
+  "entry": {
+    "id": "discuss-setting"
+  },
+  "handler": {
+    "id": "discuss-setting"
+  },
+  "defaultSkill": "default",
+  "contextPolicy": "default"
+}

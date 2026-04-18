@@ -3,10 +3,9 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::tool_adapter::{
-    run_plugin_runtime, PluginRuntimeCall, PluginRuntimeCallContext, PluginRuntimeHost,
-};
+use super::tool_adapter::{run_plugin_runtime, PluginRuntimeCall, PluginRuntimeCallContext};
 use super::types::LoadedPlugin;
+use crate::slash::host_api::PluginRuntimeHost;
 use crate::tools::{ToolExecutionContext, ToolRegistry};
 
 #[derive(Debug, Clone)]
@@ -244,6 +243,19 @@ impl PluginCommandRegistry {
                         plugins,
                         caller_plugin: provider.name(),
                         cwd,
+                        plugin_storage_path:
+                            crate::infrastructure::paths::get_workspace_plugin_data_dir(
+                                cwd,
+                                provider.name(),
+                            )
+                            .to_string_lossy()
+                            .to_string(),
+                        session_id: None,
+                        agent_id: None,
+                        definition_id: None,
+                        provider_id: None,
+                        model: None,
+                        reasoning: None,
                     }),
                 )
                 .await?;

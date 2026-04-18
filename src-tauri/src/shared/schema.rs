@@ -7,6 +7,7 @@ fn is_valid_selection_type(st: &str) -> bool {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AskQuestion {
+    pub id: String,
     pub question: String,
     pub options: Vec<String>,
     #[serde(rename = "selectionType")]
@@ -26,6 +27,20 @@ impl AskQuestion {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AskAnswer {
+    pub question_id: String,
+    pub selected: Vec<String>,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AskResponse {
+    pub answers: Vec<AskAnswer>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

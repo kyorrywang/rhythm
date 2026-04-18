@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod memory;
 pub mod permissions;
 pub mod prompts;
+pub mod slash;
 pub mod skills;
 pub mod tools;
 

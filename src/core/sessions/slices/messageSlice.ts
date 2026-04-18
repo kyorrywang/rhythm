@@ -1,4 +1,4 @@
-import type { Message, MessageSegment, ServerEventChunk, Session, QueuedMessage, SessionQueueState } from '@/shared/types/schema';
+import type { AskResponse, Message, MessageSegment, ServerEventChunk, Session, QueuedMessage, SessionQueueState } from '@/shared/types/schema';
 import { reduceSessionChunk } from '@/core/sessions/sessionChunkReducer';
 import { persistSession } from '@/core/sessions/sessionPersistence';
 
@@ -16,7 +16,7 @@ interface MessageSliceActions {
   getQueueLength: (sessionId: string) => number;
   setQueueState: (sessionId: string, queueState: SessionQueueState) => void;
   clearAskRequest: (sessionId: string) => void;
-  recordAskAnswer: (sessionId: string, messageId: string, answer: { selected: string[]; text: string }) => void;
+  recordAskAnswer: (sessionId: string, messageId: string, answer: AskResponse) => void;
   clearTasks: (sessionId: string) => void;
   resolvePermissionRequestInTimeline: (sessionId: string, toolId: string, approved: boolean) => void;
   processChunk: (sessions: Map<string, Session>, sessionId: string, messageId: string, chunk: ServerEventChunk) => { sessions: Map<string, Session>; activeSessionId?: string | null };

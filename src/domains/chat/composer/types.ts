@@ -1,4 +1,4 @@
-import { SessionQueueState, SelectionType, Task, QueuedMessage, AskQuestion, Attachment, StreamRuntime, AskRequest, StreamRuntimeState } from '@/shared/types/schema';
+import { SessionQueueState, SelectionType, Task, QueuedMessage, AskQuestion, Attachment, StreamRuntime, AskRequest, StreamRuntimeState, AskResponse } from '@/shared/types/schema';
 import type { PermissionRequest } from '@/core/permissions/usePermissionStore';
 import type { BackendSlashCommand } from '@/shared/types/api';
 
@@ -11,7 +11,7 @@ export interface AskDockProps {
   selectedAskOptions: string[];
   onOptionToggle: (opt: string) => void;
   onResetOptions: () => void;
-  onSubmit: (submission?: { answer: string; record: { selected: string[]; text: string } }) => void;
+  onSubmit: (submission?: { answer: string; record: AskResponse }) => void;
   onIgnore?: () => void;
 }
 

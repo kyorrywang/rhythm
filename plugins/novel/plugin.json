@@ -1,0 +1,12 @@
+{
+  "name": "novel",
+  "version": "0.1.0",
+  "description": "Novel workflow plugin with plugin-owned slash workflows and profile bundles.",
+  "enabledByDefault": true,
+  "main": "dist/main.js",
+  "dev": {
+    "main": "src/main.tsx"
+  },
+  "permissions": [],
+  "contributes": {}
+}

@@ -29,6 +29,7 @@ pub struct TaskSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AskQuestionSnapshot {
+    pub id: String,
     pub question: String,
     pub options: Vec<String>,
     pub selection_type: String,
@@ -96,6 +97,7 @@ pub enum MessageSegmentSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AskAnswerSnapshot {
+    pub question_id: Option<String>,
     pub selected: Vec<String>,
     pub text: String,
 }

@@ -3,7 +3,7 @@ import { createSession, submitUserAnswer } from '@/core/runtime/api/commands';
 import { useSessionStore } from '@/core/sessions/useSessionStore';
 import { useActiveWorkspace } from '@/core/workspace/useWorkspaceStore';
 import { useLLMStream } from '@/domains/chat/session/hooks/useLLMStream';
-import { SelectionType, AskQuestion, Message, Attachment, SessionQueueState, StreamRuntimeState } from '@/shared/types/schema';
+import { SelectionType, AskQuestion, AskResponse, Message, Attachment, SessionQueueState, StreamRuntimeState } from '@/shared/types/schema';
 import { getSessionQueueState, getSessionRuntimeState } from '@/core/sessions/sessionState';
 import type { ComposerSlashCommand, ComposerSlashState } from '../types';
 import { filterComposerSlashCommands, parseSlashQuery, splitSlashCommandInput } from '../lib/slashCommands';
@@ -91,15 +91,12 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     }
   }, [filteredSlashCommands.length, selectedSlashIndex]);
 
-  const buildAskAnswer = useCallback((): { answer: string; record: { selected: string[]; text: string } } => {
+  const buildAskAnswer = useCallback((): { answer: string; record: AskResponse } => {
     if (!currentAsk) {
       const plain = text.trim();
       return {
         answer: plain,
-        record: {
-          selected: [],
-          text: plain,
-        },
+        record: { answers: [] },
       };
     }
     const input = text.trim();
@@ -111,13 +108,16 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     return {
       answer,
       record: {
-        selected: [...selectedAskOptions],
-        text: input,
+        answers: [{
+          questionId: currentAsk.questions?.[0]?.id || 'question-1',
+          selected: [...selectedAskOptions],
+          text: input,
+        }],
       },
     };
   }, [currentAsk, text, selectedAskOptions]);
 
-  const handleSend = useCallback((submission?: { answer: string; record: { selected: string[]; text: string } }) => {
+  const handleSend = useCallback((submission?: { answer: string; record: AskResponse }) => {
     if (runtimeState === 'waiting_for_user' && currentAsk) {
       if (!activeSessionId) return;
       const built = submission || buildAskAnswer();
@@ -131,7 +131,7 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
         recordAskAnswer(activeSessionId, lastAiMessage.id, built.record);
       }
 
-      submitUserAnswer({ toolId: currentAsk.toolId, answer }).catch(console.error);
+      submitUserAnswer({ toolId: currentAsk.toolId, answer, record: built.record }).catch(console.error);
       setText('');
       setSelectedAskOptions([]);
       return;
@@ -170,7 +170,7 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
         }
 
         setActiveSlashCommandName(selectedCommand.name);
-        if (!argumentText && attachments.length === 0) {
+        if (!argumentText && attachments.length === 0 && selectedCommand.kind !== 'workflow') {
           setText('');
           setSelectedSlashIndex(0);
           return;
@@ -179,13 +179,12 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
 
       const trimmed = slashState.active ? splitSlashCommandInput(text).argumentText : text.trim();
       const outgoingAttachments = attachments;
-      if (!trimmed && outgoingAttachments.length === 0) return;
-      const contextPolicy = (slashState.active
+      const resolvedSlashCommand = (slashState.active
         ? (filteredSlashCommands.find((command) => command.name === splitSlashCommandInput(text).commandName) || filteredSlashCommands[slashState.selectedIndex] || activeSlashCommand)
-        : activeSlashCommand)?.contextPolicy || 'default';
-      const slashCommandName = (slashState.active
-        ? (filteredSlashCommands.find((command) => command.name === splitSlashCommandInput(text).commandName) || filteredSlashCommands[slashState.selectedIndex] || activeSlashCommand)
-        : activeSlashCommand)?.name;
+        : activeSlashCommand) || null;
+      if (!trimmed && outgoingAttachments.length === 0 && resolvedSlashCommand?.kind !== 'workflow') return;
+      const contextPolicy = resolvedSlashCommand?.contextPolicy || 'default';
+      const slashCommandName = resolvedSlashCommand?.name;
 
       const targetSessionId = await ensureTargetSession();
 
@@ -239,13 +238,10 @@ export const useComposerActions = ({ activeSessionId, runtimeState, queueState, 
     const lastAiMessage = session?.messages.filter((m: Message) => m.role === 'assistant').pop();
 
     if (lastAiMessage) {
-      recordAskAnswer(activeSessionId, lastAiMessage.id, {
-        selected: [],
-        text: '',
-      });
+      recordAskAnswer(activeSessionId, lastAiMessage.id, { answers: [] });
     }
 
-    submitUserAnswer({ toolId: currentAsk.toolId, answer: '' }).catch(console.error);
+    submitUserAnswer({ toolId: currentAsk.toolId, answer: '', record: { answers: [] } }).catch(console.error);
     setText('');
     setSelectedAskOptions([]);
   }, [activeSessionId, currentAsk, recordAskAnswer, sessions]);

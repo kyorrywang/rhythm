@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, CircleSlash2, MessageSquareQuote } from 'lucide-
 import { cn } from '@/shared/utils/utils';
 import { themeRecipes } from '@/ui/theme/recipes';
 import { Button } from '@/ui/components/Button';
-import type { AskQuestion } from '@/shared/types/schema';
+import type { AskQuestion, AskResponse } from '@/shared/types/schema';
 import type { AskDockProps } from '../types';
 
 type AnswerState = {
@@ -24,6 +24,7 @@ export const AskDock = ({
       return currentAsk.questions;
     }
     return [{
+      id: 'question-1',
       question: currentAsk.question,
       options: currentAsk.options,
       selectionType: currentAsk.selectionType,
@@ -74,6 +75,7 @@ export const AskDock = ({
     }
 
     const normalized = questions.map((question, index) => ({
+      id: question.id,
       question: question.question,
       text: answers[index]?.text?.trim() || '',
       options: answers[index]?.options || [],
@@ -89,12 +91,17 @@ export const AskDock = ({
       .filter(Boolean)
       .join('\n');
 
+    const record: AskResponse = {
+      answers: normalized.map((item) => ({
+        questionId: item.id,
+        selected: item.options,
+        text: item.text,
+      })),
+    };
+
     onSubmit({
       answer,
-      record: {
-        selected: Array.from(new Set(normalized.flatMap((item) => item.options))),
-        text: answer,
-      },
+      record,
     });
   };
 

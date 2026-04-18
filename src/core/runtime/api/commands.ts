@@ -49,6 +49,7 @@ export function chatStream(
     providerId: request.providerId,
     model: request.model,
     reasoning: request.reasoning,
+    slashCommandName: request.slashCommandName,
     onEvent,
   } as never);
 }

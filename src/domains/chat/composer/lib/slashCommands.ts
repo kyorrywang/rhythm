@@ -57,9 +57,12 @@ export function splitSlashCommandInput(input: string) {
 function buildSearchText(command: BackendSlashCommand) {
   return [
     command.name,
+    command.title,
     command.description,
-    command.source,
+    command.provider.type,
+    command.provider.id,
     command.sourcePath,
+    command.defaultSkill,
   ]
     .filter((value): value is string => Boolean(value))
     .join(' ')
