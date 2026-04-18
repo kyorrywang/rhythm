@@ -1,7 +1,7 @@
 {
   "name": "novel:init",
   "title": "初始化小说项目",
-  "description": "根据当前 skill 提示词初始化小说项目配置，并产出 .novel/project.yaml。",
+  "description": "根据当前 skill 提示词初始化一个新的小说项目目录，并产出 project.yaml 与当前项目指针。",
   "kind": "workflow",
   "provider": {
     "type": "plugin",
@@ -10,11 +10,19 @@
   "entry": {
     "id": "init"
   },
+  "handler": {
+    "id": "init"
+  },
   "skillFiles": ["init.md"],
+  "templateFiles": ["project.yaml", "current.txt"],
   "outputHints": [
     {
-      "path": ".novel/project.yaml",
-      "description": "初始化完成后，在确认关键信息后创建或更新小说项目配置。"
+      "path": ".novels/<project_id>/project.yaml",
+      "description": "初始化完成后，在新的小说项目目录中创建项目配置。"
+    },
+    {
+      "path": ".novels/current.txt",
+      "description": "写入当前活跃小说项目的 project_id，供后续命令恢复上下文。"
     }
   ],
   "defaultSkill": "default",

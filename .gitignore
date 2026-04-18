@@ -59,5 +59,6 @@ _agent/
 .github/
 .opencode/
 .codex/
-.novel/
+.workbuddy/
+.novels/
 openspec/

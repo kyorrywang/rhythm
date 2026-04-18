@@ -67,6 +67,14 @@ function createRuntimeHost(call) {
     return path.resolve(pluginRoot(), slashConfig().skillsDir);
   }
 
+  function slashTemplatesRoot() {
+    return path.resolve(pluginRoot(), 'slash', 'templates');
+  }
+
+  function novelsRoot() {
+    return path.join(workspaceRoot(), '.novels');
+  }
+
   async function readWorkspaceText(target) {
     return rpc('workspace.readText', { path: normalizeWorkspacePath(target) });
   }
@@ -114,6 +122,150 @@ function createRuntimeHost(call) {
     return fs.readFileSync(fs.existsSync(preferred) ? preferred : fallback, 'utf8');
   }
 
+  function loadTemplateText(fileName) {
+    return fs.readFileSync(path.join(slashTemplatesRoot(), fileName), 'utf8');
+  }
+
+  function slugifyProjectId(input) {
+    return String(input || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48);
+  }
+
+  function generateProjectId(seed) {
+    const slug = slugifyProjectId(seed);
+    const suffix = Math.random().toString(36).slice(2, 8);
+    return slug ? `${slug}-${suffix}` : `novel-${suffix}`;
+  }
+
+  function yamlString(value) {
+    return JSON.stringify(String(value ?? ''));
+  }
+
+  function yamlBoolean(value) {
+    return value ? 'true' : 'false';
+  }
+
+  function pickDefinedObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  }
+
+  function normalizeBoolean(value, fallback) {
+    return typeof value === 'boolean' ? value : fallback;
+  }
+
+  function normalizeString(value, fallback) {
+    const text = String(value ?? '').trim();
+    return text || fallback;
+  }
+
+  function normalizeProfile(profile, availableProfiles) {
+    const normalized = normalizeString(profile, '');
+    if (!normalized) {
+      throw new Error('novel_init_project requires a non-empty profile');
+    }
+    if (Array.isArray(availableProfiles) && availableProfiles.length > 0 && !availableProfiles.includes(normalized)) {
+      throw new Error(`Profile '${normalized}' is not in available_profiles`);
+    }
+    return normalized;
+  }
+
+  function buildProjectYaml(init) {
+    const projectId = normalizeString(init.project_id, generateProjectId(init.title || init.genre || 'novel'));
+    const profile = normalizeProfile(init.profile, init.available_profiles);
+    const title = normalizeString(init.title, `未命名项目 ${projectId}`);
+    const genre = normalizeString(init.genre, '');
+    const premise = normalizeString(init.premise, '');
+    if (!genre) {
+      throw new Error('novel_init_project requires a non-empty genre');
+    }
+    if (!premise) {
+      throw new Error('novel_init_project requires a non-empty premise');
+    }
+
+    const skillsInput = pickDefinedObject(init.skills);
+    const discussionInput = pickDefinedObject(init.discussion);
+    const generationInput = pickDefinedObject(init.generation);
+    const archiveInput = pickDefinedObject(init.archive);
+
+    const skills = {
+      init: normalizeString(skillsInput.init, profile),
+      discuss_bible: normalizeString(skillsInput.discuss_bible, profile),
+      discuss_arc: normalizeString(skillsInput.discuss_arc, profile),
+      create_draft: normalizeString(skillsInput.create_draft, profile),
+      archive: normalizeString(skillsInput.archive, profile),
+    };
+
+    const discussion = {
+      setting_rounds: normalizeString(discussionInput.setting_rounds, '3-5'),
+      setting_questions_per_round: normalizeString(discussionInput.setting_questions_per_round, '5-10'),
+      arc_rounds: normalizeString(discussionInput.arc_rounds, '3-5'),
+      arc_questions_per_round: normalizeString(discussionInput.arc_questions_per_round, '5-10'),
+      arc_span_chapters: normalizeString(discussionInput.arc_span_chapters, '3-5'),
+    };
+
+    const generation = {
+      chapter_mode: normalizeString(generationInput.chapter_mode, 'serial'),
+    };
+
+    const archive = {
+      track_characters: normalizeBoolean(archiveInput.track_characters, true),
+      track_inventory: normalizeBoolean(archiveInput.track_inventory, true),
+      track_skills: normalizeBoolean(archiveInput.track_skills, true),
+      check_foreshadowing: normalizeBoolean(archiveInput.check_foreshadowing, true),
+    };
+
+    const projectRoot = `.novels/${projectId}`;
+    const projectYaml = [
+      `project_id: ${yamlString(projectId)}`,
+      `title: ${yamlString(title)}`,
+      `profile: ${yamlString(profile)}`,
+      `genre: ${yamlString(genre)}`,
+      `premise: ${yamlString(premise)}`,
+      '',
+      'skills:',
+      `  init: ${yamlString(skills.init)}`,
+      `  discuss_bible: ${yamlString(skills.discuss_bible)}`,
+      `  discuss_arc: ${yamlString(skills.discuss_arc)}`,
+      `  create_draft: ${yamlString(skills.create_draft)}`,
+      `  archive: ${yamlString(skills.archive)}`,
+      '',
+      'paths:',
+      `  root: ${yamlString(projectRoot)}`,
+      `  bible: ${yamlString(`${projectRoot}/setting/bible.md`)}`,
+      `  outline: ${yamlString(`${projectRoot}/outline/master-outline.md`)}`,
+      `  chapters: ${yamlString(`${projectRoot}/chapters`)}`,
+      `  archive: ${yamlString(`${projectRoot}/archive`)}`,
+      '',
+      'discussion:',
+      `  setting_rounds: ${discussion.setting_rounds}`,
+      `  setting_questions_per_round: ${discussion.setting_questions_per_round}`,
+      `  arc_rounds: ${discussion.arc_rounds}`,
+      `  arc_questions_per_round: ${discussion.arc_questions_per_round}`,
+      `  arc_span_chapters: ${discussion.arc_span_chapters}`,
+      '',
+      'generation:',
+      `  chapter_mode: ${yamlString(generation.chapter_mode)}`,
+      '',
+      'archive:',
+      `  track_characters: ${yamlBoolean(archive.track_characters)}`,
+      `  track_inventory: ${yamlBoolean(archive.track_inventory)}`,
+      `  track_skills: ${yamlBoolean(archive.track_skills)}`,
+      `  check_foreshadowing: ${yamlBoolean(archive.check_foreshadowing)}`,
+      '',
+    ].join('\n');
+
+    return {
+      projectId,
+      title,
+      projectRoot,
+      projectYaml,
+      currentText: `${projectId}\n`,
+    };
+  }
+
   function normalizeCommandInput(commandName, rawInput) {
     const input = String(rawInput || '');
     const trimmedStart = input.trimStart();
@@ -130,24 +282,85 @@ function createRuntimeHost(call) {
     return match ? match[1].trim() : null;
   }
 
+  function yamlNestedValue(text, section, key) {
+    const match = String(text || '').match(
+      new RegExp(`^\\s*${section}:\\s*$[\\s\\S]*?^\\s{2}${key}:\\s*(.+)$`, 'm'),
+    );
+    return match ? match[1].trim() : null;
+  }
+
+  function readDiscussionConfig(projectText) {
+    return {
+      setting_rounds: yamlNestedValue(projectText, 'discussion', 'setting_rounds'),
+      setting_questions_per_round: yamlNestedValue(projectText, 'discussion', 'setting_questions_per_round'),
+      arc_rounds: yamlNestedValue(projectText, 'discussion', 'arc_rounds'),
+      arc_questions_per_round: yamlNestedValue(projectText, 'discussion', 'arc_questions_per_round'),
+      arc_span_chapters: yamlNestedValue(projectText, 'discussion', 'arc_span_chapters'),
+    };
+  }
+
   function defaultNovelRoot(projectText) {
     return yamlValue(projectText, 'root') || '.novel';
   }
 
-  function resolveActiveProfile(descriptor, context) {
-    return yamlValue(context?.project, 'profile')
+  async function readCurrentProjectId() {
+    const current = await readIfExists(path.join(novelsRoot(), 'current.txt'));
+    return current ? current.trim() || null : null;
+  }
+
+  function skillConfigKeyForDescriptor(descriptor) {
+    return String(descriptor?.entry?.id || '')
+      .trim()
+      .replace(/-/g, '_');
+  }
+
+  function skillConfigKeyForFile(fileName, descriptor) {
+    const baseName = String(fileName || '')
+      .replace(/\.md$/i, '')
+      .trim()
+      .replace(/-/g, '_');
+    return baseName || skillConfigKeyForDescriptor(descriptor);
+  }
+
+  function resolveActiveProfile(descriptor, context, fileName) {
+    const commandSkillKey = fileName
+      ? skillConfigKeyForFile(fileName, descriptor)
+      : skillConfigKeyForDescriptor(descriptor);
+    return yamlNestedValue(context?.project, 'skills', commandSkillKey)
+      || yamlValue(context?.project, 'profile')
       || descriptor.defaultSkill
       || 'default';
   }
 
   async function restoreNovelContext() {
-    const projectPath = path.join(workspaceRoot(), '.novel', 'project.yaml');
-    const project = await readIfExists(projectPath);
-    const root = path.join(workspaceRoot(), defaultNovelRoot(project));
+    const currentProjectId = await readCurrentProjectId();
+    let root = novelsRoot();
+    let projectPath = path.join(root, 'project.yaml');
+    let project = null;
+
+    if (currentProjectId) {
+      root = path.join(novelsRoot(), currentProjectId);
+      projectPath = path.join(root, 'project.yaml');
+      project = await readIfExists(projectPath);
+    }
+
+    if (!project) {
+      const legacyProjectPath = path.join(workspaceRoot(), '.novel', 'project.yaml');
+      const legacyProject = await readIfExists(legacyProjectPath);
+      if (legacyProject) {
+        project = legacyProject;
+        projectPath = legacyProjectPath;
+        root = path.join(workspaceRoot(), defaultNovelRoot(legacyProject));
+      }
+    }
+
+    if (project && !currentProjectId) {
+      root = path.join(workspaceRoot(), defaultNovelRoot(project));
+    }
+
     const archiveSummary = await readIfExists(path.join(root, 'archive', 'summaries', 'conversation-summary.md'));
     const stateSummary = await readIfExists(path.join(root, 'archive', 'summaries', 'state-summary.md'));
     const latestSession = await readIfExists(path.join(root, 'archive', 'sessions', 'latest-session.md'));
-    const settingBrief = await readIfExists(path.join(root, 'discovery', 'setting-brief.md'));
     const arcBrief = await readIfExists(path.join(root, 'discovery', 'arc-brief.md'));
     const bible = await readIfExists(path.join(root, 'setting', 'bible.md'));
     const outline = await readIfExists(path.join(root, 'outline', 'master-outline.md'));
@@ -162,13 +375,13 @@ function createRuntimeHost(call) {
     }
 
     return {
+      currentProjectId,
       projectPath,
       root,
       project,
       archiveSummary,
       stateSummary,
       latestSession,
-      settingBrief,
       arcBrief,
       bible,
       outline,
@@ -180,8 +393,11 @@ function createRuntimeHost(call) {
     return [
       '# 恢复上下文',
       '',
+      '## 当前项目',
+      context.currentProjectId || '(暂无 current project id)',
+      '',
       '## 项目配置',
-      context.project || '(暂无 .novel/project.yaml)',
+      context.project || '(暂无 current project.yaml)',
       '',
       '## 对话归档摘要',
       context.archiveSummary || '(暂无 conversation summary)',
@@ -191,9 +407,6 @@ function createRuntimeHost(call) {
       '',
       '## 最近归档会话',
       context.latestSession || '(暂无 latest session archive)',
-      '',
-      '## 设定 brief',
-      context.settingBrief || '(暂无 setting brief)',
       '',
       '## 剧情 brief',
       context.arcBrief || '(暂无 arc brief)',
@@ -211,13 +424,22 @@ function createRuntimeHost(call) {
     ].join('\n');
   }
 
-  function renderSkillBlocks(profile, descriptor) {
+  function renderSkillBlocks(descriptor, context) {
     const files = Array.isArray(descriptor.skillFiles) && descriptor.skillFiles.length > 0
       ? descriptor.skillFiles
       : [`${descriptor.entry?.id || 'command'}.md`];
     return files.map((fileName) => ({
       fileName,
-      content: loadSkillText(profile, fileName),
+      profile: resolveActiveProfile(descriptor, context, fileName),
+      content: loadSkillText(resolveActiveProfile(descriptor, context, fileName), fileName),
+    }));
+  }
+
+  function renderTemplateBlocks(descriptor) {
+    const files = Array.isArray(descriptor.templateFiles) ? descriptor.templateFiles : [];
+    return files.map((fileName) => ({
+      fileName,
+      content: loadTemplateText(fileName),
     }));
   }
 
@@ -233,10 +455,27 @@ function createRuntimeHost(call) {
     }).join('\n');
   }
 
+  function renderDiscussionConfig(descriptor, context) {
+    const entryId = String(descriptor?.entry?.id || '');
+    if (entryId !== 'discuss-bible' && entryId !== 'discuss-arc') {
+      return '';
+    }
+    const config = readDiscussionConfig(context?.project);
+    return [
+      '## Discussion Config',
+      `setting_rounds: ${config.setting_rounds || '(unset)'}`,
+      `setting_questions_per_round: ${config.setting_questions_per_round || '(unset)'}`,
+      `arc_rounds: ${config.arc_rounds || '(unset)'}`,
+      `arc_questions_per_round: ${config.arc_questions_per_round || '(unset)'}`,
+      `arc_span_chapters: ${config.arc_span_chapters || '(unset)'}`,
+    ].join('\n');
+  }
+
   function buildSkillPrompt(descriptor, profile, context) {
     const normalizedInput = normalizeCommandInput(descriptor.name, call.input?.userInput || '');
     const availableProfiles = listSkillProfiles();
-    const skillBlocks = renderSkillBlocks(profile, descriptor);
+    const skillBlocks = renderSkillBlocks(descriptor, context);
+    const templateBlocks = renderTemplateBlocks(descriptor);
     return [
       `# Novel Slash Command`,
       '',
@@ -253,6 +492,9 @@ function createRuntimeHost(call) {
       '',
       '## Project Context',
       renderContextSnapshot(context),
+      ...(renderDiscussionConfig(descriptor, context)
+        ? ['', renderDiscussionConfig(descriptor, context)]
+        : []),
       '',
       '## Output Hints',
       renderOutputHints(descriptor),
@@ -261,8 +503,20 @@ function createRuntimeHost(call) {
       ...skillBlocks.flatMap((block) => [
         '',
         `### ${block.fileName}`,
+        `profile: ${block.profile}`,
         block.content,
       ]),
+      ...(templateBlocks.length > 0
+        ? [
+            '',
+            '## Output Templates',
+            ...templateBlocks.flatMap((block) => [
+              '',
+              `### ${block.fileName}`,
+              block.content,
+            ]),
+          ]
+        : []),
       '',
       '## Runtime Rules',
       '- 你正在响应一个 novel 插件 slash 命令。',
@@ -284,6 +538,30 @@ function createRuntimeHost(call) {
     };
   }
 
+  async function runToolCommand(commandName, input) {
+    if (commandName === 'novel_init_project') {
+      const project = buildProjectYaml(input || {});
+      await writeWorkspaceText(path.join(workspaceRoot(), '.novels', project.projectId, 'project.yaml'), project.projectYaml);
+      await writeWorkspaceText(path.join(workspaceRoot(), '.novels', 'current.txt'), project.currentText);
+      return {
+        ok: true,
+        data: {
+          project_id: project.projectId,
+          title: project.title,
+          project_root: project.projectRoot,
+          project_yaml_path: `.novels/${project.projectId}/project.yaml`,
+          current_path: '.novels/current.txt',
+        },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        message: `Unknown tool command '${commandName}'`,
+      },
+    };
+  }
+
   return {
     call,
     pluginRoot,
@@ -299,13 +577,19 @@ function createRuntimeHost(call) {
     listFilesIfExists,
     listSkillProfiles,
     loadSkillText,
+    loadTemplateText,
     yamlValue,
+    yamlNestedValue,
+    readDiscussionConfig,
     restoreNovelContext,
     renderContextSnapshot,
+    renderDiscussionConfig,
     normalizeCommandInput,
     resolveActiveProfile,
     buildSkillPrompt,
     runSkillPromptCommand,
+    buildProjectYaml,
+    runToolCommand,
   };
 }
 

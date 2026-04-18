@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getSubagentDisplayTitle } from '@/domains/chat/session/toolPresentation';
+import { getSubagentDisplayTitle } from '@/features/chat/services/toolPresentation';
 import type { ToolCall } from '@/shared/types/schema';
 
 function buildTool(argumentsValue: ToolCall['arguments']): ToolCall {
@@ -24,3 +24,4 @@ describe('subagent presentation', () => {
     expect(getSubagentDisplayTitle(tool)).toBe('Dynamic 智能体');
   });
 });
+

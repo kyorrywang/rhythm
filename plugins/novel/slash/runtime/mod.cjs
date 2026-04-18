@@ -2,6 +2,7 @@ const { createRuntimeHost } = require('./common.cjs');
 const { loadCommandDescriptor } = require('./command_loader.cjs');
 
 const call = JSON.parse(process.env.RHYTHM_PLUGIN_CALL || '{}');
+const handler = process.argv[2] || 'runCommand';
 
 async function runCommand() {
   const host = createRuntimeHost(call);
@@ -12,7 +13,17 @@ async function runCommand() {
   return host.runSkillPromptCommand(descriptor);
 }
 
-runCommand()
+async function runTool() {
+  const host = createRuntimeHost(call);
+  return host.runToolCommand(call.command, call.input || {});
+}
+
+const handlers = {
+  runCommand,
+  runTool,
+};
+
+(handlers[handler] || runCommand)()
   .then((result) => {
     process.stdout.write(`${JSON.stringify(result)}\n`);
     process.exit(0);

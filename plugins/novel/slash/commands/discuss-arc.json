@@ -10,14 +10,17 @@
   "entry": {
     "id": "discuss-arc"
   },
+  "handler": {
+    "id": "discuss-arc"
+  },
   "skillFiles": ["discuss-arc.md"],
   "outputHints": [
     {
-      "path": ".novel/discovery/arc-discussion.md",
+      "path": "<project_root>/discovery/arc-discussion.md",
       "description": "如发生有效剧情探讨，可沉淀本次小剧情讨论记录。"
     },
     {
-      "path": ".novel/discovery/arc-brief.md",
+      "path": "<project_root>/discovery/arc-brief.md",
       "description": "如讨论足够清晰，可整理为后续创作复用的剧情 brief。"
     }
   ],

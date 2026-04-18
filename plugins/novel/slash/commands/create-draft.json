@@ -10,10 +10,13 @@
   "entry": {
     "id": "create-draft"
   },
+  "handler": {
+    "id": "create-draft"
+  },
   "skillFiles": ["create-draft.md"],
   "outputHints": [
     {
-      "path": ".novel/chapters/",
+      "path": "<project_root>/chapters/",
       "description": "根据当前 brief 与上下文生成一个或多个章节草稿，并写入章节目录。"
     }
   ],

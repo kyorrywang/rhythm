@@ -1,19 +1,19 @@
-import { Sidebar } from '@/ui/panels/sidebar/Sidebar';
-import { MainStage } from '@/ui/layout/MainStage';
-import { OverlayHost } from '@/ui/layout/OverlayHost';
-import { ErrorBoundary } from '@/ui/components/ErrorBoundary';
-import { ToastContainer } from '@/ui/components/Toast';
-import { useSettingsStore } from '@/core/runtime/useSettingsStore';
-import type { AppSettings } from '@/core/runtime/useSettingsStore';
-import { useSessionStore } from '@/core/sessions/useSessionStore';
-import { useActiveWorkspace } from '@/core/workspace/useWorkspaceStore';
-import { usePermissionStore } from '@/core/permissions/usePermissionStore';
-import { useKeyboardShortcuts } from '@/ui/hooks/useKeyboardShortcuts';
-import { ThemeProvider } from '@/ui/theme/provider';
-import { themeRecipes } from '@/ui/theme/recipes';
+import { Sidebar } from '@/widgets/sidebar/Sidebar';
+import { MainStage } from '@/app/shell/components/MainStage';
+import { OverlayHost } from '@/app/shell/components/OverlayHost';
+import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
+import { ToastContainer } from '@/shared/ui/Toast';
+import { useSettingsStore } from '@/features/settings/store/useSettingsStore';
+import type { AppSettings } from '@/features/settings/store/useSettingsStore';
+import { useSessionStore } from '@/features/chat/store/useSessionStore';
+import { useActiveWorkspace } from '@/features/workspace/store/useWorkspaceStore';
+import { usePermissionStore } from '@/features/permissions/store/usePermissionStore';
+import { useKeyboardShortcuts } from '@/app/shell/hooks/useKeyboardShortcuts';
+import { ThemeProvider } from '@/shared/theme/provider';
+import { themeRecipes } from '@/shared/theme/recipes';
 import { useEffect } from 'react';
-import { getSessions } from '@/core/runtime/api/commands';
-import { PluginHostRuntime } from '@/core/plugin/host/PluginHostRuntime';
+import { getSessions } from '@/platform/tauri/api/commands';
+import { PluginHostRuntime } from '@/features/plugins/services/host/PluginHostRuntime';
 
 export function App() {
   const workbench = useSessionStore((s) => s.workbench);
@@ -146,3 +146,4 @@ function resolveSelectedModel(
     modelName: '',
   };
 }
+

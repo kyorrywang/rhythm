@@ -1,0 +1,29 @@
+{
+  "name": "novel:discuss-bible",
+  "title": "探讨设定",
+  "description": "根据当前 skill 提示词围绕题材、世界观、角色与风格推进设定探讨，讨论结束后直接生成设定集。",
+  "kind": "workflow",
+  "provider": {
+    "type": "plugin",
+    "id": "novel"
+  },
+  "entry": {
+    "id": "discuss-bible"
+  },
+  "handler": {
+    "id": "discuss-bible"
+  },
+  "skillFiles": ["discuss-bible.md"],
+  "outputHints": [
+    {
+      "path": "<project_root>/discovery/setting-discussion.md",
+      "description": "如发生有效设定探讨，可沉淀本次讨论记录。"
+    },
+    {
+      "path": "<project_root>/setting/bible.md",
+      "description": "讨论结束后生成或更新的设定集主文档；如内容天然分块，可补充角色、势力、体系等相关设定文件。"
+    }
+  ],
+  "defaultSkill": "default",
+  "contextPolicy": "default"
+}

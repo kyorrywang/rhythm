@@ -7,8 +7,66 @@
   "dev": {
     "main": "src/main.tsx"
   },
-  "permissions": [],
+  "permissions": ["workspace.files.write"],
   "contributes": {
+    "agent_tools": [
+      {
+        "id": "novel_init_project",
+        "description": "Create the novel project directory, write .novels/<project_id>/project.yaml, and update .novels/current.txt from structured init inputs.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "description": "Stable project id. If omitted, the tool generates one."
+            },
+            "title": {
+              "type": "string",
+              "description": "Novel title or working title."
+            },
+            "profile": {
+              "type": "string",
+              "description": "Selected profile name."
+            },
+            "available_profiles": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Optional profile allowlist for validation."
+            },
+            "genre": {
+              "type": "string",
+              "description": "Genre or subgenre."
+            },
+            "premise": {
+              "type": "string",
+              "description": "One-sentence premise."
+            },
+            "skills": {
+              "type": "object",
+              "description": "Optional per-command profile overrides."
+            },
+            "discussion": {
+              "type": "object",
+              "description": "Optional discussion config overrides."
+            },
+            "generation": {
+              "type": "object",
+              "description": "Optional generation config overrides."
+            },
+            "archive": {
+              "type": "object",
+              "description": "Optional archive config overrides."
+            }
+          },
+          "required": ["profile", "genre", "premise"]
+        },
+        "runtime": "node",
+        "entry": "slash/runtime/mod.cjs",
+        "handler": "runTool",
+        "readOnly": false,
+        "permissions": ["workspace.files.write"]
+      }
+    ],
     "slash": {
       "commandsDir": "slash/commands",
       "skillsDir": "slash/skills",

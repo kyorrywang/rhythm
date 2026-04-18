@@ -1,0 +1,35 @@
+project_id: "<stable project id, use a generated id like novel-xxxxxx when the user has no usable project name>"
+title: "<string>"
+profile: "<one of available_profiles>"
+genre: "<string>"
+premise: "<string>"
+
+skills:
+  init: "<one of available_profiles>"
+  discuss_bible: "<one of available_profiles>"
+  discuss_arc: "<one of available_profiles>"
+  create_draft: "<one of available_profiles>"
+  archive: "<one of available_profiles>"
+
+paths:
+  root: ".novels/<project_id>"
+  bible: ".novels/<project_id>/setting/bible.md"
+  outline: ".novels/<project_id>/outline/master-outline.md"
+  chapters: ".novels/<project_id>/chapters"
+  archive: ".novels/<project_id>/archive"
+
+discussion:
+  setting_rounds: 3-5
+  setting_questions_per_round: 5-10
+  arc_rounds: 3-5
+  arc_questions_per_round: 5-10
+  arc_span_chapters: 3-5
+
+generation:
+  chapter_mode: "serial"
+
+archive:
+  track_characters: true
+  track_inventory: true
+  track_skills: true
+  check_foreshadowing: true
