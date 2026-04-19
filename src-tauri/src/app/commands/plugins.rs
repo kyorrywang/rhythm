@@ -10,10 +10,10 @@ use tokio::sync::{oneshot, Mutex};
 static PLUGIN_COMMAND_RUNS: LazyLock<Mutex<HashMap<String, oneshot::Sender<()>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-#[path = "plugins_storage.rs"]
-mod storage;
 #[path = "plugins_execution.rs"]
 mod execution;
+#[path = "plugins_storage.rs"]
+mod storage;
 
 use execution::{is_shell_tool_command, rand_suffix, run_shell_stream_command};
 use storage::{

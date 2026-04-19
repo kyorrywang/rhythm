@@ -35,7 +35,9 @@ pub(super) struct RawAgentDefinition {
     pub(super) policies: AgentPolicyCatalog,
 }
 
-pub(super) fn deserialize_agent_definition(raw: RawAgentDefinition) -> Result<AgentDefinition, String> {
+pub(super) fn deserialize_agent_definition(
+    raw: RawAgentDefinition,
+) -> Result<AgentDefinition, String> {
     let kinds = match raw.kind {
         AgentKindField::Single(kind) => vec![kind],
         AgentKindField::Multiple(kinds) => kinds,

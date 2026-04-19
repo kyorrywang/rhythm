@@ -18,7 +18,10 @@ pub fn build_tool_context(
         metadata.insert("agent_id".to_string(), Value::String((*value).to_string()));
     }
     if let Some(value) = host.provider_id {
-        metadata.insert("provider_id".to_string(), Value::String((*value).to_string()));
+        metadata.insert(
+            "provider_id".to_string(),
+            Value::String((*value).to_string()),
+        );
     }
     if let Some(value) = host.model {
         metadata.insert("model".to_string(), Value::String((*value).to_string()));
@@ -81,7 +84,10 @@ pub fn write_plugin_storage_map(
     std::fs::write(storage_file, text).map_err(|e| e.to_string())
 }
 
-pub fn resolve_plugin_storage_path(storage_root: &PathBuf, relative: &str) -> Result<PathBuf, String> {
+pub fn resolve_plugin_storage_path(
+    storage_root: &PathBuf,
+    relative: &str,
+) -> Result<PathBuf, String> {
     if relative.trim().is_empty() {
         return Err("Plugin storage path cannot be empty".to_string());
     }

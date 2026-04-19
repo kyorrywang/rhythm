@@ -9,7 +9,9 @@ use std::collections::{HashMap, HashSet};
 #[path = "../catalog_loader.rs"]
 mod loader;
 
-pub use loader::{default_agent_definitions, load_all_agent_definitions, load_custom_agent_definitions};
+pub use loader::{
+    default_agent_definitions, load_all_agent_definitions, load_custom_agent_definitions,
+};
 
 const AGENT_SCHEMA_VERSION: u32 = 2;
 

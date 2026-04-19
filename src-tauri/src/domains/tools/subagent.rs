@@ -326,7 +326,6 @@ impl BaseTool for SubagentTool {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
