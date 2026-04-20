@@ -1,8 +1,8 @@
 use futures::StreamExt;
 use serde::Deserialize;
 
-use crate::platform::config;
-use crate::platform::llm::{self, ChatMessage, ChatMessageBlock, LlmResponse};
+use crate::infra::config;
+use crate::infra::llm::{self, ChatMessage, ChatMessageBlock, LlmResponse};
 
 #[derive(Debug, Deserialize)]
 pub struct LlmCompleteMessage {

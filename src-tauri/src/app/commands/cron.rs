@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
-use crate::domains::cron::types::validate_cron_expr;
-use crate::domains::cron::{CronJob, CronRunner, SharedRegistry};
+use crate::runtime::automation::cron::types::validate_cron_expr;
+use crate::runtime::automation::cron::{CronJob, CronRunner, SharedRegistry};
 
 static CRON_REGISTRY: OnceLock<SharedRegistry> = OnceLock::new();
 

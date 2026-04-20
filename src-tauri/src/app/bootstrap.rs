@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use crate::app::commands;
-use crate::domains::cron;
-use crate::platform::config;
+use crate::infra::config;
+use crate::runtime::automation::cron;
 
 pub fn run() {
     let _ = config::load_settings();
@@ -48,17 +48,17 @@ pub fn run() {
             commands::plugins::preview_install_plugin_cmd,
             commands::plugins::install_plugin_cmd,
             commands::plugins::uninstall_plugin_cmd,
-            commands::plugins::plugin_runtime_info,
-            commands::plugins::plugin_invoke_command,
-            commands::plugins::plugin_start_command,
-            commands::plugins::plugin_cancel_command,
-            commands::plugins::plugin_storage_get,
-            commands::plugins::plugin_storage_set,
-            commands::plugins::plugin_storage_delete,
-            commands::plugins::plugin_storage_read_text_file,
-            commands::plugins::plugin_storage_write_text_file,
-            commands::plugins::plugin_storage_delete_file,
-            commands::plugins::plugin_storage_list_files,
+            commands::plugins::plugins_runtime_commands::plugin_runtime_info,
+            commands::plugins::plugins_runtime_commands::plugin_invoke_command,
+            commands::plugins::plugins_runtime_commands::plugin_start_command,
+            commands::plugins::plugins_runtime_commands::plugin_cancel_command,
+            commands::plugins::plugins_storage_commands::plugin_storage_get,
+            commands::plugins::plugins_storage_commands::plugin_storage_set,
+            commands::plugins::plugins_storage_commands::plugin_storage_delete,
+            commands::plugins::plugins_storage_commands::plugin_storage_read_text_file,
+            commands::plugins::plugins_storage_commands::plugin_storage_write_text_file,
+            commands::plugins::plugins_storage_commands::plugin_storage_delete_file,
+            commands::plugins::plugins_storage_commands::plugin_storage_list_files,
             commands::swarm::list_teams,
             commands::swarm::list_team_agents,
             commands::swarm::approve_worker_permission,

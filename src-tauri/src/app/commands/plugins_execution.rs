@@ -15,12 +15,12 @@ pub fn rand_suffix() -> String {
         .unwrap_or_else(|_| "000000".to_string())
 }
 
-pub fn is_shell_tool_command(resolved: &crate::domains::plugins::ResolvedPluginCommand) -> bool {
+pub fn is_shell_tool_command(resolved: &crate::runtime::extensions::ResolvedPluginCommand) -> bool {
     resolved
         .definition
         .tool
         .as_deref()
-        .map(crate::domains::plugins::resolve_builtin_tool_alias)
+        .map(crate::runtime::extensions::resolve_builtin_tool_alias)
         == Some("shell")
 }
 

@@ -1,13 +1,14 @@
-use crate::domains::plugins;
-use crate::platform::{config, paths};
+use crate::infra::{config, paths};
+use crate::runtime::extensions;
 
 pub fn resolve_enabled_plugin_storage_dir(
     cwd: &str,
     plugin_name: &str,
 ) -> Result<std::path::PathBuf, String> {
-    let cwd_path = crate::domains::workspace::application::resolve_workspace_path(Some(cwd))?;
+    let cwd_path =
+        crate::runtime::context::workspace::application::resolve_workspace_path(Some(cwd))?;
     let settings = config::load_settings();
-    let loaded = plugins::load_plugins(&settings, &cwd_path);
+    let loaded = extensions::load_plugins(&settings, &cwd_path);
     let plugin = find_preferred_plugin(&loaded, plugin_name)
         .ok_or_else(|| format!("Plugin '{}' is not installed", plugin_name))?;
 
@@ -57,7 +58,7 @@ pub fn resolve_plugin_storage_file_path(
     if relative.is_empty() {
         return Err("Plugin storage path cannot be empty".to_string());
     }
-    crate::domains::tools::context::resolve_and_validate_path(storage_path, relative)
+    crate::runtime::capabilities::tools::context::resolve_and_validate_path(storage_path, relative)
 }
 
 pub fn relative_plugin_storage_path(base: &std::path::Path, path: &std::path::Path) -> String {
@@ -67,9 +68,9 @@ pub fn relative_plugin_storage_path(base: &std::path::Path, path: &std::path::Pa
 }
 
 pub fn find_preferred_plugin<'a>(
-    loaded: &'a [plugins::LoadedPlugin],
+    loaded: &'a [extensions::LoadedPlugin],
     plugin_name: &str,
-) -> Option<&'a plugins::LoadedPlugin> {
+) -> Option<&'a extensions::LoadedPlugin> {
     loaded
         .iter()
         .find(|entry| entry.name() == plugin_name && entry.is_active)
@@ -96,8 +97,8 @@ pub fn set_plugin_permission(
     let key = match cwd {
         Some(cwd) => {
             let cwd_path =
-                crate::domains::workspace::application::resolve_workspace_path(Some(cwd))?;
-            crate::domains::plugins::loader::workspace_permission_key(&cwd_path, name)
+                crate::runtime::context::workspace::application::resolve_workspace_path(Some(cwd))?;
+            crate::runtime::extensions::loader::workspace_permission_key(&cwd_path, name)
         }
         None => name.to_string(),
     };

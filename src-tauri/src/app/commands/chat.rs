@@ -1,6 +1,6 @@
 use tauri::ipc::Channel;
 
-use crate::platform::llm::ChatAttachment;
+use crate::infra::llm::ChatAttachment;
 use crate::shared::schema::{AskAnswer, AskResponse, ServerEventChunk};
 
 #[tauri::command]
@@ -19,7 +19,7 @@ pub async fn chat_stream(
     slash_command_name: Option<String>,
     on_event: Channel<ServerEventChunk>,
 ) -> Result<(), String> {
-    crate::domains::chat::application::chat_stream(
+    crate::runtime::conversation::application::chat_stream(
         session_id,
         prompt,
         attachments,
@@ -43,8 +43,12 @@ pub async fn attach_session_stream(
     after_event_id: Option<u64>,
     on_event: Channel<ServerEventChunk>,
 ) -> Result<bool, String> {
-    crate::domains::chat::application::attach_session_stream(session_id, after_event_id, on_event)
-        .await
+    crate::runtime::conversation::application::attach_session_stream(
+        session_id,
+        after_event_id,
+        on_event,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -60,10 +64,10 @@ pub async fn submit_user_answer(
             text: answer,
         }],
     });
-    crate::domains::chat::ask::resume_ask(&tool_id, structured).await
+    crate::runtime::conversation::ask::resume_ask(&tool_id, structured).await
 }
 
 #[tauri::command]
 pub async fn approve_permission(tool_id: String, approved: bool) -> Result<(), String> {
-    crate::domains::permissions::runtime::resolve_permission(&tool_id, approved).await
+    crate::runtime::policy::permissions::runtime::resolve_permission(&tool_id, approved).await
 }

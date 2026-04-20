@@ -1,4 +1,4 @@
-use crate::domains::swarm::{
+use crate::runtime::agents::swarm::{
     list_pending_requests, AgentSummary, SwarmPermissionRequest, SwarmPermissionResponse,
     TeamLifecycleManager, TeamSummary,
 };
@@ -39,7 +39,7 @@ pub async fn approve_worker_permission(
         allowed: approved,
         feedback,
     };
-    crate::domains::swarm::permission_sync::resolve_permission_request(
+    crate::runtime::agents::swarm::permission_sync::resolve_permission_request(
         &team,
         &request_id,
         &response,
